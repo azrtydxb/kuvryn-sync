@@ -1633,7 +1633,7 @@ spec:
             - --health-probe-bind-address=:8081
           command:
             - /manager
-          image: ghcr.io/azrtydxb/solder:v0.1.6
+          image: ghcr.io/azrtydxb/solder:v0.1.8
           livenessProbe:
             httpGet:
               path: /healthz
@@ -1664,11 +1664,15 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
-          volumeMounts: []
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: solder-controller-manager
       terminationGracePeriodSeconds: 10
-      volumes: []
+      volumes:
+        - emptyDir: {}
+          name: tmp
