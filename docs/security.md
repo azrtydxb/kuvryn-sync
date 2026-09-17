@@ -1,3 +1,8 @@
+---
+title: Security model
+nav_order: 9
+---
+
 # Security model
 
 Solder is designed to keep sensitive material out of public operational

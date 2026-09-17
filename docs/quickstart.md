@@ -1,3 +1,8 @@
+---
+title: Quickstart
+nav_order: 2
+---
+
 # Quickstart
 
 This guide deploys Solder and reconciles one application from Git.

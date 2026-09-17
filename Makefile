@@ -63,8 +63,8 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# E2E tests consume a prebuilt IMG by default. Build images through KW/BuildKit or
-# an explicitly requested container tool before running these tests.
+# E2E tests consume a prebuilt IMG by default. Build and push an image with
+# your registry/build system before running these tests.
 # kubectl kuberc is disabled by default for test isolation; enable with:
 # - KUBECTL_KUBERC=true
 # CertManager is installed by default; skip with:
@@ -130,15 +130,16 @@ build: manifests generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
-BUILDKIT_ADDR ?= tcp://192.168.10.130:1234
+BUILDKIT_ADDR ?=
 BUILDKIT_PLATFORM ?= linux/arm64
 BUILDKIT_OUTPUT ?= type=image,name=$(IMG),push=false
 
-.PHONY: kw-buildkit
-kw-buildkit: ## Build manager image through the KW BuildKit service without local Docker.
+.PHONY: buildkit-build
+buildkit-build: ## Build manager image through a remote BuildKit service; set BUILDKIT_ADDR.
+	@test -n "$(BUILDKIT_ADDR)" || { echo "Set BUILDKIT_ADDR, for example tcp://buildkit.example.com:1234"; exit 1; }
 	buildctl --addr $(BUILDKIT_ADDR) build --frontend dockerfile.v0 --local context=. --local dockerfile=. --opt platform=$(BUILDKIT_PLATFORM) --output $(BUILDKIT_OUTPUT)
 
-# Docker targets are retained for external CI compatibility; local development in this repository uses kw-buildkit.
+# Docker targets are retained for external CI compatibility.
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .

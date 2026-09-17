@@ -1,3 +1,8 @@
+---
+title: Upgrade notes
+nav_order: 11
+---
+
 # Upgrade notes
 
 Solder is currently `v1alpha1`. Compatibility checks are practical rather than contractual:

@@ -11,8 +11,8 @@ procoder test
 procoder check
 ```
 
-For image and cluster validation, use GitHub Actions or the repository's KW
-BuildKit/Kubernetes path. Do not depend on local Docker for release validation.
+For image and cluster validation, prefer GitHub Actions or another repeatable
+remote build/test environment that matches your target cluster.
 
 ## Pull requests
 

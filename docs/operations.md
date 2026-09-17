@@ -1,3 +1,8 @@
+---
+title: Operations
+nav_order: 8
+---
+
 # Operations guide
 
 Solder is installed from generated CRDs plus the controller manifests in
@@ -77,7 +82,8 @@ rollout states.
 Set `spec.history.limit` on Applications to bound Revision count. Retention is
 per Application and prevents unbounded status/API growth.
 
-## Build/test policy for this repository
+## Release validation
 
-Use the KW cluster BuildKit and Kubernetes API for image and cluster validation.
-Do not use local Docker for this repository's release validation path.
+Release validation should use a repeatable CI or cluster environment that matches
+the target architecture. Published images are built by GitHub Actions and pushed
+to GHCR.

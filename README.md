@@ -154,8 +154,8 @@ Build the controller manager binary:
 make build
 ```
 
-Build images in CI or with the configured KW BuildKit path. This repository's
-local development policy is to avoid the user's local Docker daemon.
+Build and publish release images through GitHub Actions. For local image
+experiments, use any registry and build system appropriate for your cluster.
 
 ## License
 

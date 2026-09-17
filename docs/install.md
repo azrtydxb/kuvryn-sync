@@ -1,3 +1,8 @@
+---
+title: Install
+nav_order: 4
+---
+
 # Install Solder
 
 Solder can be installed from raw Kubernetes manifests or from the alpha Helm
@@ -82,10 +87,9 @@ spec:
         name: platform-git
 ```
 
-## Development validation on KW
+## Validation
 
-This repository does not use local Docker for image builds or Kind validation.
-Use the KW cluster BuildKit/Kubernetes path:
+Validate generated manifests before deploying them to a cluster:
 
 ```sh
 helm template solder charts/solder >/tmp/solder-chart.yaml
@@ -93,22 +97,15 @@ kubectl apply --dry-run=server -f config/crd/bases
 kubectl apply --dry-run=server -f /tmp/solder-chart.yaml -n solder-system
 ```
 
-Images are built with the KW BuildKit service, not local Docker:
+E2E tests consume a prebuilt image. Use a pullable image that matches your
+cluster architecture:
 
 ```sh
-make kw-buildkit IMG=192.168.10.131:5000/solder:dev
+make test-e2e-existing-cluster IMG=ghcr.io/azrtydxb/solder:v0.1.10
 ```
 
-E2E tests consume a prebuilt image by default and do not build or load a local
-Docker image unless explicitly requested. The suite includes the product path:
-Repository fetch from Git, Application render/apply, Revision health, and
-applied workload verification. CI enables the `e2e` build tag through the lint
-configuration so the gated test package is type-checked as well as run by
-`make test-e2e`.
-
-```sh
-make test-e2e-existing-cluster IMG=192.168.10.131:5000/solder:dev
-```
+The E2E suite covers the product path: Repository fetch from Git, Application
+render/apply, Revision health, and applied workload verification.
 
 ## Uninstall
 

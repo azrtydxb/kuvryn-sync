@@ -1,3 +1,8 @@
+---
+title: API reference
+nav_order: 5
+---
+
 # API reference
 
 Solder exposes Kubernetes CRDs in API group `solder.io/v1alpha1`.

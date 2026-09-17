@@ -1,3 +1,8 @@
+---
+title: Roadmap
+nav_order: 12
+---
+
 # Deferred roadmap boundaries
 
 Solder keeps the first release small and Kubernetes-native. These features are deliberately extension points, not hidden requirements.

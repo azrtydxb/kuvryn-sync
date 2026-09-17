@@ -1,3 +1,8 @@
+---
+title: Solder
+nav_order: 1
+---
+
 # Solder documentation
 
 **Solder — GitOps that sticks.**

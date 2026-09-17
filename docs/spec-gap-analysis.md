@@ -1,3 +1,9 @@
+---
+title: Spec gap analysis
+nav_order: 99
+nav_exclude: true
+---
+
 # Solder Spec Gap Analysis
 
 Status: the all-gap closure pass has no remaining pending spec/backlog gaps tracked in `.procoder`. Solder now has an integrated MVP product path through the Kubernetes controller, CLI, manifests, installer targets, CI workflows, and runtime observability seams.
@@ -39,4 +45,4 @@ procoder security
 procoder check
 ```
 
-No local Docker/locker Docker is required for validation; image and cluster validation use CI/KW BuildKit/Kubernetes paths.
+Image and cluster validation should use repeatable CI or cluster environments with pullable images that match the target architecture.

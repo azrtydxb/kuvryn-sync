@@ -1,6 +1,20 @@
 title: Solder
 description: Kubernetes-native GitOps that sticks
-remote_theme: pages-themes/cayman@v0.2.0
+remote_theme: just-the-docs/just-the-docs
 plugins:
   - jekyll-remote-theme
-show_downloads: true
+color_scheme: light
+
+url: https://azrtydxb.github.io
+baseurl: /solder
+
+aux_links:
+  GitHub:
+    - https://github.com/azrtydxb/solder
+
+nav_external_links:
+  - title: GitHub repository
+    url: https://github.com/azrtydxb/solder
+
+search_enabled: true
+heading_anchors: true

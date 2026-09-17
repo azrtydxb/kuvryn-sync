@@ -1,3 +1,8 @@
+---
+title: Examples
+nav_order: 7
+---
+
 # Examples
 
 ## Plain YAML application

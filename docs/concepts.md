@@ -1,3 +1,8 @@
+---
+title: Concepts
+nav_order: 3
+---
+
 # Concepts
 
 ## Repository

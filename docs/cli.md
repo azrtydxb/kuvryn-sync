@@ -1,3 +1,8 @@
+---
+title: CLI reference
+nav_order: 6
+---
+
 # CLI reference
 
 The controller manager binary also exposes small operator-facing CLI commands.
