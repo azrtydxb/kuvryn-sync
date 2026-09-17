@@ -1,0 +1,14 @@
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: platform
+  namespace: default
+spec:
+  type: git
+  git:
+    url: ssh://git@github.com/acme/platform.git
+    revision: main
+    auth:
+      secretRef:
+        name: platform-git
+  pollInterval: 60s

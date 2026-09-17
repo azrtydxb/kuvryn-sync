@@ -1,0 +1,31 @@
+apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: payments
+  namespace: default
+spec:
+  source:
+    repositoryRef:
+      name: platform
+    revision: main
+    path: apps/payments
+    render:
+      type: kustomize
+  destination:
+    namespace: payments
+  sync:
+    automatic: true
+    prune: true
+    selfHeal: true
+    conflictPolicy: fail
+  strategy:
+    type: rolling
+    failurePolicy:
+      action: rollback
+      timeout: 5m
+      maxAttempts: 2
+  health:
+    timeout: 5m
+  history:
+    limit: 20
+  deletionPolicy: Orphan

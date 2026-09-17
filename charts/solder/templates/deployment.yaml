@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "solder.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "solder.name" . }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "solder.name" . }}
+    spec:
+      serviceAccountName: {{ include "solder.fullname" . }}
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --leader-elect={{ .Values.leaderElection }}
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8443
+          ports:
+            - name: metrics
+              containerPort: 8443
+            - name: health
+              containerPort: 8081
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081

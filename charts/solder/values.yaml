@@ -1,0 +1,15 @@
+image:
+  repository: 192.168.10.131:5000/solder
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+leaderElection: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

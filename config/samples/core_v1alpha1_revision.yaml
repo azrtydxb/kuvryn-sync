@@ -1,0 +1,27 @@
+apiVersion: solder.io/v1alpha1
+kind: Revision
+metadata:
+  name: payments-8c51af2
+  namespace: default
+spec:
+  applicationRef:
+    name: payments
+  source:
+    repositoryRef:
+      name: platform
+    revision: 8c51af2
+    path: apps/payments
+    render:
+      type: kustomize
+  provenance:
+    source:
+      repository: github.com/acme/payments
+      revision: 9a71bc2
+    artifact:
+      type: container
+      uri: registry.example.com/payments
+      digest: sha256:abc123
+    pipeline:
+      provider: dhole
+      run: "4821"
+  desiredStateHash: example

@@ -1,0 +1,85 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "solder.fullname" . }}-manager'
+  labels:
+    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  - apiGroups: ["solder.io"]
+    resources: ["applications", "repositories", "revisions"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["solder.io"]
+    resources:
+      [
+        "applications/finalizers",
+        "repositories/finalizers",
+        "revisions/finalizers",
+      ]
+    verbs: ["update"]
+  - apiGroups: ["solder.io"]
+    resources:
+      ["applications/status", "repositories/status", "revisions/status"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: '{{ include "solder.fullname" . }}-manager'
+  labels:
+    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "solder.fullname" . }}-manager'
+subjects:
+  - kind: ServiceAccount
+    name: '{{ include "solder.fullname" . }}'
+    namespace: "{{ .Release.Namespace }}"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: '{{ include "solder.fullname" . }}-leader-election'
+  labels:
+    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: '{{ include "solder.fullname" . }}-leader-election'
+  labels:
+    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "solder.fullname" . }}-leader-election'
+subjects:
+  - kind: ServiceAccount
+    name: '{{ include "solder.fullname" . }}'
+    namespace: "{{ .Release.Namespace }}"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "solder.fullname" . }}-metrics-reader'
+  labels:
+    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
