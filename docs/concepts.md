@@ -14,10 +14,12 @@ records source readiness in status.
 Private Git authentication is referenced through Kubernetes Secrets. The API
 stores references to credentials, never the credential values.
 
-After resolving a Git revision, the Repository controller looks for a root
-`.solder.yaml` file. When present, that file is the GitOps entry point for
-Application definitions: Solder creates, updates, and removes Applications that
-are managed by that Repository label.
+After resolving a Git revision, the Repository controller looks for configured
+`.solder.yaml` files. By default it reads the repository root `.solder.yaml`; for
+monorepos, `spec.applicationConfigPaths` can point at one or more nested
+`.solder.yaml` files. These files are the GitOps entry point for Application
+definitions: Solder creates, updates, and removes Applications that are managed
+by that Repository label.
 
 ## Application
 
@@ -32,7 +34,7 @@ An `Application` describes a deployable unit:
 
 Applications are the primary object operators watch with `kubectl get app` or
 `solder apps`. They can be applied directly to the Kubernetes API, or declared
-in the source repository's root `.solder.yaml` file for Repository-driven GitOps
+in the source repository's `.solder.yaml` files for Repository-driven GitOps
 bootstrapping.
 
 ## Revision

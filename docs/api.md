@@ -22,6 +22,8 @@ spec:
   git:
     url: https://github.com/example/platform.git
     revision: main
+  applicationConfigPaths:
+    - .solder.yaml
   pollInterval: 60s
 ```
 
@@ -33,6 +35,7 @@ spec:
 | `spec.git.url`                 | Git remote URL. HTTPS and SSH are supported by the source adapter.          |
 | `spec.git.revision`            | Default branch, tag, or exact commit for Applications that omit a revision. |
 | `spec.git.auth.secretRef.name` | Secret in the Repository namespace for private Git credentials.             |
+| `spec.applicationConfigPaths`  | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.  |
 | `spec.pollInterval`            | Polling interval when no external wake-up signal exists.                    |
 
 ### Status fields
@@ -46,8 +49,18 @@ spec:
 
 ### Root `.solder.yaml`
 
-When a Git Repository resolves, Solder checks the repository root for
-`.solder.yaml`. The file can contain an Application list:
+When a Git Repository resolves, Solder checks configured `.solder.yaml` files.
+When `spec.applicationConfigPaths` is empty, Solder reads the repository root
+`.solder.yaml`. For monorepos or moved config, set one or more paths:
+
+```yaml
+spec:
+  applicationConfigPaths:
+    - teams/payments/.solder.yaml
+    - teams/search/.solder.yaml
+```
+
+Each file can contain an Application list:
 
 ```yaml
 applications:
@@ -71,8 +84,11 @@ For discovered Applications:
 - `metadata.namespace`, when set, must match the Repository namespace.
 - `spec.source.repositoryRef.name` defaults to the discovering Repository.
 - `spec.source.render.type` is required.
-- Applications managed by the same Repository label but removed from
-  `.solder.yaml` are deleted.
+- `applicationConfigPaths` entries must be repository-relative paths named
+  `.solder.yaml` and must not escape the repository.
+- Application names must be unique across all configured files.
+- Applications managed by the same Repository label but removed from the
+  configured `.solder.yaml` files are deleted.
 
 A single full `Application` object is also accepted for small repositories.
 

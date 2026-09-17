@@ -28,6 +28,26 @@ applications:
 The Repository controller defaults `spec.source.repositoryRef.name` to the
 Repository that discovered the file.
 
+## Monorepo `.solder.yaml` files
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: platform
+spec:
+  type: git
+  git:
+    url: https://github.com/example/platform.git
+    revision: main
+  applicationConfigPaths:
+    - teams/payments/.solder.yaml
+    - teams/search/.solder.yaml
+```
+
+Each listed file must be named `.solder.yaml` and can contain one or more
+Applications for that part of the repository.
+
 ## Plain YAML application
 
 ```yaml

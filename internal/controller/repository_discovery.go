@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,73 +39,125 @@ type solderRepositoryFile struct {
 }
 
 func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Context, repository *corev1alpha1.Repository, resolved source.ResolvedSource) error {
-	apps, found, err := applicationsFromSolderFile(repository, resolved.CacheDir)
+	paths, err := solderConfigPaths(repository)
 	if err != nil {
 		return err
 	}
-	if !found {
-		return r.pruneRemovedDiscoveredApplications(ctx, repository, map[string]struct{}{})
-	}
 	seen := map[string]struct{}{}
-	for i := range apps {
-		app := apps[i]
-		if app.Name == "" {
-			return fmt.Errorf("%s application at index %d is missing metadata.name", solderConfigFileName, i)
-		}
-		if app.Namespace == "" {
-			app.Namespace = repository.Namespace
-		}
-		if app.Namespace != repository.Namespace {
-			return fmt.Errorf("%s application %q must stay in repository namespace %q", solderConfigFileName, app.Name, repository.Namespace)
-		}
-		if app.Spec.Source.RepositoryRef.Name == "" {
-			app.Spec.Source.RepositoryRef.Name = repository.Name
-		}
-		if app.Spec.Source.RepositoryRef.Name != repository.Name {
-			return fmt.Errorf("%s application %q references repository %q instead of %q", solderConfigFileName, app.Name, app.Spec.Source.RepositoryRef.Name, repository.Name)
-		}
-		if app.Spec.Source.Render.Type == "" {
-			return fmt.Errorf("%s application %q must set spec.source.render.type", solderConfigFileName, app.Name)
-		}
-		if err := r.upsertDiscoveredApplication(ctx, repository, &app); err != nil {
+	foundAny := false
+	for _, configPath := range paths {
+		apps, found, err := applicationsFromSolderFile(repository, resolved.CacheDir, configPath)
+		if err != nil {
 			return err
 		}
-		seen[app.Name] = struct{}{}
+		if !found {
+			continue
+		}
+		foundAny = true
+		for i := range apps {
+			app, err := normalizeDiscoveredApplication(repository, configPath, i, apps[i], seen)
+			if err != nil {
+				return err
+			}
+			if err := r.upsertDiscoveredApplication(ctx, repository, &app, configPath); err != nil {
+				return err
+			}
+			seen[app.Name] = struct{}{}
+		}
+	}
+	if !foundAny && len(repository.Spec.ApplicationConfigPaths) == 0 {
+		return r.pruneRemovedDiscoveredApplications(ctx, repository, map[string]struct{}{})
 	}
 	return r.pruneRemovedDiscoveredApplications(ctx, repository, seen)
 }
 
-func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace string) ([]corev1alpha1.Application, bool, error) {
-	path := filepath.Join(workspace, solderConfigFileName)
+func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configPath string, index int, app corev1alpha1.Application, seen map[string]struct{}) (corev1alpha1.Application, error) {
+	if app.Name == "" {
+		return app, fmt.Errorf("%s application at index %d is missing metadata.name", configPath, index)
+	}
+	if _, duplicate := seen[app.Name]; duplicate {
+		return app, fmt.Errorf("application %q is declared by more than one Solder config file", app.Name)
+	}
+	if app.Namespace == "" {
+		app.Namespace = repository.Namespace
+	}
+	if app.Namespace != repository.Namespace {
+		return app, fmt.Errorf("%s application %q must stay in repository namespace %q", configPath, app.Name, repository.Namespace)
+	}
+	if app.Spec.Source.RepositoryRef.Name == "" {
+		app.Spec.Source.RepositoryRef.Name = repository.Name
+	}
+	if app.Spec.Source.RepositoryRef.Name != repository.Name {
+		return app, fmt.Errorf("%s application %q references repository %q instead of %q", configPath, app.Name, app.Spec.Source.RepositoryRef.Name, repository.Name)
+	}
+	if app.Spec.Source.Render.Type == "" {
+		return app, fmt.Errorf("%s application %q must set spec.source.render.type", configPath, app.Name)
+	}
+	return app, nil
+}
+
+func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
+	paths := repository.Spec.ApplicationConfigPaths
+	if len(paths) == 0 {
+		paths = []string{solderConfigFileName}
+	}
+	out := make([]string, 0, len(paths))
+	seen := map[string]struct{}{}
+	for _, raw := range paths {
+		path := filepath.ToSlash(strings.TrimSpace(raw))
+		if path == "" {
+			return nil, fmt.Errorf("applicationConfigPaths must not contain empty paths")
+		}
+		if filepath.IsAbs(path) {
+			return nil, fmt.Errorf("applicationConfigPaths path %q must be repository-relative", raw)
+		}
+		clean := filepath.ToSlash(filepath.Clean(path))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+			return nil, fmt.Errorf("applicationConfigPaths path %q must stay inside the repository", raw)
+		}
+		if filepath.Base(clean) != solderConfigFileName {
+			return nil, fmt.Errorf("applicationConfigPaths path %q must name a %s file", raw, solderConfigFileName)
+		}
+		if _, duplicate := seen[clean]; duplicate {
+			return nil, fmt.Errorf("applicationConfigPaths path %q is listed more than once", clean)
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	return out, nil
+}
+
+func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, configPath string) ([]corev1alpha1.Application, bool, error) {
+	path := filepath.Join(workspace, filepath.FromSlash(configPath))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, false, nil
 		}
-		return nil, true, fmt.Errorf("could not read %s: %w", solderConfigFileName, err)
+		return nil, true, fmt.Errorf("could not read %s: %w", configPath, err)
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, true, fmt.Errorf("could not parse %s: %w", solderConfigFileName, err)
+		return nil, true, fmt.Errorf("could not parse %s: %w", configPath, err)
 	}
 	if _, ok := raw["applications"]; ok {
 		var envelope solderRepositoryFile
 		if err := yaml.Unmarshal(data, &envelope); err != nil {
-			return nil, true, fmt.Errorf("could not parse %s: %w", solderConfigFileName, err)
+			return nil, true, fmt.Errorf("could not parse %s: %w", configPath, err)
 		}
 		return envelope.Applications, true, nil
 	}
 	var app corev1alpha1.Application
 	if err := yaml.Unmarshal(data, &app); err != nil {
-		return nil, true, fmt.Errorf("could not parse %s: %w", solderConfigFileName, err)
+		return nil, true, fmt.Errorf("could not parse %s: %w", configPath, err)
 	}
 	if app.Kind == "Application" || app.Name != "" || app.Spec.Source.Render.Type != "" || app.Spec.Source.Path != "" {
 		return []corev1alpha1.Application{app}, true, nil
 	}
-	return nil, true, fmt.Errorf("%s must contain kind: Application or an applications list for repository %q", solderConfigFileName, repository.Name)
+	return nil, true, fmt.Errorf("%s must contain kind: Application or an applications list for repository %q", configPath, repository.Name)
 }
 
-func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, repository *corev1alpha1.Repository, desired *corev1alpha1.Application) error {
+func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, repository *corev1alpha1.Repository, desired *corev1alpha1.Application, configPath string) error {
 	key := client.ObjectKey{Namespace: desired.Namespace, Name: desired.Name}
 	current := &corev1alpha1.Application{}
 	if err := r.Get(ctx, key, current); err != nil {
@@ -112,7 +165,7 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 			return err
 		}
 		desired.TypeMeta = metav1.TypeMeta{APIVersion: corev1alpha1.GroupVersion.String(), Kind: "Application"}
-		ensureDiscoveredApplicationMetadata(repository, desired)
+		ensureDiscoveredApplicationMetadata(repository, desired, configPath)
 		if r.Scheme != nil {
 			if err := controllerutil.SetControllerReference(repository, desired, r.Scheme); err != nil {
 				return err
@@ -121,7 +174,7 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 		return r.Create(ctx, desired)
 	}
 	current.Spec = desired.Spec
-	ensureDiscoveredApplicationMetadata(repository, current)
+	ensureDiscoveredApplicationMetadata(repository, current, configPath)
 	if r.Scheme != nil {
 		if err := controllerutil.SetControllerReference(repository, current, r.Scheme); err != nil {
 			return err
@@ -130,7 +183,7 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 	return r.Update(ctx, current)
 }
 
-func ensureDiscoveredApplicationMetadata(repository *corev1alpha1.Repository, app *corev1alpha1.Application) {
+func ensureDiscoveredApplicationMetadata(repository *corev1alpha1.Repository, app *corev1alpha1.Application, configPath string) {
 	labels := app.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
@@ -141,7 +194,7 @@ func ensureDiscoveredApplicationMetadata(repository *corev1alpha1.Repository, ap
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
-	annotations["solder.io/discovered-from"] = solderConfigFileName
+	annotations["solder.io/discovered-from"] = configPath
 	app.SetAnnotations(annotations)
 }
 

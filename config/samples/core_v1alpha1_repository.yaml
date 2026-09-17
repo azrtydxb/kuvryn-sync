@@ -11,4 +11,6 @@ spec:
     auth:
       secretRef:
         name: platform-git
+  applicationConfigPaths:
+    - .solder.yaml
   pollInterval: 60s

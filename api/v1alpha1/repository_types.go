@@ -27,6 +27,12 @@ type RepositorySpec struct {
 	// git configures a Git desired-state source.
 	// +optional
 	Git *GitRepositorySpec `json:"git,omitempty"`
+	// applicationConfigPaths are repository-relative .solder.yaml files that
+	// declare Applications for this Repository. When empty, Solder reads
+	// .solder.yaml from the repository root.
+	// +listType=atomic
+	// +optional
+	ApplicationConfigPaths []string `json:"applicationConfigPaths,omitempty"`
 	// pollInterval controls source polling when no external wake-up signal exists.
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`

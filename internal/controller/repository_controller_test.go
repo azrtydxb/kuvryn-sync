@@ -106,7 +106,7 @@ var _ = Describe("Repository Controller", func() {
 		Expect(resolver.repository.Auth.Token).To(Equal("super-secret-token"))
 	})
 
-	It("discovers Applications from a root .solder.yaml file", func() {
+	It("discovers multiple Applications from a root .solder.yaml file", func() {
 		workspace := GinkgoT().TempDir()
 		Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications:
 - metadata:
@@ -121,6 +121,18 @@ var _ = Describe("Repository Controller", func() {
     sync:
       automatic: true
       prune: true
+      conflictPolicy: fail
+- metadata:
+    name: search
+  spec:
+    source:
+      path: apps/search
+      render:
+        type: yaml
+    destination:
+      namespace: search
+    sync:
+      automatic: true
       conflictPolicy: fail
 `), 0o600)).To(Succeed())
 
@@ -146,6 +158,84 @@ var _ = Describe("Repository Controller", func() {
 		Expect(app.Spec.Destination.Namespace).To(Equal("payments"))
 		Expect(app.Labels[repositoryApplicationLabel]).To(Equal(resourceName))
 		Expect(app.OwnerReferences).NotTo(BeEmpty())
+		search := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "search", Namespace: "default"}, search)).To(Succeed())
+		Expect(search.Spec.Source.RepositoryRef.Name).To(Equal(resourceName))
+		Expect(search.Spec.Source.Path).To(Equal("apps/search"))
+		Expect(search.Spec.Source.Render.Type).To(Equal(corev1alpha1.RenderTypeYAML))
+	})
+
+	It("discovers Applications from configured .solder.yaml paths", func() {
+		workspace := GinkgoT().TempDir()
+		Expect(os.MkdirAll(filepath.Join(workspace, "teams/payments"), 0o700)).To(Succeed())
+		Expect(os.MkdirAll(filepath.Join(workspace, "teams/search"), 0o700)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(workspace, "teams/payments/.solder.yaml"), []byte(`applications:
+- metadata:
+    name: payments
+  spec:
+    source:
+      path: teams/payments/deploy
+      render:
+        type: yaml
+    destination:
+      namespace: payments
+`), 0o600)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(workspace, "teams/search/.solder.yaml"), []byte(`applications:
+- metadata:
+    name: search
+  spec:
+    source:
+      path: teams/search/deploy
+      render:
+        type: kustomize
+    destination:
+      namespace: search
+`), 0o600)).To(Succeed())
+
+		resource := &corev1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+			Spec: corev1alpha1.RepositorySpec{
+				Type:                   corev1alpha1.RepositoryTypeGit,
+				Git:                    &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+				ApplicationConfigPaths: []string{"teams/payments/.solder.yaml", "teams/search/.solder.yaml"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+		resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: workspace}}
+		controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		payments := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, payments)).To(Succeed())
+		Expect(payments.Annotations["solder.io/discovered-from"]).To(Equal("teams/payments/.solder.yaml"))
+		search := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "search", Namespace: "default"}, search)).To(Succeed())
+		Expect(search.Spec.Source.RepositoryRef.Name).To(Equal(resourceName))
+		Expect(search.Annotations["solder.io/discovered-from"]).To(Equal("teams/search/.solder.yaml"))
+	})
+
+	It("rejects unsafe configured .solder.yaml paths", func() {
+		resource := &corev1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+			Spec: corev1alpha1.RepositorySpec{
+				Type:                   corev1alpha1.RepositoryTypeGit,
+				Git:                    &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+				ApplicationConfigPaths: []string{"../.solder.yaml"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+		resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: GinkgoT().TempDir()}}
+		controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1alpha1.Repository{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		Expect(updated.Status.State).To(Equal(corev1alpha1.RepositoryStateFailed))
+		Expect(updated.Status.Conditions[0].Reason).To(Equal(string(source.FailureReasonValidationFailure)))
 	})
 
 	It("prunes Applications removed from .solder.yaml", func() {

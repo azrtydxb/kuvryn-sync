@@ -101,6 +101,16 @@ Add `.solder.yaml` at the root of the repository. The Repository controller
 reads this file after resolving Git and creates or updates the listed
 Applications in the Repository namespace.
 
+For monorepos, move the file into one or more subdirectories and list those
+repository-relative paths on the `Repository`:
+
+```yaml
+spec:
+  applicationConfigPaths:
+    - teams/payments/.solder.yaml
+    - teams/search/.solder.yaml
+```
+
 ```yaml
 applications:
   - metadata:
@@ -131,7 +141,9 @@ applications:
 
 `spec.source.repositoryRef.name` is optional in `.solder.yaml`; when omitted,
 Solder defaults it to the Repository that discovered the file. A full
-`Application` object is also accepted when the file contains a single app.
+`Application` object is also accepted when the file contains a single app. When
+`spec.applicationConfigPaths` is empty, Solder reads the root `.solder.yaml` by
+default.
 
 Renderer choices:
 

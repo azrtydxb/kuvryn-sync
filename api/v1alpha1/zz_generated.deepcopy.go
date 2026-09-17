@@ -571,6 +571,11 @@ func (in *RepositorySpec) DeepCopyInto(out *RepositorySpec) {
 		*out = new(GitRepositorySpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ApplicationConfigPaths != nil {
+		in, out := &in.ApplicationConfigPaths, &out.ApplicationConfigPaths
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.PollInterval != nil {
 		in, out := &in.PollInterval, &out.PollInterval
 		*out = new(v1.Duration)
