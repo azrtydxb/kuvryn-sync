@@ -15,6 +15,7 @@ Solder focuses on the product path that matters for day-two operations:
 
 - `Repository` CRDs resolve Git branches, tags, or commits with Secret-backed auth.
 - `Application` CRDs render manifests, Kustomize, or Helm charts from Git.
+- A root `.solder.yaml` file can declare Applications inside the same Git repo.
 - Server-Side Apply is used for mutations; ownership conflicts fail by default.
 - Sync state and health state are tracked separately.
 - `Revision` CRDs keep bounded, redacted, auditable plan and rollout history.
@@ -71,39 +72,38 @@ spec:
   pollInterval: 60s
 ```
 
-Create an application from a path in that repo:
+Add `.solder.yaml` at the root of that Git repository to declare Applications:
 
 ```yaml
-apiVersion: solder.io/v1alpha1
-kind: Application
-metadata:
-  name: payments
-  namespace: default
-spec:
-  source:
-    repositoryRef:
-      name: platform
-    path: apps/payments
-    render:
-      type: kustomize
-  destination:
-    namespace: payments
-  sync:
-    automatic: true
-    prune: true
-    selfHeal: true
-    conflictPolicy: fail
-  strategy:
-    type: rolling
-    failurePolicy:
-      action: rollback
-      timeout: 5m
-      maxAttempts: 2
-  health:
-    timeout: 5m
-  history:
-    limit: 20
+applications:
+  - metadata:
+      name: payments
+    spec:
+      source:
+        path: apps/payments
+        render:
+          type: kustomize
+      destination:
+        namespace: payments
+      sync:
+        automatic: true
+        prune: true
+        selfHeal: true
+        conflictPolicy: fail
+      strategy:
+        type: rolling
+        failurePolicy:
+          action: rollback
+          timeout: 5m
+          maxAttempts: 2
+      health:
+        timeout: 5m
+      history:
+        limit: 20
 ```
+
+When the `Repository` reconciles, Solder discovers the file, defaults each
+Application to that Repository, and creates or updates the Application CRs.
 
 Then inspect state:
 

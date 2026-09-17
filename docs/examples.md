@@ -5,6 +5,29 @@ nav_order: 7
 
 # Examples
 
+## Repository-root `.solder.yaml`
+
+```yaml
+applications:
+  - metadata:
+      name: payments
+    spec:
+      source:
+        path: apps/payments/overlays/prod
+        render:
+          type: kustomize
+      destination:
+        namespace: payments
+      sync:
+        automatic: true
+        prune: true
+        selfHeal: true
+        conflictPolicy: fail
+```
+
+The Repository controller defaults `spec.source.repositoryRef.name` to the
+Repository that discovered the file.
+
 ## Plain YAML application
 
 ```yaml

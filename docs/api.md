@@ -44,6 +44,38 @@ spec:
 | `status.lastFetchedAt`    | Time of last successful source fetch/inspection. |
 | `status.conditions`       | Kubernetes Conditions for source readiness.      |
 
+### Root `.solder.yaml`
+
+When a Git Repository resolves, Solder checks the repository root for
+`.solder.yaml`. The file can contain an Application list:
+
+```yaml
+applications:
+  - metadata:
+      name: payments
+    spec:
+      source:
+        path: apps/payments
+        render:
+          type: kustomize
+      destination:
+        namespace: payments
+      sync:
+        automatic: true
+        conflictPolicy: fail
+```
+
+For discovered Applications:
+
+- `metadata.name` is required.
+- `metadata.namespace`, when set, must match the Repository namespace.
+- `spec.source.repositoryRef.name` defaults to the discovering Repository.
+- `spec.source.render.type` is required.
+- Applications managed by the same Repository label but removed from
+  `.solder.yaml` are deleted.
+
+A single full `Application` object is also accepted for small repositories.
+
 ## Application
 
 `Application` is the main deployment abstraction.

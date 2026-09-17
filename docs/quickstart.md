@@ -95,40 +95,43 @@ kubectl get repo platform
 kubectl describe repo platform
 ```
 
-## 3. Create an Application
+## 3. Declare Applications in Git
+
+Add `.solder.yaml` at the root of the repository. The Repository controller
+reads this file after resolving Git and creates or updates the listed
+Applications in the Repository namespace.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
-kind: Application
-metadata:
-  name: payments
-  namespace: default
-spec:
-  source:
-    repositoryRef:
-      name: platform
-    revision: main
-    path: apps/payments
-    render:
-      type: kustomize
-  destination:
-    namespace: payments
-  sync:
-    automatic: true
-    prune: true
-    selfHeal: true
-    conflictPolicy: fail
-  strategy:
-    type: rolling
-    failurePolicy:
-      action: rollback
-      timeout: 5m
-      maxAttempts: 2
-  health:
-    timeout: 5m
-  history:
-    limit: 20
+applications:
+  - metadata:
+      name: payments
+    spec:
+      source:
+        path: apps/payments
+        render:
+          type: kustomize
+      destination:
+        namespace: payments
+      sync:
+        automatic: true
+        prune: true
+        selfHeal: true
+        conflictPolicy: fail
+      strategy:
+        type: rolling
+        failurePolicy:
+          action: rollback
+          timeout: 5m
+          maxAttempts: 2
+      health:
+        timeout: 5m
+      history:
+        limit: 20
 ```
+
+`spec.source.repositoryRef.name` is optional in `.solder.yaml`; when omitted,
+Solder defaults it to the Repository that discovered the file. A full
+`Application` object is also accepted when the file contains a single app.
 
 Renderer choices:
 

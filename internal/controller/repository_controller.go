@@ -37,7 +37,11 @@ import (
 	gitcache "github.com/azrtydxb/solder/internal/source/git"
 )
 
-const defaultSourceCacheDir = "solder-source-cache"
+const (
+	defaultSourceCacheDir      = "solder-source-cache"
+	solderConfigFileName       = ".solder.yaml"
+	repositoryApplicationLabel = "solder.io/repository"
+)
 
 // RepositoryReconciler reconciles a Repository object.
 type RepositoryReconciler struct {
@@ -52,6 +56,7 @@ type RepositoryReconciler struct {
 // +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=solder.io,resources=repositories/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=solder.io,resources=repositories/finalizers,verbs=update
+// +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -95,6 +100,11 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	})
 	if err != nil {
 		r.markSourceError(repository, err)
+		return result, r.updateStatus(ctx, repository)
+	}
+
+	if err := r.reconcileDiscoveredApplications(ctx, repository, resolved); err != nil {
+		r.markFailed(repository, source.FailureReasonValidationFailure, safeMessage(err, "Repository application discovery failed"))
 		return result, r.updateStatus(ctx, repository)
 	}
 
