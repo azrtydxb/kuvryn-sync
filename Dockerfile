@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 
 # Runtime includes git because Repository reconciliation uses the git CLI for source caching.
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates git
+RUN apk add --no-cache ca-certificates git && mkdir -p /tmp && chmod 1777 /tmp
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

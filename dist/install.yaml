@@ -1633,7 +1633,7 @@ spec:
             - --health-probe-bind-address=:8081
           command:
             - /manager
-          image: ghcr.io/azrtydxb/solder:v0.1.4
+          image: ghcr.io/azrtydxb/solder:v0.1.6
           livenessProbe:
             httpGet:
               path: /healthz
