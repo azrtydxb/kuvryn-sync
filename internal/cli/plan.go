@@ -56,6 +56,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 		_, _ = fmt.Fprintln(stdout, "solder development")
 		return true, 0
 	default:
+		if len(args[0]) > 0 && args[0][0] == '-' {
+			return false, 0
+		}
 		_, _ = fmt.Fprintf(stderr, "unknown solder command %q\n", args[0])
 		return true, 1
 	}
