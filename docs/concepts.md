@@ -21,6 +21,12 @@ monorepos, `spec.applicationConfigPaths` can point at one or more nested
 definitions: Solder creates, updates, and removes Applications that are managed
 by that Repository label.
 
+Each configured path must be repository-relative, must stay inside the checkout,
+and must be named `.solder.yaml`. Each file can contain one `Application` object
+or an `applications:` list. Application names must be unique across all files, and
+discovered Applications are annotated with `solder.io/discovered-from` so
+operators can see which Git config file owns them.
+
 ## Application
 
 An `Application` describes a deployable unit:

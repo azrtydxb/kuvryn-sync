@@ -23,14 +23,14 @@ Release images are published to GHCR:
 ghcr.io/azrtydxb/solder:<tag>
 ```
 
-Use immutable release tags such as `v0.1.10` or pin digests in production.
+Use immutable release tags such as `v0.1.11` or pin digests in production.
 
 ## Raw manifests
 
 Generate or use the checked-in installer bundle:
 
 ```sh
-make build-installer IMG=ghcr.io/azrtydxb/solder:v0.1.10
+make build-installer IMG=ghcr.io/azrtydxb/solder:v0.1.11
 kubectl apply -f dist/install.yaml
 ```
 
@@ -51,7 +51,7 @@ helm upgrade --install solder charts/solder \
   --namespace solder-system \
   --create-namespace \
   --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.10
+  --set image.tag=v0.1.11
 ```
 
 Verify:
@@ -101,7 +101,7 @@ E2E tests consume a prebuilt image. Use a pullable image that matches your
 cluster architecture:
 
 ```sh
-make test-e2e-existing-cluster IMG=ghcr.io/azrtydxb/solder:v0.1.10
+make test-e2e-existing-cluster IMG=ghcr.io/azrtydxb/solder:v0.1.11
 ```
 
 The E2E suite covers the product path: Repository fetch from Git, Application

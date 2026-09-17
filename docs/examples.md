@@ -23,10 +23,23 @@ applications:
         prune: true
         selfHeal: true
         conflictPolicy: fail
+  - metadata:
+      name: search
+    spec:
+      source:
+        path: apps/search
+        render:
+          type: yaml
+      destination:
+        namespace: search
+      sync:
+        automatic: true
+        conflictPolicy: fail
 ```
 
 The Repository controller defaults `spec.source.repositoryRef.name` to the
-Repository that discovered the file.
+Repository that discovered the file. Application names must be unique across all
+configured `.solder.yaml` files.
 
 ## Monorepo `.solder.yaml` files
 
@@ -45,8 +58,10 @@ spec:
     - teams/search/.solder.yaml
 ```
 
-Each listed file must be named `.solder.yaml` and can contain one or more
-Applications for that part of the repository.
+Each listed file must be named `.solder.yaml`, stay inside the repository, and
+can contain one or more Applications for that part of the repository. Solder
+annotates discovered Applications with `solder.io/discovered-from` and prunes
+previously discovered Applications removed from these files.
 
 ## Plain YAML application
 

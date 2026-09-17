@@ -10,7 +10,8 @@ nav_order: 1
 Solder is a small Kubernetes-native GitOps controller. It reconciles desired
 state from Git into Kubernetes with deterministic plans, Server-Side Apply,
 separate sync and health state, bounded Revision history, drift detection,
-self-heal, pruning, and rollback.
+self-heal, pruning, rollback, and Repository-driven Application discovery from
+one or more `.solder.yaml` files.
 
 The first public API is intentionally compact:
 

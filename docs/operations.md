@@ -64,6 +64,22 @@ your cluster's monitoring stack.
 An optional OpenTelemetry tracing seam exists for environments that configure a
 tracer provider. Tracing must not include Secret values.
 
+## Repository-driven Application discovery
+
+Repositories can bootstrap Applications from `.solder.yaml` files in Git. Leave
+`spec.applicationConfigPaths` empty to read the root `.solder.yaml`, or list one
+or more repository-relative `.solder.yaml` paths for monorepos.
+
+Operational rules:
+
+- every configured path must be relative, unique, inside the repository, and
+  named `.solder.yaml`;
+- each file can contain one `Application` or an `applications:` list;
+- Application names must be unique across all configured files;
+- discovered Applications carry `solder.io/repository` and
+  `solder.io/discovered-from` metadata;
+- removing a discovered Application from Git prunes the managed Application CR.
+
 ## Events and Conditions
 
 Use Kubernetes-native surfaces first:

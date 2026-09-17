@@ -30,7 +30,7 @@ helm upgrade --install solder charts/solder \
   --namespace solder-system \
   --create-namespace \
   --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.10
+  --set image.tag=v0.1.11
 ```
 
 Wait for the manager:
@@ -144,6 +144,12 @@ Solder defaults it to the Repository that discovered the file. A full
 `Application` object is also accepted when the file contains a single app. When
 `spec.applicationConfigPaths` is empty, Solder reads the root `.solder.yaml` by
 default.
+
+Configured `.solder.yaml` paths must be relative to the repository, must stay
+inside the repository, must be named `.solder.yaml`, and cannot be duplicated.
+Application names must be unique across all configured files. Discovered
+Applications are annotated with `solder.io/discovered-from`, and Applications
+removed from the configured files are pruned.
 
 Renderer choices:
 

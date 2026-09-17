@@ -32,7 +32,11 @@ Check:
 - Git URL is reachable from the cluster;
 - branch, tag, or commit exists;
 - referenced Secret exists in the same namespace;
-- credentials are valid and allowed to read the repository.
+- credentials are valid and allowed to read the repository;
+- every configured `spec.applicationConfigPaths` entry is repository-relative,
+  unique, stays inside the repository, and is named `.solder.yaml`;
+- discovered Application names are unique across all configured `.solder.yaml`
+  files.
 
 ## Application is Planning or AwaitingApproval
 

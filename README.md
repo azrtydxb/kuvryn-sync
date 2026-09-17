@@ -53,7 +53,7 @@ helm upgrade --install solder charts/solder \
   --namespace solder-system \
   --create-namespace \
   --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.10
+  --set image.tag=v0.1.11
 ```
 
 Create a Git source:
@@ -72,7 +72,7 @@ spec:
   pollInterval: 60s
 ```
 
-Add `.solder.yaml` at the root of that Git repository to declare Applications. For monorepos, set `spec.applicationConfigPaths` on the Repository to point at one or more nested `.solder.yaml` files instead.
+Add `.solder.yaml` at the root of that Git repository to declare Applications. For monorepos, set `spec.applicationConfigPaths` on the Repository to point at one or more nested `.solder.yaml` files instead. Each configured path must be repository-relative, stay inside the repository, and be named `.solder.yaml`.
 
 ```yaml
 applications:
@@ -102,7 +102,7 @@ applications:
         limit: 20
 ```
 
-When the `Repository` reconciles, Solder discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs.
+When the `Repository` reconciles, Solder discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
 
 Then inspect state:
 

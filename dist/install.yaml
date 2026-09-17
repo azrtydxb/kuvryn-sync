@@ -451,6 +451,15 @@ spec:
             spec:
               description: spec defines the desired source configuration.
               properties:
+                applicationConfigPaths:
+                  description: |-
+                    applicationConfigPaths are repository-relative .solder.yaml files that
+                    declare Applications for this Repository. When empty, Solder reads
+                    .solder.yaml from the repository root.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
                 git:
                   description: git configures a Git desired-state source.
                   properties:
@@ -1633,7 +1642,7 @@ spec:
             - --health-probe-bind-address=:8081
           command:
             - /manager
-          image: ghcr.io/azrtydxb/solder:v0.1.9
+          image: ghcr.io/azrtydxb/solder:v0.1.11
           livenessProbe:
             httpGet:
               path: /healthz

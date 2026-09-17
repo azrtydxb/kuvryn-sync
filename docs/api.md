@@ -47,7 +47,7 @@ spec:
 | `status.lastFetchedAt`    | Time of last successful source fetch/inspection. |
 | `status.conditions`       | Kubernetes Conditions for source readiness.      |
 
-### Root `.solder.yaml`
+### Repository `.solder.yaml` discovery
 
 When a Git Repository resolves, Solder checks configured `.solder.yaml` files.
 When `spec.applicationConfigPaths` is empty, Solder reads the repository root
@@ -85,8 +85,10 @@ For discovered Applications:
 - `spec.source.repositoryRef.name` defaults to the discovering Repository.
 - `spec.source.render.type` is required.
 - `applicationConfigPaths` entries must be repository-relative paths named
-  `.solder.yaml` and must not escape the repository.
+  `.solder.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.
+- Discovered Applications are labeled with `solder.io/repository` and annotated
+  with `solder.io/discovered-from` set to the source config path.
 - Applications managed by the same Repository label but removed from the
   configured `.solder.yaml` files are deleted.
 
