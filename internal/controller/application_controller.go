@@ -324,13 +324,13 @@ func (r *ApplicationReconciler) renderer(renderType corev1alpha1.RenderType) (re
 }
 
 func (r *ApplicationReconciler) renderDesired(ctx context.Context, application *corev1alpha1.Application, resolved source.ResolvedSource) ([]unstructured.Unstructured, *corev1alpha1.RevisionFailure) {
-	renderer, err := r.renderer(application.Spec.Source.Render.Type)
+	desiredRenderer, err := r.renderer(application.Spec.Source.Render.Type)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Desired state renderer is not available"), Retryable: false}
 		return nil, &failure
 	}
 	input := rendererInput(application, resolved.CacheDir)
-	objects, err := renderer.Render(ctx, input)
+	objects, err := desiredRenderer.Render(ctx, input)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Desired state render failed"), Retryable: true}
 		return nil, &failure

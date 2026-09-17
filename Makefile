@@ -70,6 +70,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= solder-test-e2e
+KIND_LOAD_IMAGE ?= false
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -96,6 +97,7 @@ require-e2e-img:
 .PHONY: test-e2e
 test-e2e: require-e2e-img setup-test-e2e manifests generate fmt vet ## Run e2e tests with a prebuilt IMG; no local Docker build/load by default.
 	@trap '$(MAKE) cleanup-test-e2e' EXIT; \
+	if [ "$(KIND_LOAD_IMAGE)" = "true" ]; then $(KIND) load docker-image $(IMG) --name $(KIND_CLUSTER); fi; \
 	IMG=$(IMG) KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: test-e2e-existing-cluster
