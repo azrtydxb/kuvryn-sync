@@ -117,7 +117,11 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
-	return source.ResolvedSource{Revision: commit, CacheDir: cacheDir}, nil
+	worktree, err := c.materializeWorktree(ctx, cacheDir, repository, commit)
+	if err != nil {
+		return source.ResolvedSource{}, err
+	}
+	return source.ResolvedSource{Revision: commit, CacheDir: worktree}, nil
 }
 
 func (c *Cache) lockFor(key string) *sync.Mutex {
@@ -159,6 +163,28 @@ func (c *Cache) fetch(ctx context.Context, cacheDir string, repository source.Gi
 		"fetch", "--prune", "origin",
 		"+refs/heads/*:refs/heads/*",
 		"+refs/tags/*:refs/tags/*")
+}
+
+func (c *Cache) materializeWorktree(ctx context.Context, cacheDir string, repository source.GitRepository, commit string) (string, error) {
+	worktree := filepath.Join(cacheDir, "worktrees", commit)
+	if _, err := os.Stat(filepath.Join(worktree, ".solder-checkout")); err == nil {
+		return worktree, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", classified(source.FailureReasonSourceFailure, "Could not inspect source worktree", err)
+	}
+	if err := os.RemoveAll(worktree); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not reset source worktree", err)
+	}
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not create source worktree", err)
+	}
+	if err := c.git(ctx, cacheDir, repository, "--work-tree", worktree, "checkout", "-f", commit, "--", "."); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".solder-checkout"), []byte(commit), 0o600); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not mark source worktree", err)
+	}
+	return worktree, nil
 }
 
 func (c *Cache) revParse(ctx context.Context, cacheDir string, repository source.GitRepository, revision string) (string, error) {
