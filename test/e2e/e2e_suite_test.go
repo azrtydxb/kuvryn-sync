@@ -57,7 +57,11 @@ var _ = BeforeSuite(func() {
 		_, err := utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
 	} else {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Using prebuilt manager image %s (set E2E_BUILD_IMAGE=true to build)\n", managerImage)
+		_, _ = fmt.Fprintf(
+			GinkgoWriter,
+			"Using prebuilt manager image %s (set E2E_BUILD_IMAGE=true to build)\n",
+			managerImage,
+		)
 	}
 
 	if os.Getenv("E2E_LOAD_KIND_IMAGE") == "true" {

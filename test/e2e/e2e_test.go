@@ -268,7 +268,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			DeferCleanup(func() {
 				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
-				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e-product", "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e", "--ignore-not-found=true"))
 			})
 
 			By("waiting for the Repository to resolve an immutable Git revision")
@@ -298,7 +298,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the rendered Kubernetes object was applied")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "configmap", "solder-e2e-config", "-n", "solder-e2e-product", "-o",
+					"kubectl", "get", "configmap", "solder-e2e-config", "-n", "solder-e2e", "-o",
 					"jsonpath={.data.source}:{.data.version}:{.metadata.annotations.solder\\.io/revision}",
 				)
 				output, err := utils.Run(cmd)
@@ -419,7 +419,7 @@ type tokenRequest struct {
 const productApplicationManifest = `apiVersion: v1
 kind: Namespace
 metadata:
-  name: solder-e2e-product
+  name: solder-e2e
 ---
 apiVersion: solder.io/v1alpha1
 kind: Repository
@@ -444,7 +444,7 @@ spec:
     render:
       type: yaml
   destination:
-    namespace: solder-e2e-product
+    namespace: solder-e2e
   sync:
     automatic: true
     prune: true
