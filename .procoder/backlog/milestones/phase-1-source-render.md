@@ -16,11 +16,11 @@ Applications can reproducibly resolve Git sources and render YAML, Kustomize, an
 
 ## Evidence
 
-- Reopened: child epics/stories still require product-integration evidence; helper-only evidence is not sufficient for closure.
+- Historical correction: child epics/stories previously required product-integration evidence; the closure evidence below records the resolved product path.
 
 ## Correction
 
-- Reopened: milestone is not complete as a product milestone until its stories are wired into end-to-end controller/CLI/runtime workflows and verified beyond pure-function coverage.
+- Historical correction: this milestone previously required end-to-end controller/CLI/runtime verification beyond pure-function coverage; the closure evidence below records that resolved product path.
 
 ## Closure Evidence
 

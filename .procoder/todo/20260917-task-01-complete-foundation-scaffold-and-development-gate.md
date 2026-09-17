@@ -18,4 +18,4 @@ Makefile/Dockerfile/CI/README/api/controller scaffold all build and test locally
 
 ## Evidence
 
-- Initial Kubebuilder/controller-runtime scaffold, `solder.io/v1alpha1` CRD shapes, controllers, samples, README, `make test`, `make build`, kustomize build, and generated manifests were created for Phase 0. Procoder correction pass confirmed Phase 0 remains the only completed phase; later phases are open unless product-integration evidence exists.
+- Initial Kubebuilder/controller-runtime scaffold, `solder.io/v1alpha1` CRD shapes, controllers, samples, README, `make test`, `make build`, kustomize build, and generated manifests were created for Phase 0. Later all-gap closure evidence records product-integration verification for the remaining phases.

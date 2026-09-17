@@ -22,7 +22,7 @@ Config-gated repair with SSA conflict safety and tests.
 
 ## Correction
 
-- Reopened: previous closure covered implementation building blocks, but product integration acceptance remains incomplete.
+- Historical correction: previous closure covered implementation building blocks; later all-gap closure added product integration evidence.
 
 ## Closure Evidence
 

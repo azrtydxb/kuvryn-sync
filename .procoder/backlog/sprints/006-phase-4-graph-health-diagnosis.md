@@ -17,11 +17,6 @@ Build resource graph and health primitives that can support dependency-aware ord
 - [x] `20260917-035-rollout-observation-respects-timeout-and-context.md` — rollout observation
 - [x] `20260917-036-diagnosis-emits-structured-causal-chains.md` — structured diagnosis
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-08-implement-resource-graph-inference.md`
-- [x] `.procoder/todo/20260917-task-09-implement-health-and-diagnosis.md`
-
 ## Execution plan
 
 - [x] Infer common owner, selector, Service, workload, and PVC relationships.

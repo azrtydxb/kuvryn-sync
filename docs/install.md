@@ -32,7 +32,7 @@ Images are built with the KW BuildKit service, not local Docker:
 make kw-buildkit IMG=192.168.10.131:5000/solder:dev
 ```
 
-E2E tests consume a prebuilt image by default and do not build or load a local Docker image unless explicitly requested:
+E2E tests consume a prebuilt image by default and do not build or load a local Docker image unless explicitly requested. The suite includes the product path: Repository fetch from Git, Application render/apply, Revision health, and applied workload verification. CI enables the `e2e` build tag through the lint configuration so the gated test package is type-checked as well as run by `make test-e2e`.
 
 ```sh
 make test-e2e IMG=192.168.10.131:5000/solder:dev

@@ -18,11 +18,6 @@ Add the core mutation safety primitives: idempotent server-side apply, lifecycle
 - [x] `20260917-030-manual-approval-targets-exact-revision.md` — exact approval
 - [x] `20260917-031-suspend-and-resume-stop-mutations-safely.md` — suspend/resume mutation gates
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-06-implement-ssa-apply-and-sync-policy.md`
-- [x] `.procoder/todo/20260917-task-07-implement-ordering-and-safe-prune.md`
-
 ## Execution plan
 
 - [x] Implement SSA applier with fail-conflict default and ownership labels/annotations.

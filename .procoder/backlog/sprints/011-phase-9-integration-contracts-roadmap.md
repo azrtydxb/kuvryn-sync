@@ -24,12 +24,6 @@ Finish provider-neutral integration contracts for provenance, lifecycle events, 
 - [x] `20260917-067-webhook-and-notification-sinks-remain-optional.md` — optional notifications roadmap
 - [x] `20260917-068-ai-remains-optional-explanation-layer.md` — optional AI roadmap
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-17-implement-provenance-and-lifecycle-events.md`
-- [x] `.procoder/todo/20260917-task-18-implement-dhole-and-kuvryn-contracts.md`
-- [x] `.procoder/todo/20260917-task-19-write-deferred-feature-design-records.md`
-
 ## Execution plan
 
 - [x] Add typed contract helpers for provenance, lifecycle events, Dhole observation, Kuvryn discovery/actions, and lineage annotations.

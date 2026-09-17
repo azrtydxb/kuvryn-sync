@@ -137,27 +137,27 @@ reconciliation.
 
 ## Acceptance criteria
 
-- [ ] Phase 0 foundation has generated APIs, controller scaffold, CI, build,
+- [x] Phase 0 foundation has generated APIs, controller scaffold, CI, build,
       tests, container image path, local Kind workflow, and security baseline.
-- [ ] Phase 1 can reproducibly fetch and render Git desired state for YAML,
+- [x] Phase 1 can reproducibly fetch and render Git desired state for YAML,
       Kustomize, and Helm Applications.
-- [ ] Phase 2 can show a deterministic, redacted plan without mutating the
+- [x] Phase 2 can show a deterministic, redacted plan without mutating the
       cluster.
-- [ ] Phase 3 can safely converge Git changes into Kubernetes with SSA,
+- [x] Phase 3 can safely converge Git changes into Kubernetes with SSA,
       ordering, metadata, manual/automatic sync, status transitions, and pruning.
-- [ ] Phase 4 can build a resource graph, evaluate health, observe rollouts, and
+- [x] Phase 4 can build a resource graph, evaluate health, observe rollouts, and
       explain common failures with causal chains.
-- [ ] Phase 5 can detect managed drift and optionally self-heal without unsafe
+- [x] Phase 5 can detect managed drift and optionally self-heal without unsafe
       conflict behavior.
-- [ ] Phase 6 can retain bounded history, find the previous healthy Revision,
+- [x] Phase 6 can retain bounded history, find the previous healthy Revision,
       plan/execute rollback, and prevent retry loops.
-- [ ] Phase 7 provides complete CLI, metrics, Events, OTel hooks, HA, scale
+- [x] Phase 7 provides complete CLI, metrics, Events, OTel hooks, HA, scale
       testing, documentation, Helm/raw install, and upgrade coverage.
-- [ ] Phase 8 exposes provenance, typed lifecycle events, Dhole observation,
+- [x] Phase 8 exposes provenance, typed lifecycle events, Dhole observation,
       Kuvryn discovery/action contracts, and source-to-Pod lineage.
-- [ ] Deferred feature backlog covers progressive delivery, multi-cluster, OCI
+- [x] Deferred feature backlog covers progressive delivery, multi-cluster, OCI
       desired state, webhooks, notifications, policy/supply-chain, and optional AI.
-- [ ] `procoder check` and `procoder test` pass before any work is called done.
+- [x] `procoder check` and `procoder test` pass before any work is called done.
 
 ## Open questions
 

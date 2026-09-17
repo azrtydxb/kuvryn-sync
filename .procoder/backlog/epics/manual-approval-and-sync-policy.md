@@ -11,11 +11,11 @@ Support automatic/manual sync, exact Revision approval, suspension, retry/backof
 
 ## Evidence
 
-- Reopened: one or more child stories still require product-integration evidence; helper-only evidence is not sufficient for closure.
+- Historical correction: child story product-integration evidence was required before closure; the all-gap closure pass records controller/runtime verification evidence below.
 
 ## Correction
 
-- Reopened because at least one child story is open for product integration acceptance.
+- Historical correction: this epic was previously held for product-integration acceptance; the closure evidence below records the resolved product path.
 
 ## Closure Evidence
 

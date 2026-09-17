@@ -16,11 +16,6 @@ Build the core planner foundation: read live objects for rendered desired identi
 - [x] `20260917-020-diff-classifies-create-update-delete-unchanged.md` — diff classification
 - [x] `20260917-021-revision-stores-bounded-plan-summary.md` — bounded plan summary
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-04-implement-live-reader-and-diff-engine.md`
-- [x] `.procoder/todo/20260917-task-05-implement-change-plan-persistence-and-cli-output.md`
-
 ## Execution plan
 
 - [x] Implement resource identity helpers shared by validation, live reading, and planning.

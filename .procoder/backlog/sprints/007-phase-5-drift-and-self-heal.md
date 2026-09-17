@@ -16,11 +16,6 @@ Add managed-resource watch mapping, drift classification that ignores normal mut
 - [x] `20260917-039-drift-state-remains-independent-from-health.md` — independent drift status
 - [x] `20260917-040-self-heal-reapplies-desired-state-only-when-enabled.md` — self-heal gating
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-10-implement-drift-detection-watches.md`
-- [x] `.procoder/todo/20260917-task-11-implement-self-heal-path.md`
-
 ## Execution plan
 
 - [x] Add managed-resource-to-Application mapping from Solder labels.

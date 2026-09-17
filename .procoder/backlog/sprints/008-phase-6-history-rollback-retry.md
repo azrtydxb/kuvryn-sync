@@ -17,11 +17,6 @@ Finish bounded Revision history, safe source-cache cleanup, rollback target/plan
 - [x] `20260917-044-rollback-uses-normal-plan-apply-machinery.md` — rollback planning through normal planner
 - [x] `20260917-045-failed-desired-revisions-do-not-loop-forever.md` — retry-loop protection
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-12-implement-bounded-history-and-rollback.md`
-- [x] `.procoder/todo/20260917-task-13-implement-retry-loop-protection.md`
-
 ## Execution plan
 
 - [x] Add bounded history selection helpers.

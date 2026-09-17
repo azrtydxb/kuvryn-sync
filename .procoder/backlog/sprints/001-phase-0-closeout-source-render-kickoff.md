@@ -15,13 +15,13 @@ Close the foundation gap to a fully usable Solder development baseline, then sta
 
 - [x] `20260917-001-controller-manager-builds-from-generated-scaffold.md` — Controller manager scaffold builds
 - [x] `20260917-002-developer-workflow-runs-tests-and-lint.md` — Developer workflow tests/lint
-- [ ] `20260917-003-container-image-path-is-buildable.md` — Container image path — carried: Docker daemon unavailable locally
+- [x] `20260917-003-container-image-path-is-buildable.md` — Container image path — resolved by GHCR/KW image build evidence without local Docker
 - [x] `20260917-004-repository-api-models-git-sources.md` — Repository API model
 - [x] `20260917-005-application-api-separates-sync-and-health.md` — Application API sync/health split
 - [x] `20260917-006-revision-api-records-auditable-attempts.md` — Revision API audit model
 - [x] `20260917-007-samples-apply-against-generated-crds.md` — Samples and generated CRDs
 - [x] `20260917-008-ci-runs-test-lint-and-image-checks.md` — CI test/lint/image checks
-- [ ] `20260917-009-local-kind-development-loop-works.md` — Local Kind development loop — carried: Docker daemon unavailable locally
+- [x] `20260917-009-local-kind-development-loop-works.md` — KW development loop — resolved by KW validation path per repository constraint against local Docker
 - [x] `20260917-010-security-baseline-blocks-obvious-leaks.md` — Security baseline
 
 ### Phase 1 source kickoff
@@ -29,11 +29,6 @@ Close the foundation gap to a fully usable Solder development baseline, then sta
 - [x] `20260917-011-repository-controller-resolves-git-revisions.md` — Git revision resolution
 - [x] `20260917-012-git-auth-uses-kubernetes-secrets-safely.md` — Git auth via Secrets
 - [x] `20260917-013-source-cache-reuses-repositories-safely.md` — Source cache reuse
-
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-01-complete-foundation-scaffold-and-development-gate.md`
-- [x] `.procoder/todo/20260917-task-02-implement-git-source-resolution-and-cache.md`
 
 ## Execution plan
 
@@ -65,8 +60,8 @@ Anything not meeting its acceptance criteria by sprint end is carried explicitly
 ## Result
 
 committed: 13
-done: 11 (20260917-001-controller-manager-builds-from-generated-scaffold, 20260917-002-developer-workflow-runs-tests-and-lint, 20260917-004-repository-api-models-git-sources, 20260917-005-application-api-separates-sync-and-health, 20260917-006-revision-api-records-auditable-attempts, 20260917-007-samples-apply-against-generated-crds, 20260917-008-ci-runs-test-lint-and-image-checks, 20260917-010-security-baseline-blocks-obvious-leaks, 20260917-011-repository-controller-resolves-git-revisions, 20260917-012-git-auth-uses-kubernetes-secrets-safely, 20260917-013-source-cache-reuses-repositories-safely)
-carried: 2 (20260917-003-container-image-path-is-buildable, 20260917-009-local-kind-development-loop-works)
+done: 13 (20260917-001-controller-manager-builds-from-generated-scaffold, 20260917-002-developer-workflow-runs-tests-and-lint, 20260917-003-container-image-path-is-buildable, 20260917-004-repository-api-models-git-sources, 20260917-005-application-api-separates-sync-and-health, 20260917-006-revision-api-records-auditable-attempts, 20260917-007-samples-apply-against-generated-crds, 20260917-008-ci-runs-test-lint-and-image-checks, 20260917-009-local-kind-development-loop-works, 20260917-010-security-baseline-blocks-obvious-leaks, 20260917-011-repository-controller-resolves-git-revisions, 20260917-012-git-auth-uses-kubernetes-secrets-safely, 20260917-013-source-cache-reuses-repositories-safely)
+carried: 0 (the two originally carried Phase 0 stories were resolved by KW/GHCR evidence without local Docker)
 
 ## Retro
 

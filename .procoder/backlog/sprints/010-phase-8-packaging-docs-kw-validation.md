@@ -17,10 +17,6 @@ Finish packaging and install documentation, validate image builds and cluster ma
 - [x] `20260917-055-docs-explain-operation-and-api.md` — operation/API docs
 - [x] `20260917-056-upgrade-tests-preserve-alpha-compatibility-where-practical.md` — alpha compatibility checks
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-16-package-and-document-release-artifacts.md`
-
 ## Execution plan
 
 - [x] Add alpha Helm chart and operations docs.

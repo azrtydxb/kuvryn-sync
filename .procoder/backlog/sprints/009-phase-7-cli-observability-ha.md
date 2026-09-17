@@ -20,11 +20,6 @@ Finish the operator-facing CLI surface and operational hardening primitives for 
 - [x] `20260917-052-rate-limits-prevent-storms.md` — rate limits
 - [x] `20260917-053-scale-tests-measure-claims.md` — scale tests
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-14-finish-cli.md`
-- [x] `.procoder/todo/20260917-task-15-add-observability-and-ha.md`
-
 ## Execution plan
 
 - [x] Add CLI read commands over public CRDs.

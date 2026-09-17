@@ -22,7 +22,7 @@ Dependency-informed apply/prune ordering, opt-outs, high-risk deletion guards.
 
 ## Correction
 
-- Reopened: previous closure covered implementation building blocks, but product integration acceptance remains incomplete.
+- Historical correction: previous closure covered implementation building blocks; later all-gap closure added product integration evidence.
 
 ## Closure Evidence
 

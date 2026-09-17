@@ -16,10 +16,6 @@ Finish Phase 2 plan usability and safety: expose operator-friendly plan output, 
 - [x] `20260917-024-destructive-changes-are-conspicuous.md` — destructive change visibility
 - [x] `20260917-025-ssa-conflicts-are-detected-before-apply.md` — SSA conflict detection
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-05-implement-change-plan-persistence-and-cli-output.md`
-
 ## Execution plan
 
 - [x] Add field-level plan changes for safe scalar paths.

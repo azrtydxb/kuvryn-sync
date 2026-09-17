@@ -22,7 +22,7 @@ Manual/automatic sync, exact Revision approval, status transitions, conflict han
 
 ## Correction
 
-- Reopened: previous closure covered implementation building blocks, but product integration acceptance remains incomplete.
+- Historical correction: previous closure covered implementation building blocks; later all-gap closure added product integration evidence.
 
 ## Closure Evidence
 

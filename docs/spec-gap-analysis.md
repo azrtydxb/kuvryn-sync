@@ -1,6 +1,6 @@
 # Solder Spec Gap Analysis
 
-Status: the all-gap closure pass has no remaining open spec/backlog gaps tracked in `.procoder`. Solder now has an integrated MVP product path through the Kubernetes controller, CLI, manifests, installer targets, CI workflows, and runtime observability seams.
+Status: the all-gap closure pass has no remaining pending spec/backlog gaps tracked in `.procoder`. Solder now has an integrated MVP product path through the Kubernetes controller, CLI, manifests, installer targets, CI workflows, and runtime observability seams.
 
 ## Closed product paths
 

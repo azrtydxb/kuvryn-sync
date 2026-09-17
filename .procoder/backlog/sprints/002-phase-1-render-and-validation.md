@@ -16,10 +16,6 @@ Complete the render side of Phase 1 so Solder can turn fetched source workspaces
 - [x] `20260917-016-helm-renderer-supports-values-files.md` — Helm renderer
 - [x] `20260917-017-validation-rejects-unsafe-desired-state-early.md` — desired-state validation
 
-## Supporting todo tasks
-
-- [x] `.procoder/todo/20260917-task-03-implement-renderers-and-validation.md`
-
 ## Execution plan
 
 - [x] Define renderer interfaces and shared RenderInput/Result types.

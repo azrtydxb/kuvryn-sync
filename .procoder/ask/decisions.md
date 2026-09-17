@@ -1,3 +1,3 @@
 # Decisions
 
-No open decisions.
+No pending decisions.

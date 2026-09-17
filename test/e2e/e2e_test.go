@@ -20,6 +20,7 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,9 +54,13 @@ var _ = Describe("Manager", Ordered, func() {
 	// and deploying the controller.
 	BeforeAll(func() {
 		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+		cmd := exec.Command("kubectl", "create", "ns", namespace, "--dry-run=client", "-o", "yaml")
+		out, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to render namespace")
+		cmd = exec.Command("kubectl", "apply", "-f", "-")
+		cmd.Stdin = bytes.NewBufferString(out)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply namespace")
 
 		By("labeling the namespace to enforce the restricted security policy")
 		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
@@ -178,9 +183,14 @@ var _ = Describe("Manager", Ordered, func() {
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
 				"--clusterrole=solder-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
+				"--dry-run=client", "-o", "yaml",
 			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
+			out, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to render ClusterRoleBinding")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = bytes.NewBufferString(out)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply ClusterRoleBinding")
 
 			By("validating that the metrics service is available")
 			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
@@ -215,35 +225,15 @@ var _ = Describe("Manager", Ordered, func() {
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
+			_, _ = utils.Run(exec.Command(
+				"kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found=true",
+			))
+			overrides, err := metricsPodOverride(token)
+			Expect(err).NotTo(HaveOccurred())
 			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
 				"--namespace", namespace,
 				"--image=curlimages/curl:latest",
-				"--overrides",
-				fmt.Sprintf(`{
-					"spec": {
-						"containers": [{
-							"name": "curl",
-							"image": "curlimages/curl:latest",
-							"command": ["/bin/sh", "-c"],
-							"args": [
-								"for i in $(seq 1 30); do curl -v -k -H 'Authorization: Bearer %s' https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1"
-							],
-							"securityContext": {
-								"readOnlyRootFilesystem": true,
-								"allowPrivilegeEscalation": false,
-								"capabilities": {
-									"drop": ["ALL"]
-								},
-								"runAsNonRoot": true,
-								"runAsUser": 1000,
-								"seccompProfile": {
-									"type": "RuntimeDefault"
-								}
-							}
-						}],
-						"serviceAccountName": "%s"
-					}
-				}`, token, metricsServiceName, namespace, serviceAccountName))
+				"--overrides", overrides)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create curl-metrics pod")
 
@@ -268,17 +258,65 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetricsAvailable, 2*time.Minute).Should(Succeed())
 		})
 
-		// +kubebuilder:scaffold:e2e-webhooks-checks
+		It("should reconcile a GitHub-backed Solder Application end to end", func() {
+			manifestPath := writeTempManifest(productApplicationManifest)
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+			By("applying a Repository and Application that render plain YAML from Git")
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply product e2e resources")
+
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e-product", "--ignore-not-found=true"))
+			})
+
+			By("waiting for the Repository to resolve an immutable Git revision")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command(
+					"kubectl", "get", "repository", "solder-e2e-product-repo", "-o",
+					"jsonpath={.status.state}:{.status.observedRevision}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(MatchRegexp(`^Ready:[0-9a-f]{40}$`))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("waiting for the Application to become synced and healthy")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command(
+					"kubectl", "get", "application", "solder-e2e-product", "-o",
+					"jsonpath={.status.sync.state}:{.status.health.state}:{.status.desiredRevision}:{.status.deployedRevision}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				parts := utils.GetNonEmptyLines(output)
+				g.Expect(parts).To(HaveLen(1))
+				g.Expect(parts[0]).To(MatchRegexp(`^Synced:Healthy:[0-9a-f]{40}:[0-9a-f]{40}$`))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying the rendered Kubernetes object was applied")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command(
+					"kubectl", "get", "configmap", "solder-e2e-config", "-n", "solder-e2e-product", "-o",
+					"jsonpath={.data.source}:{.data.version}:{.metadata.annotations.solder\\.io/revision}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(MatchRegexp(`^github:v[0-9]+:solder-e2e-product-[0-9a-f]+$`))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying a healthy Revision was recorded")
+			cmd = exec.Command(
+				"kubectl", "get", "revision", "-l", "solder.io/application=solder-e2e-product", "-o",
+				"jsonpath={.items[0].status.phase}",
+			)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("Healthy"))
+		})
+
+		// +kubebuilder:scaffold:e2e-webhooks-checks
 	})
 })
 
@@ -323,17 +361,102 @@ func serviceAccountToken() (string, error) {
 	return out, err
 }
 
-// getMetricsOutput retrieves and returns the logs from the curl pod used to access the metrics endpoint.
+// getMetricsOutput retrieves and returns logs from the curl pod used to access the metrics endpoint.
 func getMetricsOutput() (string, error) {
 	By("getting the curl-metrics logs")
 	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 	return utils.Run(cmd)
 }
 
-// tokenRequest is a simplified representation of the Kubernetes TokenRequest API response,
-// containing only the token field that we need to extract.
+func metricsPodOverride(token string) (string, error) {
+	curlCommand := fmt.Sprintf(
+		"for i in $(seq 1 30); do curl -v -k -H 'Authorization: Bearer %s' "+
+			"https://%s.%s.svc.cluster.local:8443/metrics && exit 0 || sleep 2; done; exit 1",
+		token,
+		metricsServiceName,
+		namespace,
+	)
+	overrides := map[string]any{
+		"spec": map[string]any{
+			"serviceAccountName": serviceAccountName,
+			"containers": []map[string]any{{
+				"name":    "curl",
+				"image":   "curlimages/curl:latest",
+				"command": []string{"/bin/sh", "-c"},
+				"args":    []string{curlCommand},
+				"securityContext": map[string]any{
+					"readOnlyRootFilesystem":   true,
+					"allowPrivilegeEscalation": false,
+					"capabilities":             map[string][]string{"drop": {"ALL"}},
+					"runAsNonRoot":             true,
+					"runAsUser":                1000,
+					"seccompProfile":           map[string]string{"type": "RuntimeDefault"},
+				},
+			}},
+		},
+	}
+	out, err := json.Marshal(overrides)
+	return string(out), err
+}
+
+func writeTempManifest(content string) string {
+	file, err := os.CreateTemp("", "solder-product-e2e-*.yaml")
+	Expect(err).NotTo(HaveOccurred())
+	_, err = file.WriteString(content)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(file.Close()).To(Succeed())
+	DeferCleanup(func() { _ = os.Remove(file.Name()) })
+	return file.Name()
+}
+
+// tokenRequest is a simplified representation of the Kubernetes TokenRequest API response.
 type tokenRequest struct {
 	Status struct {
 		Token string `json:"token"`
 	} `json:"status"`
 }
+
+const productApplicationManifest = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: solder-e2e-product
+---
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: solder-e2e-product-repo
+spec:
+  type: git
+  git:
+    url: https://github.com/azrtydxb/solder-e2e-app.git
+    revision: main
+  pollInterval: 30s
+---
+apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-product
+spec:
+  source:
+    repositoryRef:
+      name: solder-e2e-product-repo
+    path: manifests
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e-product
+  sync:
+    automatic: true
+    prune: true
+    selfHeal: true
+    conflictPolicy: fail
+  strategy:
+    type: rolling
+    failurePolicy:
+      action: rollback
+      timeout: 2m
+  health:
+    timeout: 2m
+  history:
+    limit: 5
+`

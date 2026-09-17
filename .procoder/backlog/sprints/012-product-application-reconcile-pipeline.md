@@ -21,13 +21,6 @@ Wire the first real product path through `Application` reconciliation: resolve R
 - [x] `20260917-021-revision-stores-bounded-plan-summary.md` — persist product Revision plan/status
 - [x] `20260917-027-status-transitions-track-deployment-lifecycle.md` — drive honest planning lifecycle states
 
-## Supporting todo tasks
-
-- [ ] `.procoder/todo/20260917-task-03-implement-renderers-and-validation.md`
-- [ ] `.procoder/todo/20260917-task-04-implement-live-reader-and-diff-engine.md`
-- [ ] `.procoder/todo/20260917-task-05-implement-change-plan-persistence-and-cli-output.md`
-- [ ] `.procoder/todo/20260917-task-06-implement-ssa-apply-and-sync-policy.md`
-
 ## Execution plan
 
 - [x] Replace Application controller placeholder status with a real reconciliation path.
