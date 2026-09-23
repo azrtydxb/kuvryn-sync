@@ -177,9 +177,6 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 		}
 		app.Spec = desired.Spec
 		ensureDiscoveredApplicationMetadata(repository, app, configPath)
-		if r.Scheme == nil {
-			return nil
-		}
 		return controllerutil.SetControllerReference(repository, app, r.Scheme)
 	})
 	return err

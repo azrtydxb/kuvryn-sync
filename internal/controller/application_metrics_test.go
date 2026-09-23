@@ -32,8 +32,9 @@ import (
 	"github.com/azrtydxb/solder/internal/ops"
 )
 
-// The reconcile duration must cover one reconcile, not the time since the
-// reconciler was built.
+// The reconcile duration is timed inside Reconcile. The original bug lived in
+// a recorder that cmd/main.go built once at startup; that recorder no longer
+// exists, so this pins the per-reconcile timing that replaced it.
 func TestReconcileDurationIsMeasuredPerReconcile(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1alpha1.AddToScheme(scheme); err != nil {
