@@ -98,7 +98,11 @@ token. Interval scanning continues as a fallback.
 Markers may only name ImagePolicies in the Repository's namespace. Solder
 commits only when something changed, retries when the branch moved during
 the push, and reports the result in the Repository's `ImagesUpdated`
-condition. Registry requests are rate-limited per registry host and counted in
+condition (`False` with reason `Disabled` if the manager runs without image
+write-back). A policy rescans on its `interval`, when its spec or annotations
+change, and on a webhook request; a Repository re-reads its markers only when
+a policy's selected image changes. A marker with more than three
+colon-separated parts is left alone. Registry requests are rate-limited per registry host and counted in
 `solder_image_scans_total`.
 
 ## Push webhooks
@@ -135,9 +139,13 @@ the same secret: GitHub signs with it (`X-Hub-Signature-256`), GitLab sends it
 as `X-Gitlab-Token`; both are checked in constant time. A push whose payload
 names the Repository's URL stamps `solder.io/reconcile-requested-at` on the
 Repository, which triggers an immediate fetch; other events are ignored.
-Unknown Repositories get 404, bad signatures 401, and bodies over 1 MB 413.
-Each Repository may send a burst of ten requests, refilled at one request per
-second; requests beyond that get 429. All responses are counted in
+Unknown Repositories and bad signatures both get 401, so the receiver does not
+reveal which Repositories exist; bodies over 1 MB get 413 and unreadable
+bodies 400. Each remote address may send a burst of 50 requests, refilled at
+five per second, before authentication is checked; behind an ingress every
+sender shares the ingress's address. After authentication, each Repository
+may send a burst of ten requests, refilled at one request per second.
+Requests beyond either limit get 429. All responses are counted in
 `solder_webhook_receiver_requests_total`. Polling continues as a fallback.
 ImagePolicies with `spec.webhook` are served the same way at
 `/hooks/imagepolicies/<namespace>/<name>`, with their own rate limit.
@@ -204,7 +212,10 @@ spec:
 Values merge in this order, later winning: the chart's defaults,
 `valuesFiles`, each `valuesFrom` entry in order, then `values`. Charts are
 cached by repository, name, and version, and the pulled archive's sha256 is
-recorded on the Revision. Solder never uses Helm's local repository
+recorded on the Revision. `version` must be an exact SemVer version (a leading
+`v` is allowed); ranges such as `>=1.0.0` or `1.x` are refused. The cache is
+kept per namespace and per credentials, so one namespace never receives a
+private chart another namespace pulled. Solder never uses Helm's local repository
 configuration, cached credentials, or plugins. Charts pulled from a
 repository carry their dependencies; charts rendered from Git must vendor
 theirs into `charts/`.
@@ -233,12 +244,14 @@ spec:
 ```
 
 Solder decrypts each SOPS file in memory as the `yaml` and `kustomize`
-renderers read it, before Kustomize transforms anything, and verifies the
+renderers read it, and Helm `valuesFiles` as the `helm` renderer reads them, before Kustomize transforms anything, and verifies the
 SOPS MAC. Plaintext is never written to disk, plans, status, or Events. Every
 entry ending in `.agekey` is tried; only age keys are supported. The key
 Secret must carry the label, like Git credential Secrets. An encrypted file
 in an Application without `spec.decryption` fails the Revision instead of
-being applied as ciphertext. Helm values files are not decrypted.
+being applied as ciphertext. Only files a render actually reads are decrypted,
+so another team's encrypted files elsewhere in a shared repository do not
+affect this Application.
 
 ## Notifications
 
@@ -285,7 +298,9 @@ and are lost if the controller restarts. Failed deliveries emit a
 `solder_notification_deliveries_total{result="failed"}`. A missing sink or
 invalid Secret sets the Application condition `NotificationsReady=False`.
 Sinks are called from the controller's network, so restrict who can create
-NotificationSinks if internal endpoints must not be reachable.
+NotificationSinks if internal endpoints must not be reachable. Redirects are
+not followed (a 3xx counts as a failed delivery), and delivery errors never
+include the sink URL, which for Slack is itself a credential.
 
 ## Safety defaults
 

@@ -122,11 +122,16 @@ inputs:
 
 - `render.type: yaml` expects Kubernetes YAML files under the path.
 - `render.type: kustomize` expects a Kustomize root. Bases and resources must be
-  in the same repository; remote bases are not fetched.
+  in the same repository; a kustomization naming a URL or Git remote is refused
+  with the reference in the error.
 - `render.type: helm` expects a chart and optional values files inside the
   repository. Chart dependencies must be vendored into `charts/` (run
   `helm dependency build` and commit the result). `.Release.Namespace` is the
   Application's destination namespace.
-- A checkout fails if the commit contains a symlink pointing outside it.
+- A checkout fails if the commit contains a symlink, or chain of symlinks,
+  that resolves outside it, or an entry named `.solder-checkout`.
+- `render.helm.chart.version` must be an exact version; ranges are refused.
+- Without a `revision`, the remote must advertise a default branch (`HEAD`);
+  otherwise set a revision.
 
 Use `solder diagnose` and controller logs for the deterministic failure reason.

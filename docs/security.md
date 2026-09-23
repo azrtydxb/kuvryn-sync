@@ -146,9 +146,13 @@ Git, Kustomize, and Helm run in process; the controller image contains no git,
 kustomize, or helm binary and runs no subprocesses.
 
 Rendering reads the checked-out commit and, for `render.helm.chart`, the pulled
-chart. Checkouts refuse symlinks that point outside them, Kustomize builds
-against an in-memory copy of the checkout so bases outside it do not exist,
-and remote Kustomize bases are refused. Helm values files must lie inside the
+chart. Checkouts follow every symlink, including chains of links, and refuse
+the commit if any resolves outside the checkout; files are created
+exclusively, so nothing is written through a link. Kustomize builds against an
+in-memory copy of the checkout so bases outside it do not exist, and every
+remote reference a kustomization names (URLs, Git remotes, and `?ref=`
+sources, in resources, bases, components, generators, and patches) is refused
+before Kustomize can fetch it. Helm values files must lie inside the
 checkout, and charts in the checkout must vendor their dependencies. Repository
 URLs must use `https`, `http`, `ssh`, or `git`; filesystem paths are rejected.
 SSH remotes require a `known_hosts` entry in the credentials Secret, so an

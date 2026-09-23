@@ -91,8 +91,11 @@ alias):
 solder sync payments -n default --revision payments-abc123
 ```
 
-The approval is recorded under your own Kubernetes identity; see
-[Manual approval](operations.md#manual-approval).
+The command prints the Revision's plan digest and approves exactly that
+digest; if the plan changes before the request is admitted, it is refused and
+you review `solder plan` again. Running it again after an `ApprovalStale`
+Event re-approves the new plan. The approval is recorded under your own
+Kubernetes identity; see [Manual approval](operations.md#manual-approval).
 
 Request rollback to the latest healthy Revision:
 

@@ -14,6 +14,35 @@
 - The Helm chart's `image.tag` now defaults to `v<appVersion>`, the image of
   the chart's own release. The chart passes manager flags older images do not
   have, so do not pair it with an earlier release's image.
+- **Breaking:** Kustomize renders refuse remote resources, bases, components,
+  and generator or patch files (URLs, Git remotes, `?ref=` sources). Before,
+  the documentation said they were not fetched, but Kustomize fetched `http(s)`
+  resources from the controller with no timeout or size limit.
+- **Breaking:** `render.helm.chart.version` must be an exact version. Ranges
+  were downloaded once and then served from cache forever.
+- **Breaking:** webhook receiver responses for unknown objects are now 401,
+  like bad signatures, and callers are rate limited per remote address before
+  authentication.
+- Helm `valuesFiles` may be SOPS-encrypted. An encrypted values file without
+  `spec.decryption` now fails the render instead of being merged as ciphertext.
+- `solder approve` shows the plan digest and approves exactly that digest by
+  sending `solder.io/approve-digest`; the webhook refuses it if the plan has
+  changed and never stores it. Re-approving the same Revision after its
+  approval went stale now works.
+- Fixed: a chain of symlinks in a commit could resolve outside the checkout
+  and let the checkout marker be written through it.
+- Fixed: cached chart archives were shared across namespaces and credentials,
+  so a namespace without credentials could render another namespace's private
+  chart.
+- Fixed: Kustomize decrypted every file in the repository, so another team's
+  encrypted files broke unrelated Applications.
+- Fixed: image write-back was never enabled in the shipped manager, and
+  ImagePolicies rescanned in a loop because their own status writes triggered
+  new scans.
+- Fixed: notification delivery errors could include the sink URL, which for
+  Slack is the credential, in Events; redirects are no longer followed.
+- Fixed: Docker config keys such as `ghcr.io/` or
+  `https://index.docker.io/v1/` did not match their registry.
 - RBAC denials while reading, applying, or pruning fail the Revision with
   reason `Forbidden`. Kinds the service account may not list are skipped by
   pruning and reported with a `PruneInventoryIncomplete` Warning Event.
