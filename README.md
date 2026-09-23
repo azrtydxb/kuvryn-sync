@@ -13,14 +13,22 @@ not a platform bundle: no Redis, PostgreSQL, broker, or mandatory UI.
 
 Solder focuses on the product path that matters for day-two operations:
 
-- `Repository` CRDs resolve Git branches, tags, or commits with Secret-backed auth.
-- `Application` CRDs render manifests, Kustomize, or Helm charts from Git.
-- One or more `.solder.yaml` files can declare Applications inside the same Git repo.
-- Server-Side Apply is used for mutations; ownership conflicts fail by default.
-- Sync state and health state are tracked separately.
+- `Repository` CRDs resolve Git branches, tags, or commits with Secret-backed auth,
+  and can fetch immediately on signed GitHub or GitLab push webhooks.
+- `Application` CRDs render manifests, Kustomize, or Helm charts from Git or
+  from Helm/OCI chart repositories, in process, with SOPS decryption.
+- Each Application applies as its own service account, so Kubernetes RBAC
+  decides what it may change.
+- Manual approvals are recorded against the authenticated approver and bound
+  to the exact plan they approved; lifecycle notifications go to webhook or
+  Slack sinks.
+- Health, pruning, and drift work for any kind, with CEL `HealthCheck` rules
+  for kinds kstatus cannot judge.
+- Rollouts can be ordered with `dependsOn`, sync waves, and pre/post-sync hooks.
+- `ImagePolicy` scans registries and commits new image digests back to Git.
+- Server-Side Apply is used for mutations; ownership conflicts fail by default,
+  and `adopt` takes fields over deliberately when migrating from Flux or Argo CD.
 - `Revision` CRDs keep bounded, redacted, auditable plan and rollout history.
-- Drift detection, self-heal, pruning, rollback, retry protection, Events,
-  Prometheus metrics, and optional tracing are built into the controller path.
 
 > Status: alpha (`solder.io/v1alpha1`). The MVP is functional and covered by
 > controller, CLI, contract, and product-path e2e tests, but the API may still

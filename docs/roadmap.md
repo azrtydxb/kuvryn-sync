@@ -23,10 +23,6 @@ OCI desired-state bundles can be added as another Repository source type with im
 
 Policy, signature, SBOM, and provenance checks should run after render/plan and before apply. They must consume redacted plan and provenance data and must not require exposing Secret values.
 
-## Notifications and webhooks
-
-Notification sinks are optional integrations. They should consume bounded lifecycle events and status, not become a required broker.
-
 ## AI explanations
 
 AI remains an optional explanation layer over redacted plans, health, graph, drift, and diagnosis. It must not be required for reconciliation and must never receive Secret values by default.
