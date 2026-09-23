@@ -43,6 +43,25 @@
   Slack is the credential, in Events; redirects are no longer followed.
 - Fixed: Docker config keys such as `ghcr.io/` or
   `https://index.docker.io/v1/` did not match their registry.
+- **Breaking:** the approval digest now hashes the redacted plan, so plans
+  awaiting approval at upgrade show a new digest and must be approved again.
+- **Breaking:** unknown `solder.io/hook` or Argo CD hook values fail the
+  Revision with `ValidationFailure`; before, they were applied as ordinary
+  objects. Helm delete and rollback hooks, and Argo CD `Skip`, `SyncFail`,
+  `PreDelete`, and `PostDelete` hooks, are no longer applied; `solder.io/hook:
+skip` is new.
+- One manual approval covers every hook and wave of a Revision's rollout
+  while the desired state is unchanged; the approval records
+  `desiredStateHash`. Revisions carry a `RolloutComplete` condition.
+- Fixed: with `selfHeal: false`, drift was reverted on the reconcile after it
+  was reported.
+- Fixed: a rollout paused by a dependency, approval wait, or failure was
+  treated as drift, and its remaining waves were never applied.
+- Fixed: a succeeded hook deleted by `ttlSecondsAfterFinished` was re-run, and
+  a missing object counted as Healthy.
+- Fixed: `DeploymentStarted` was emitted on every observation requeue.
+- Fixed: when Solder and another manager shared a field, the conflict could go
+  unreported until apply failed.
 - RBAC denials while reading, applying, or pruning fail the Revision with
   reason `Forbidden`. Kinds the service account may not list are skipped by
   pruning and reported with a `PruneInventoryIncomplete` Warning Event.

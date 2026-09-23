@@ -27,8 +27,13 @@ applicable.
 ## Manual approval
 
 With `spec.sync.automatic: false`, Solder plans each Revision and waits. To
-approve, set the Application annotation `solder.io/approved-revision` to the
-Revision name, with `solder approve` or `kubectl annotate`. Anyone allowed to
+approve, run `solder approve`, which shows the plan digest and approves exactly
+that plan. With `kubectl annotate`, set the Application annotation
+`solder.io/approved-revision` to the Revision name and, to bind the approval
+to the plan you reviewed, `solder.io/approve-digest` to its
+`status.plan.digest`; the webhook refuses the request if the plan has changed
+since, and never stores `approve-digest`. Setting it again re-approves the same
+Revision. Anyone allowed to
 update the Application can approve; use RBAC to decide who that is.
 
 Solder's admission webhook then records, from the authenticated request:
@@ -41,13 +46,19 @@ Solder's admission webhook then records, from the authenticated request:
 These annotations cannot be set or edited by hand: the webhook overwrites them
 on every change. Applications discovered from `.solder.yaml` never carry
 approvals from Git. Solder applies only when the approved Revision's current
-plan digest still matches; if desired or live state changed after approval,
-the Revision returns to AwaitingApproval with an `ApprovalStale` Event and must
-be approved again. The applied Revision keeps the record in
+plan digest still matches; if desired or live state changed before the
+rollout started, the Revision returns to AwaitingApproval with an
+`ApprovalStale` Event and must be approved again. Once the rollout starts, one
+approval covers all of that Revision's hooks and waves, as long as the desired
+state stays the one approved; a changed desired state, or a later rollout of
+the same Revision (for example self-heal), needs a fresh approval. The applied Revision keeps the record in
 `status.approval`, and `solder history -o json` exports it.
 
 The webhook fails closed: while the controller is unavailable, Applications
-cannot be created or updated.
+cannot be created or updated. With `ENABLE_WEBHOOKS=false` nothing verifies
+the approval annotations, anyone who can update an Application can forge
+them, and the manager says so at startup; do not disable webhooks where
+approvals matter.
 
 ## Image automation
 
@@ -176,13 +187,24 @@ metadata:
 
 Helm's `pre-install`/`pre-upgrade` and `post-install`/`post-upgrade` hooks and
 Argo CD's `PreSync`/`PostSync` hooks and `sync-wave` annotations are honoured
-the same way, which eases migrations; Helm test hooks are never applied.
+the same way, which eases migrations. Objects that must never be applied
+during a sync are skipped: `solder.io/hook: skip`, Helm test, delete, and
+rollback hooks, and Argo CD `Skip`, `SyncFail`, `PreDelete`, and `PostDelete`
+hooks. Argo CD `Sync` objects apply as ordinary objects. An unknown
+`solder.io/hook` or Argo CD hook value fails the Revision with
+`ValidationFailure` rather than being applied.
 
 A hook that fails (a failed Job, or a `Stalled` resource) fails the Revision
 with reason `HookFailed`, naming the hook, and later groups are not applied.
-The Revision's `status.hooks` lists each hook with its stage and state. Hook
-objects are kept after they finish so their logs stay available, and are
-deleted and run again when the next Revision syncs.
+The Revision's `status.hooks` lists each hook with its stage and state. A hook
+runs once per rollout: a hook that succeeded is not run again, or reported as
+drift, even after `ttlSecondsAfterFinished` deletes it; a hook deleted while
+still running fails the Revision; a failed hook runs again when the Revision
+is retried. Hook objects are kept after they finish so their logs stay
+available, and are deleted and run again when the next Revision syncs. A
+rollout paused by a dependency, an approval, or a failure resumes where it
+stopped; the Revision's `RolloutComplete` condition turns `True` once every
+group is Healthy.
 
 ## Helm charts from repositories
 

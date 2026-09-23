@@ -320,18 +320,18 @@ Set exactly one of `semver`, `tagPattern`, or `digest`.
 
 ### Status fields
 
-| Field                                     | Description                                                                                                                           |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `status.phase`                            | `Pending`, `Planning`, `AwaitingApproval`, `Applying`, `Observing`, `Healthy`, `Failed`, `RollingBack`, `RolledBack`, or `Cancelled`. |
-| `status.startedAt` / `status.completedAt` | Attempt timing.                                                                                                                       |
-| `status.attempts`                         | Retry-loop protection counter.                                                                                                        |
-| `status.plan`                             | Bounded, redacted plan summary.                                                                                                       |
-| `status.health`                           | Bounded resource health summary.                                                                                                      |
-| `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                    |
-| `status.approval`                         | Audit record of a manual approval: `approvedBy`, `approvedAt`, `planDigest`.                                                          |
-| `status.plan.digest`                      | Digest of the desired state and full redacted plan; approvals bind to it.                                                             |
-| `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                    |
-| `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                |
+| Field                                     | Description                                                                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status.phase`                            | `Pending`, `Planning`, `AwaitingApproval`, `Applying`, `Observing`, `Healthy`, `Failed`, `RollingBack`, `RolledBack`, or `Cancelled`.                 |
+| `status.startedAt` / `status.completedAt` | Attempt timing.                                                                                                                                       |
+| `status.attempts`                         | Retry-loop protection counter.                                                                                                                        |
+| `status.plan`                             | Bounded, redacted plan summary.                                                                                                                       |
+| `status.health`                           | Bounded resource health summary.                                                                                                                      |
+| `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                                    |
+| `status.approval`                         | Audit record of a manual approval: `approvedBy`, `approvedAt`, `planDigest`, and `desiredStateHash`, which lets one approval cover the whole rollout. |
+| `status.plan.digest`                      | Digest of the desired state and full redacted plan; approvals bind to it.                                                                             |
+| `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                                    |
+| `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                                |
 
 ## Invariants
 

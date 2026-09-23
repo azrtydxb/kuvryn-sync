@@ -118,6 +118,9 @@ represented in the plan before mutation.
 
 Solder can detect live drift by comparing normalized live state to desired state.
 When `selfHeal` is enabled, drift is corrected through the same plan/apply path.
+When it is off, drift is only reported (`Drifted`): the edit is left in place,
+even when it took over a field Solder manages, the Revision stays Healthy, and
+undoing the edit returns the Application to Synced without a new rollout.
 
 Solder notices drift immediately for kinds it watches: ConfigMaps, Secrets,
 Services, Deployments, StatefulSets, and DaemonSets, plus any managed kind the
