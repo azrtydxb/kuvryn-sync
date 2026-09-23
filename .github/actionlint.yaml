@@ -1,0 +1,7 @@
+# The kw and novanas ARC scale sets (internal-lab AGENTS.md). Each runner carries exactly one label.
+self-hosted-runner:
+  labels:
+    - arc-azrtydxb
+    - arc-azrtydxb-publish
+    - arc-azrtydxb-amd64
+    - arc-azrtydxb-amd64-publish
