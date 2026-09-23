@@ -19,8 +19,9 @@ spec:
   syncPolicy: {automated: {prune: true, selfHeal: true}, syncOptions: [CreateNamespace=true]}
 Y
 for i in $(seq 1 100); do
-  s=$($K -n argocd get application fixture -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || true)
-  [ "$s" = Synced/Healthy ] && break; sleep 3
+	s=$($K -n argocd get application fixture -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || true)
+	[ "$s" = Synced/Healthy ] && break
+	sleep 3
 done
 echo "argo cd: $s"
 uid_before=$($K -n solder-e2e get configmap solder-e2e-config -o jsonpath='{.metadata.uid}')
