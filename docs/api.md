@@ -232,6 +232,76 @@ that errors or exceeds it reports the object as Progressing with reason
 `HealthCheckFailed`, holding the rollout rather than passing it. Use `has()` to
 guard fields that may be absent.
 
+## NotificationSink
+
+`NotificationSink` is a namespaced destination for Application lifecycle
+notifications. Applications in the same namespace reference it from
+`spec.notifications[].sinkRef`; see
+[Notifications](operations.md#notifications).
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: NotificationSink
+metadata:
+  name: audit
+spec:
+  type: webhook
+  secretRef:
+    name: audit-webhook
+```
+
+| Field                 | Description                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `spec.type`           | `webhook` (a JSON body signed with HMAC-SHA256) or `slack` (a Slack incoming webhook).                                |
+| `spec.secretRef.name` | Secret in the sink's namespace holding `url`, which must be `https`, and, for `webhook` sinks, `hmacKey` for signing. |
+
+NotificationSink has no status. A missing sink or invalid Secret is reported on
+the Application as `NotificationsReady=False`.
+
+## ImagePolicy
+
+`ImagePolicy` scans an image repository and selects the image to run; see
+[Image automation](operations.md#image-automation).
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: ImagePolicy
+metadata:
+  name: api
+spec:
+  image: ghcr.io/acme/api
+  interval: 5m
+  policy:
+    semver:
+      range: ">=1.2.0 <2.0.0"
+```
+
+### Spec fields
+
+| Field                          | Description                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `spec.image`                   | Image repository to scan, such as `ghcr.io/acme/api`.                                                |
+| `spec.secretRef.name`          | Optional `kubernetes.io/dockerconfigjson` Secret, labelled `solder.io/registry-credentials: "true"`. |
+| `spec.interval`                | How often the registry is scanned. Defaults to `5m`.                                                 |
+| `spec.policy.semver.range`     | Select the highest tag within a semver constraint, such as `>=1.2.0 <2.0.0`.                         |
+| `spec.policy.tagPattern.regex` | Select the last tag matching a regular expression.                                                   |
+| `spec.policy.tagPattern.order` | `alphabetical` (default) or `numerical`, by the first capture group or the whole tag.                |
+| `spec.policy.digest.tag`       | Follow the current digest of one fixed tag, such as `main`.                                          |
+| `spec.webhook.secretRef.name`  | Optional Secret whose `token` authenticates requests to `/hooks/imagepolicies/<namespace>/<name>`.   |
+
+Set exactly one of `semver`, `tagPattern`, or `digest`.
+
+### Status fields
+
+| Field                       | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| `status.latestTag`          | Selected tag.                                         |
+| `status.latestDigest`       | Manifest digest of the selected tag.                  |
+| `status.latestImage`        | Immutable reference, `image:tag@digest`.              |
+| `status.lastScannedAt`      | When the registry was last read successfully.         |
+| `status.observedGeneration` | Latest `metadata.generation` processed.               |
+| `status.conditions`         | Kubernetes Conditions; `Ready` reports the selection. |
+
 ## Revision
 
 `Revision` records an auditable deployment attempt.
