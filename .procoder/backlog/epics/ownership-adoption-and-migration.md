@@ -1,6 +1,6 @@
 # Ownership adoption and migration
 
-Status: open
+Status: done 2026-09-23
 Created: 2026-09-23
 Milestone: v0-4-ecosystem-parity
 
