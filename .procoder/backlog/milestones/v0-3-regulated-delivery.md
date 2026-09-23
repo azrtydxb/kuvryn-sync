@@ -1,6 +1,6 @@
 # v0.3 Regulated delivery
 
-Status: open
+Status: done 2026-09-23
 Created: 2026-09-23
 
 ## Goal
