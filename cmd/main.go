@@ -46,6 +46,7 @@ import (
 	"github.com/azrtydxb/solder/internal/cli"
 	"github.com/azrtydxb/solder/internal/controller"
 	"github.com/azrtydxb/solder/internal/impersonate"
+	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
 	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -218,6 +219,11 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "repository")
 		os.Exit(1)
 	}
+	notifier := notify.NewDispatcher(nil, 1000)
+	if err := mgr.Add(notifier); err != nil {
+		setupLog.Error(err, "Failed to add notification dispatcher")
+		os.Exit(1)
+	}
 	if err := (&controller.ApplicationReconciler{
 		Client:  mgr.GetClient(),
 		Scheme:  mgr.GetScheme(),
@@ -229,6 +235,7 @@ func main() {
 		}),
 		DefaultServiceAccount: defaultServiceAccount,
 		DriftResyncInterval:   driftResyncInterval,
+		Notifier:              notifier,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "application")
 		os.Exit(1)

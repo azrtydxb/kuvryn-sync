@@ -49,4 +49,12 @@ resources:
   webhooks:
     validation: true
     webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: solder.io
+  group: core
+  kind: NotificationSink
+  path: github.com/azrtydxb/solder/api/v1alpha1
+  version: v1alpha1
 version: "3"

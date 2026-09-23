@@ -21,7 +21,7 @@ rules:
     resources: ["daemonsets", "deployments", "statefulsets"]
     verbs: ["list", "watch"]
   - apiGroups: ["solder.io"]
-    resources: ["healthchecks"]
+    resources: ["healthchecks", "notificationsinks"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["solder.io"]
     resources: ["applications", "repositories", "revisions"]

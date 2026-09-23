@@ -1,0 +1,11 @@
+apiVersion: solder.io/v1alpha1
+kind: NotificationSink
+metadata:
+  labels:
+    app.kubernetes.io/name: solder
+    app.kubernetes.io/managed-by: kustomize
+  name: platform-slack
+spec:
+  type: slack
+  secretRef:
+    name: platform-slack-webhook

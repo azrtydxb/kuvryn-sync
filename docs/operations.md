@@ -49,6 +49,53 @@ be approved again. The applied Revision keeps the record in
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated.
 
+## Notifications
+
+Applications can send lifecycle notifications to a `NotificationSink` in their
+namespace. A sink reads its destination from a Secret: `url` (https only) and,
+for `type: webhook`, `hmacKey`.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audit-webhook
+stringData:
+  url: https://audit.example.com/solder
+  hmacKey: <random shared key>
+---
+apiVersion: solder.io/v1alpha1
+kind: NotificationSink
+metadata:
+  name: audit
+spec:
+  type: webhook # or slack, for a Slack incoming webhook URL
+  secretRef:
+    name: audit-webhook
+---
+# On the Application:
+spec:
+  notifications:
+    - sinkRef:
+        name: audit
+      events: [AwaitingApproval, Healthy, Failed, RolledBack]
+```
+
+Each event fires once per transition, not on every reconcile. Webhook bodies
+are JSON with the Application, Revision, source revision, redacted message,
+plan summary, and, for `AwaitingApproval`, the `solder approve` command; the
+`X-Solder-Signature` header is `sha256=` plus the hex HMAC-SHA256 of the body
+with `hmacKey`. Slack sinks receive a short text message.
+
+Delivery is best effort and never blocks reconciliation: notifications wait
+in a bounded in-memory queue, are retried up to three times with backoff, and
+are lost if the controller restarts. Failed deliveries emit a
+`NotificationFailed` Warning Event and count in
+`solder_notification_deliveries_total{result="failed"}`. A missing sink or
+invalid Secret sets the Application condition `NotificationsReady=False`.
+Sinks are called from the controller's network, so restrict who can create
+NotificationSinks if internal endpoints must not be reachable.
+
 ## Safety defaults
 
 - Server-Side Apply conflicts fail by default.

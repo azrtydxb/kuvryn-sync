@@ -99,6 +99,49 @@ spec:
                       minimum: 1
                       type: integer
                   type: object
+                notifications:
+                  description: |-
+                    notifications sends lifecycle notifications to NotificationSinks in the
+                    Application namespace.
+                  items:
+                    description:
+                      NotificationSubscription sends selected events to one
+                      NotificationSink.
+                    properties:
+                      events:
+                        description: events selects which lifecycle events are sent.
+                        items:
+                          description:
+                            NotificationEvent is an Application lifecycle
+                            event that can be notified.
+                          enum:
+                            - AwaitingApproval
+                            - Healthy
+                            - Failed
+                            - RolledBack
+                          type: string
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
+                      sinkRef:
+                        description:
+                          sinkRef names a NotificationSink in the Application
+                          namespace.
+                        properties:
+                          name:
+                            description: name is the referenced object name.
+                            minLength: 1
+                            type: string
+                        required:
+                          - name
+                        type: object
+                    required:
+                      - events
+                      - sinkRef
+                    type: object
+                  maxItems: 8
+                  type: array
+                  x-kubernetes-list-type: atomic
                 serviceAccountName:
                   description: |-
                     serviceAccountName is the service account in the Application namespace

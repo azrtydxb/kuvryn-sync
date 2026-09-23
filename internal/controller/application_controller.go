@@ -23,8 +23,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -51,6 +53,7 @@ import (
 	"github.com/azrtydxb/solder/internal/history"
 	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/live"
+	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
 	"github.com/azrtydxb/solder/internal/ordering"
 	"github.com/azrtydxb/solder/internal/planner"
@@ -98,6 +101,8 @@ type ApplicationReconciler struct {
 	// DriftResyncInterval re-checks Applications that manage kinds the
 	// controller may not watch. Zero disables the resync.
 	DriftResyncInterval time.Duration
+	// Notifier delivers lifecycle notifications; nil disables them.
+	Notifier *notify.Dispatcher
 
 	watches *driftWatches
 }
@@ -111,6 +116,7 @@ type ApplicationReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
 // +kubebuilder:rbac:groups=solder.io,resources=healthchecks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=solder.io,resources=notificationsinks,verbs=get;list;watch
 // Managed resources are read and changed as the Application's service account;
 // the controller itself only watches their metadata to notice drift.
 // +kubebuilder:rbac:groups="",resources=configmaps;services;secrets,verbs=list;watch
@@ -227,6 +233,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	metricPhase = revision.Status.Phase
+	// previousPhase is the persisted phase, so notifications fire only on
+	// transitions rather than on every reconcile of a steady state.
+	previousPhase := revision.Status.Phase
 	if blocked := retryBlocked(application, revision); blocked != nil {
 		return ctrl.Result{}, r.reportRetryBlocked(ctx, application, revision, *blocked)
 	}
@@ -311,7 +320,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		application.Status.ManagedKinds = managedKinds(objectKinds(rendered))
-		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced"); err != nil {
+		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
+		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Application already synced", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
@@ -331,6 +341,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	approval, stale := manualApproval(application, revision)
 	if !application.Spec.Sync.Automatic && approval == nil {
 		status.AwaitApproval(revision, application)
+		if previousPhase != corev1alpha1.RevisionPhaseAwaitingApproval {
+			r.notify(ctx, application, revision, corev1alpha1.NotificationAwaitingApproval, "Application plan is awaiting approval")
+		}
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -818,7 +831,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, r.Status().Update(ctx, application)
 	}
-	if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application deployment is healthy"); err != nil {
+	if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application deployment is healthy", true); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.applyHistoryRetention(ctx, application); err != nil {
@@ -827,7 +840,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	return ctrl.Result{}, nil
 }
 
-func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, healthyMessage string) error {
+func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, healthyMessage string, transition bool) error {
 	status.CompleteHealthy(revision, application, metav1.Now())
 	if application.GetAnnotations()["solder.io/rollback-revision"] != "" {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRolledBack
@@ -839,8 +852,14 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 			return err
 		}
 		r.event(application, corev1.EventTypeNormal, "RollbackCompleted", "Application rollback completed")
+		if transition {
+			r.notify(ctx, application, revision, corev1alpha1.NotificationRolledBack, "Application rollback completed")
+		}
 	} else {
 		r.event(application, corev1.EventTypeNormal, "DeploymentHealthy", healthyMessage)
+		if transition {
+			r.notify(ctx, application, revision, corev1alpha1.NotificationHealthy, healthyMessage)
+		}
 	}
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
@@ -892,6 +911,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 		revision.Status.Failure = &corev1alpha1.RevisionFailure{Reason: "RollbackFailed", Message: "No previous healthy Revision is available for rollback", Retryable: false}
 	}
 	r.event(application, corev1.EventTypeWarning, failure.Reason, failure.Message)
+	r.notify(ctx, application, revision, corev1alpha1.NotificationFailed, failure.Reason+": "+failure.Message)
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
@@ -1030,4 +1050,62 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	r.watches = newDriftWatches(built, mgr.GetCache(), r.Client, recheck)
 	return nil
+}
+
+// notify queues a lifecycle notification for every sink subscribed to the
+// event and records whether all subscribed sinks are usable. Misconfigured or
+// failing sinks never block or fail reconciliation.
+func (r *ApplicationReconciler) notify(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, event corev1alpha1.NotificationEvent, message string) {
+	if len(application.Spec.Notifications) == 0 {
+		return
+	}
+	condition := metav1.Condition{Type: "NotificationsReady", Status: metav1.ConditionTrue, Reason: "SinksReady", Message: "Notification sinks are configured", ObservedGeneration: application.Generation}
+	for _, subscription := range application.Spec.Notifications {
+		target, err := r.notificationTarget(ctx, application.Namespace, subscription.SinkRef.Name)
+		if err != nil {
+			condition.Status, condition.Reason = metav1.ConditionFalse, "SinkInvalid"
+			condition.Message = safeMessage(err, "A notification sink is invalid")
+			continue
+		}
+		if r.Notifier == nil || !slices.Contains(subscription.Events, event) {
+			continue
+		}
+		msg := notify.Message{
+			Event: event, Application: application.Name, Namespace: application.Namespace,
+			Revision: revision.Name, SourceRevision: revision.Spec.Source.Revision,
+			Message: redact.String(message), Plan: revision.Status.Plan.Summary, Time: time.Now().UTC(),
+		}
+		if event == corev1alpha1.NotificationAwaitingApproval {
+			msg.ApproveCommand = fmt.Sprintf("solder approve %s -n %s --revision %s", application.Name, application.Namespace, revision.Name)
+		}
+		failed := application.DeepCopy()
+		sink := subscription.SinkRef.Name
+		if !r.Notifier.Enqueue(notify.Delivery{Target: target, Message: msg, OnFailure: func(err error) {
+			r.event(failed, corev1.EventTypeWarning, "NotificationFailed", fmt.Sprintf("Notification to sink %s failed: %s", sink, safeMessage(err, "delivery failed")))
+		}}) {
+			r.event(application, corev1.EventTypeWarning, "NotificationDropped", fmt.Sprintf("Notification to sink %s was dropped: the queue is full", sink))
+		}
+	}
+	apimeta.SetStatusCondition(&application.Status.Conditions, condition)
+}
+
+// notificationTarget resolves a NotificationSink and its Secret.
+func (r *ApplicationReconciler) notificationTarget(ctx context.Context, namespace, name string) (notify.Target, error) {
+	sink := &corev1alpha1.NotificationSink{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, sink); err != nil {
+		return notify.Target{}, fmt.Errorf("NotificationSink %s: %w", name, err)
+	}
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: sink.Spec.SecretRef.Name}, secret); err != nil {
+		return notify.Target{}, fmt.Errorf("NotificationSink %s secret: %w", name, err)
+	}
+	target := notify.Target{Type: sink.Spec.Type, URL: string(secret.Data["url"]), HMACKey: string(secret.Data["hmacKey"])}
+	parsed, err := url.Parse(target.URL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return notify.Target{}, fmt.Errorf("NotificationSink %s secret must hold an https url", name)
+	}
+	if target.Type == corev1alpha1.NotificationSinkWebhook && target.HMACKey == "" {
+		return notify.Target{}, fmt.Errorf("NotificationSink %s secret must hold an hmacKey for webhook signing", name)
+	}
+	return target, nil
 }

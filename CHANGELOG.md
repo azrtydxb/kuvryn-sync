@@ -17,6 +17,12 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Lifecycle notifications: the new `NotificationSink` API (HMAC-signed
+  webhook or Slack, destination in a Secret) and `spec.notifications` on
+  Applications send `AwaitingApproval` (with the approve command), `Healthy`,
+  `Failed`, and `RolledBack` once per transition. Delivery is queued, retried,
+  and never blocks reconciliation; misconfiguration shows as the
+  `NotificationsReady` condition.
 - Fixed: the labels and annotation Solder stamps on applied objects were
   planned as drift on the next reconcile, so every Application re-applied
   forever and manual approvals went stale immediately after applying.

@@ -67,6 +67,37 @@ type ApplicationSpec struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// notifications sends lifecycle notifications to NotificationSinks in the
+	// Application namespace.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	Notifications []NotificationSubscription `json:"notifications,omitempty"`
+}
+
+// NotificationEvent is an Application lifecycle event that can be notified.
+// +kubebuilder:validation:Enum=AwaitingApproval;Healthy;Failed;RolledBack
+type NotificationEvent string
+
+const (
+	// NotificationAwaitingApproval fires when a plan needs manual approval.
+	NotificationAwaitingApproval NotificationEvent = "AwaitingApproval"
+	// NotificationHealthy fires when a deployment becomes healthy.
+	NotificationHealthy NotificationEvent = "Healthy"
+	// NotificationFailed fires when a Revision fails.
+	NotificationFailed NotificationEvent = "Failed"
+	// NotificationRolledBack fires when a rollback completes.
+	NotificationRolledBack NotificationEvent = "RolledBack"
+)
+
+// NotificationSubscription sends selected events to one NotificationSink.
+type NotificationSubscription struct {
+	// sinkRef names a NotificationSink in the Application namespace.
+	SinkRef LocalObjectReference `json:"sinkRef"`
+	// events selects which lifecycle events are sent.
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	Events []NotificationEvent `json:"events"`
 }
 
 // ApplicationSource selects the desired state to render.

@@ -78,6 +78,7 @@ rules:
       - solder.io
     resources:
       - healthchecks
+      - notificationsinks
     verbs:
       - get
       - list
