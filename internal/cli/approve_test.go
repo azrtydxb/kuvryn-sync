@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 )
@@ -36,13 +37,36 @@ func approvalClient(t *testing.T, digest string) client.Client {
 }
 
 func TestApproveSendsTheDigestShownToTheApprover(t *testing.T) {
-	c := approvalClient(t, "digest-reviewed")
+	var patches []string
+	c := interceptor.NewClient(approvalClient(t, "digest-reviewed").(client.WithWatch), interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			body, err := patch.Data(obj)
+			if err != nil {
+				return err
+			}
+			patches = append(patches, string(body))
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
 	var stdout bytes.Buffer
 	if err := approve(context.Background(), c, "default", "payments", "payments-abc", &stdout); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), "digest-reviewed") {
 		t.Fatalf("the approver was not shown the plan digest: %s", stdout.String())
+	}
+	if len(patches) != 1 {
+		t.Fatalf("sent %d patches, want both annotations in one: %v", len(patches), patches)
+	}
+	for _, want := range []string{corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApproveDigestAnnotation, "digest-reviewed"} {
+		if !strings.Contains(patches[0], want) {
+			t.Fatalf("patch %s does not carry %s", patches[0], want)
+		}
+	}
+	for _, recorded := range []string{corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation} {
+		if strings.Contains(patches[0], recorded) {
+			t.Fatalf("CLI patch sets %s, which only the admission webhook may record", recorded)
+		}
 	}
 	app := &corev1alpha1.Application{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, app); err != nil {

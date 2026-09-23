@@ -10,8 +10,6 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/redact"
-	"github.com/azrtydxb/solder/internal/syncpolicy"
-	"sigs.k8s.io/yaml"
 )
 
 // RenderApplications renders core Application read output from CRD objects.
@@ -32,44 +30,6 @@ func RenderRepositories(repos []corev1alpha1.Repository) string {
 		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", repo.Name, repo.Spec.Type, repo.Status.State, repo.Status.ObservedRevision)
 	}
 	return b.String()
-}
-
-// MutationPatch is a public-API patch emitted by a safe mutation command.
-type MutationPatch struct {
-	Resource string `json:"resource"`
-	Name     string `json:"name"`
-	Patch    string `json:"patch"`
-}
-
-// BuildSyncPatch validates exact approval and returns a public CRD merge
-// patch that approves the plan with the given digest. The digest must be the
-// one shown to the approver, so a plan that changed since is not approved.
-func BuildSyncPatch(app corev1alpha1.Application, plannedRevision, approvedRevision, planDigest string) (MutationPatch, error) {
-	if err := syncpolicy.CheckApproval(plannedRevision, syncpolicy.Approval{Revision: approvedRevision}); err != nil {
-		return MutationPatch{}, err
-	}
-	if planDigest == "" {
-		return MutationPatch{}, fmt.Errorf("an approval needs the plan digest that was reviewed")
-	}
-	patch := map[string]any{"metadata": map[string]any{"annotations": map[string]string{
-		corev1alpha1.ApprovedRevisionAnnotation: approvedRevision,
-		corev1alpha1.ApproveDigestAnnotation:    planDigest,
-	}}}
-	b, err := yaml.Marshal(patch)
-	if err != nil {
-		return MutationPatch{}, err
-	}
-	return MutationPatch{Resource: "applications.solder.io", Name: app.Name, Patch: string(b)}, nil
-}
-
-// BuildSuspendPatch returns a public CRD merge patch to suspend or resume an Application.
-func BuildSuspendPatch(app corev1alpha1.Application, suspend bool) (MutationPatch, error) {
-	patch := map[string]any{"spec": map[string]bool{"suspend": suspend}}
-	b, err := yaml.Marshal(patch)
-	if err != nil {
-		return MutationPatch{}, err
-	}
-	return MutationPatch{Resource: "applications.solder.io", Name: app.Name, Patch: string(b)}, nil
 }
 
 // HistoryEntry is the audit export of one Revision.

@@ -21,27 +21,6 @@ func TestRenderCoreReadCommands(t *testing.T) {
 	}
 }
 
-func TestMutationPatchesAreSafeAndExact(t *testing.T) {
-	app := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}
-	if _, err := BuildSyncPatch(app, "rev-a", "rev-b", "digest-a"); err == nil {
-		t.Fatal("stale approval accepted")
-	}
-	patch, err := BuildSyncPatch(app, "rev-a", "rev-a", "digest-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if patch.Resource != "applications.solder.io" || !strings.Contains(patch.Patch, "solder.io/approved-revision") {
-		t.Fatalf("unexpected sync patch: %#v", patch)
-	}
-	patch, err = BuildSuspendPatch(app, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(patch.Patch, "suspend: true") {
-		t.Fatalf("unexpected suspend patch: %#v", patch)
-	}
-}
-
 func TestRenderHistoryJSONExportsApprovalsAndRedacts(t *testing.T) {
 	approvedAt := metav1.NewTime(time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC))
 	older := corev1alpha1.Revision{
@@ -82,17 +61,5 @@ func TestRenderHistoryJSONExportsApprovalsAndRedacts(t *testing.T) {
 	}
 	if entries[0].FailureReason != "ApplyFailure" {
 		t.Fatalf("failed entry = %#v", entries[0])
-	}
-}
-
-func TestSyncPatchCarriesOnlyTheApprovedRevision(t *testing.T) {
-	patch, err := BuildSyncPatch(corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}, "rev-a", "rev-a", "digest-a")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, recorded := range []string{corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation} {
-		if strings.Contains(patch.Patch, recorded) {
-			t.Fatalf("CLI patch sets %s, which only the admission webhook may record", recorded)
-		}
 	}
 }

@@ -1035,10 +1035,6 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	// the same deployment carrying on.
 	resuming := progress.state == rolloutInProgress && progress.previousPhase != corev1alpha1.RevisionPhaseFailed
 	status.StartApplying(revision, application, metav1.Now())
-	if err := syncpolicy.EnsureMutationAllowed(*application, revision.Status.Phase); err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "ApplyBlocked", Message: safeMessage(err, "Application is not allowed to apply"), Retryable: false}
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
-	}
 	setRolloutComplete(revision, false)
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return ctrl.Result{}, err
