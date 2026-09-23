@@ -53,19 +53,23 @@ Start with:
 
 ## Quickstart
 
-Solder's admission webhook gets its certificate from
+Solder's admission webhooks get their certificate from
 [cert-manager](https://cert-manager.io), so install that first, then the CRDs
-and the controller:
+and the controller. Run this from a checkout of a release tag: the chart
+deploys the image of its own release (`v<appVersion>`), and a chart from one
+release does not work with another release's image.
 
 ```sh
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 kubectl -n cert-manager rollout status deployment/cert-manager-webhook
+# The webhook Deployment is ready before it serves; wait until an Issuer is admitted.
+until printf 'apiVersion: cert-manager.io/v1\nkind: Issuer\nmetadata: {name: probe, namespace: cert-manager}\nspec: {selfSigned: {}}\n' |
+  kubectl apply --dry-run=server -f - >/dev/null 2>&1; do sleep 2; done
 kubectl apply -f config/crd/bases
 helm upgrade --install solder charts/solder \
   --namespace solder-system \
-  --create-namespace \
-  --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.11
+  --create-namespace
+kubectl -n solder-system rollout status deployment/solder-solder
 ```
 
 Create a Git source:

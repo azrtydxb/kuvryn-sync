@@ -11,6 +11,9 @@
   `solder.io/git-credentials: "true"`. Previously a Repository author could
   point `secretRef` at any Secret in the namespace and a Git URL they control,
   and Solder would send that Secret to it.
+- The Helm chart's `image.tag` now defaults to `v<appVersion>`, the image of
+  the chart's own release. The chart passes manager flags older images do not
+  have, so do not pair it with an earlier release's image.
 - RBAC denials while reading, applying, or pruning fail the Revision with
   reason `Forbidden`. Kinds the service account may not list are skipped by
   pruning and reported with a `PruneInventoryIncomplete` Warning Event.

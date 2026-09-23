@@ -24,23 +24,27 @@ Install cert-manager if the cluster does not have it, then the CRDs:
 ```sh
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 kubectl -n cert-manager rollout status deployment/cert-manager-webhook
+# The webhook Deployment is ready before it serves; wait until an Issuer is admitted.
+until printf 'apiVersion: cert-manager.io/v1\nkind: Issuer\nmetadata: {name: probe, namespace: cert-manager}\nspec: {selfSigned: {}}\n' |
+  kubectl apply --dry-run=server -f - >/dev/null 2>&1; do sleep 2; done
 kubectl apply -f config/crd/bases
 ```
 
-Deploy with Helm and the published image:
+Deploy with Helm. The chart deploys the published image of its own release
+(`v<appVersion>` from `charts/solder/Chart.yaml`), so run this from a checkout
+of a release tag:
 
 ```sh
 helm upgrade --install solder charts/solder \
   --namespace solder-system \
-  --create-namespace \
-  --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.11
+  --create-namespace
 ```
 
-Wait for the manager:
+Wait for the manager. The chart names its resources `<release>-solder`, so
+the release `solder` runs as `deployment/solder-solder`:
 
 ```sh
-kubectl -n solder-system rollout status deployment/solder-controller-manager
+kubectl -n solder-system rollout status deployment/solder-solder
 ```
 
 ## 2. Register a Git repository
@@ -135,10 +139,10 @@ subjects:
     namespace: default
 ```
 
-Applications you create directly set `spec.serviceAccountName:
-payments-deployer`; Applications declared in `.solder.yaml` (next step) take it
-from the Repository. Alternatively,
-install Solder with `--set defaultServiceAccount=<name>`; Solder then uses the
+Applications you create directly set
+`spec.serviceAccountName: payments-deployer`; Applications declared in
+`.solder.yaml` (next step) take it from the Repository. Alternatively, install
+Solder with `--set defaultServiceAccount=<name>`; Solder then uses the
 service account of that name in each Application's namespace. Applications
 without a service account are refused. The `admin` role cannot create
 Namespace objects, so rendered Namespaces fail as `Forbidden` unless you grant

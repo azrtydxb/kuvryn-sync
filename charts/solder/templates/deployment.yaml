@@ -17,7 +17,7 @@ spec:
       serviceAccountName: {{ include "solder.fullname" . }}
       containers:
         - name: manager
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --leader-elect={{ .Values.leaderElection }}

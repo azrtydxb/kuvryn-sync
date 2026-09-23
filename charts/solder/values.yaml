@@ -1,6 +1,9 @@
 image:
   repository: ghcr.io/azrtydxb/solder
-  tag: v0.1.11
+  # Defaults to v<appVersion> from Chart.yaml. The chart passes flags that
+  # only the image of the same release understands, so override this only
+  # with an image built from the same commit.
+  tag: ""
   pullPolicy: IfNotPresent
 
 replicaCount: 2
