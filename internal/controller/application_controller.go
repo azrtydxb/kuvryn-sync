@@ -104,12 +104,10 @@ type ApplicationReconciler struct {
 // +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
-// +kubebuilder:rbac:groups="",resources=configmaps;services;secrets;persistentvolumeclaims;serviceaccounts;namespaces,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
+// Managed resources are read and changed as the Application's service account;
+// the controller itself only watches their metadata to notice drift.
+// +kubebuilder:rbac:groups="",resources=configmaps;services;secrets,verbs=list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=list;watch
 
 // Reconcile resolves, renders, validates, plans, applies approved changes, and observes health.
 func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reconcileErr error) {
@@ -233,7 +231,10 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	defaultDestinationNamespace(rendered, application.Spec.Destination.Namespace)
+	if err := defaultDestinationNamespace(rendered, application.Spec.Destination.Namespace, resource.NewScopes(r.RESTMapper(), rendered)); err != nil {
+		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered resource scope could not be resolved"), Retryable: true}
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+	}
 	if desiredHash, err := desiredStateHash(rendered); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Desired state could not be fingerprinted"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -825,31 +826,25 @@ func (r *ApplicationReconciler) planLimit() int {
 	return defaultPlanResourceLimit
 }
 
-func defaultDestinationNamespace(objects []unstructured.Unstructured, namespace string) {
+// defaultDestinationNamespace places namespaced objects without a namespace in
+// the destination namespace, leaving cluster-scoped objects untouched.
+func defaultDestinationNamespace(objects []unstructured.Unstructured, namespace string, scopes resource.Scopes) error {
 	if namespace == "" {
-		return
+		return nil
 	}
 	for i := range objects {
-		if objects[i].GetNamespace() == "" && !isKnownClusterScoped(objects[i]) {
+		if objects[i].GetNamespace() != "" {
+			continue
+		}
+		namespaced, err := scopes.Namespaced(objects[i])
+		if err != nil {
+			return err
+		}
+		if namespaced {
 			objects[i].SetNamespace(namespace)
 		}
 	}
-}
-
-func isKnownClusterScoped(obj unstructured.Unstructured) bool {
-	if obj.GetAPIVersion() == "v1" {
-		switch obj.GetKind() {
-		case "Namespace", "Node", "PersistentVolume":
-			return true
-		}
-	}
-	if strings.HasPrefix(obj.GetAPIVersion(), "rbac.authorization.k8s.io/") {
-		switch obj.GetKind() {
-		case "ClusterRole", "ClusterRoleBinding":
-			return true
-		}
-	}
-	return strings.EqualFold(obj.GetKind(), "CustomResourceDefinition")
+	return nil
 }
 
 func failureReason(err error, fallback string) string {
@@ -909,12 +904,12 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Application{}).
 		Watches(&corev1alpha1.Repository{}, handler.EnqueueRequestsFromMapFunc(r.applicationsForRepository)).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
-		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
-		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
-		Watches(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
-		Watches(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
+		WatchesMetadata(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		Named("application").
 		Complete(r)
 }

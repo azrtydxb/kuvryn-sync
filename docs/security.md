@@ -75,9 +75,11 @@ subjects:
     namespace: default
 ```
 
-Until the controller role is narrowed, `config/rbac/role.yaml` still grants
-broad write access. Beyond its CRDs, Events, and Git-auth Secrets, Solder now
-also needs `impersonate` on service accounts.
+The controller's own role cannot change managed resources at all. It may
+manage Solder's CRDs, record Events, read Git-auth Secrets, impersonate
+service accounts, and list and watch the metadata of the kinds it watches for
+drift. Secrets are never cached by the controller. Review
+`config/rbac/role.yaml`; the Helm chart role is kept identical to it by a test.
 
 ## Supply chain
 

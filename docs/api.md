@@ -146,22 +146,22 @@ spec:
 
 ### Policy fields
 
-| Field                                     | Description                                                     |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| `spec.serviceAccountName`                 | Service account Solder impersonates for this Application.       |
-| `spec.destination.namespace`              | Default namespace for namespaced desired resources.             |
-| `spec.sync.automatic`                     | Apply approved plans automatically.                             |
-| `spec.sync.prune`                         | Delete previously managed resources removed from desired state. |
-| `spec.sync.selfHeal`                      | Correct managed live drift.                                     |
-| `spec.sync.conflictPolicy`                | SSA conflict behavior. `v1alpha1` supports `fail`.              |
-| `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.     |
-| `spec.strategy.failurePolicy.action`      | Failure action such as rollback.                                |
-| `spec.strategy.failurePolicy.timeout`     | Bounds failure/health observation.                              |
-| `spec.strategy.failurePolicy.maxAttempts` | Retry-loop protection.                                          |
-| `spec.health.timeout`                     | Health observation timeout.                                     |
-| `spec.history.limit`                      | Maximum retained Revisions.                                     |
-| `spec.deletionPolicy`                     | `Orphan` or `DeleteManagedResources`.                           |
-| `spec.suspend`                            | Stop mutations while retaining status.                          |
+| Field                                     | Description                                                                                                                                                                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec.serviceAccountName`                 | Service account Solder impersonates for this Application.                                                                                                                                                                              |
+| `spec.destination.namespace`              | Namespace for namespaced desired resources: objects without one are placed there, objects naming another are rejected. Cluster-scoped kinds, including CRD kinds rendered alongside their CustomResourceDefinition, keep no namespace. |
+| `spec.sync.automatic`                     | Apply approved plans automatically.                                                                                                                                                                                                    |
+| `spec.sync.prune`                         | Delete previously managed resources removed from desired state.                                                                                                                                                                        |
+| `spec.sync.selfHeal`                      | Correct managed live drift.                                                                                                                                                                                                            |
+| `spec.sync.conflictPolicy`                | SSA conflict behavior. `v1alpha1` supports `fail`.                                                                                                                                                                                     |
+| `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.                                                                                                                                                                            |
+| `spec.strategy.failurePolicy.action`      | Failure action such as rollback.                                                                                                                                                                                                       |
+| `spec.strategy.failurePolicy.timeout`     | Bounds failure/health observation.                                                                                                                                                                                                     |
+| `spec.strategy.failurePolicy.maxAttempts` | Retry-loop protection.                                                                                                                                                                                                                 |
+| `spec.health.timeout`                     | Health observation timeout.                                                                                                                                                                                                            |
+| `spec.history.limit`                      | Maximum retained Revisions.                                                                                                                                                                                                            |
+| `spec.deletionPolicy`                     | `Orphan` or `DeleteManagedResources`.                                                                                                                                                                                                  |
+| `spec.suspend`                            | Stop mutations while retaining status.                                                                                                                                                                                                 |
 
 ### Status fields
 

@@ -17,6 +17,18 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Rendered objects without a namespace are placed in `destination.namespace`
+  only when the cluster (or a CustomResourceDefinition rendered alongside
+  them) says their kind is namespaced. Previously any cluster-scoped kind
+  outside a short built-in list, such as StorageClass, was given the
+  destination namespace. Kinds the cluster does not know fail with a
+  retryable `ValidationFailure`.
+- The controller ClusterRole no longer grants any write access to managed
+  resources, RBAC objects, or CRDs; it keeps list/watch on the kinds it
+  watches for drift. Those watches are metadata-only and Secrets are read
+  uncached, so Secret contents are never held in controller memory. The Helm
+  chart role now matches the generated role (it previously lacked the
+  permissions the watches need).
 - `status.serviceAccountName` and the `solder apps` output show the
   impersonated service account.
 - The controller role gains `impersonate` on service accounts.

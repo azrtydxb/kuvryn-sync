@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -35,8 +36,12 @@ func TestDesiredRejectsMissingMetadata(t *testing.T) {
 
 func TestDesiredRejectsDestinationNamespaceViolation(t *testing.T) {
 	objects := []unstructured.Unstructured{object("v1", "ConfigMap", "other", "runtime")}
-	if err := Desired(objects, Options{DestinationNamespace: "payments"}); err == nil {
+	err := Desired(objects, Options{DestinationNamespace: "payments"})
+	if err == nil {
 		t.Fatal("expected namespace violation")
+	}
+	if !strings.Contains(err.Error(), "other/runtime") {
+		t.Fatalf("violation does not name the object: %v", err)
 	}
 }
 
