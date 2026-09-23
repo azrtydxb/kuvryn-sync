@@ -46,6 +46,7 @@ rules:
       - solder.io
     resources:
       - applications
+      - imagepolicies
       - repositories
       - revisions
     verbs:
@@ -60,6 +61,7 @@ rules:
       - solder.io
     resources:
       - applications/finalizers
+      - imagepolicies/finalizers
       - repositories/finalizers
       - revisions/finalizers
     verbs:
@@ -68,6 +70,7 @@ rules:
       - solder.io
     resources:
       - applications/status
+      - imagepolicies/status
       - repositories/status
       - revisions/status
     verbs:

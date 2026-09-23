@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 10:13 UTC. procoder reads this
+Written 2026-09-23 10:44 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -57,6 +57,18 @@ Answer: (2026-09-23) In-process for all three: kustomize/api (krusty), the Helm 
 Key: How drift on non-built-in kinds is detected
 
 Answer: (2026-09-23) Opt-in watches: watch a kind only when the controller has list/watch on it (SelfSubjectAccessReview); otherwise re-check drift on a periodic resync interval.
+
+## (no longer asked)
+
+Key: Image automation API shape
+
+Answer: (2026-09-23) Compact: ImagePolicy plus Repository.spec.imageUpdate.
+
+## (no longer asked)
+
+Key: Image reference markers in Git
+
+Answer: (2026-09-23) Flux-compatible setter comments.
 
 ## (no longer asked)
 
@@ -129,6 +141,12 @@ Answer: (2026-09-23) Cluster-scoped HealthCheck CRD.
 Key: Where image automation sits in the backlog
 
 Answer: (2026-09-23) v0.3 Regulated delivery, as its own epic.
+
+## (no longer asked)
+
+Key: Where image bumps are pushed
+
+Answer: (2026-09-23) A configurable branch (default: the Repository's branch); no PR integration.
 
 ## (no longer asked)
 

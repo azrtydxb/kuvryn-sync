@@ -17,6 +17,10 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- New `ImagePolicy` API: scans an OCI registry (with pull credentials from a
+  Secret labelled `solder.io/registry-credentials: "true"`) and selects an
+  image by semver range, tag pattern, or a fixed tag's digest, recording
+  `image:tag@digest` in status. Registry requests are rate-limited per host.
 - Push webhook receiver (`--webhook-receiver-bind-address`, Helm
   `webhookReceiver.enabled`): signed GitHub pushes and token-authenticated
   GitLab pushes for a Repository with `spec.webhook` trigger an immediate

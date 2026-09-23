@@ -45,6 +45,7 @@ import (
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/cli"
 	"github.com/azrtydxb/solder/internal/controller"
+	"github.com/azrtydxb/solder/internal/imagepolicy"
 	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
@@ -270,6 +271,14 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Application")
 			os.Exit(1)
 		}
+	}
+	if err := (&controller.ImagePolicyReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Registry: &imagepolicy.Registry{},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "imagepolicy")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 

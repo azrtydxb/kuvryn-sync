@@ -5,4 +5,5 @@ resources:
   - core_v1alpha1_revision.yaml
   - core_v1alpha1_healthcheck.yaml
   - core_v1alpha1_notificationsink.yaml
+  - core_v1alpha1_imagepolicy.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
