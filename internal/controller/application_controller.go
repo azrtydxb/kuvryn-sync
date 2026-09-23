@@ -579,7 +579,7 @@ func (r *ApplicationReconciler) pullChart(ctx context.Context, namespace string,
 	if root == "" {
 		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
 	}
-	return helmrenderer.Pull(filepath.Join(root, "charts"), src)
+	return helmrenderer.Pull(filepath.Join(root, "charts"), namespace, src)
 }
 
 // helmValues merges valuesFrom, in order, then inline values, reading

@@ -74,7 +74,7 @@ func TestPullFromHTTPRepositoryCachesAndRenders(t *testing.T) {
 
 	cache := t.TempDir()
 	src := ChartSource{Repository: server.URL, Name: "app", Version: "0.1.0", Username: "robot", Password: "pw", PlainHTTP: true}
-	path, digest, err := Pull(cache, src)
+	path, digest, err := Pull(cache, "payments", src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +82,18 @@ func TestPullFromHTTPRepositoryCachesAndRenders(t *testing.T) {
 		t.Fatalf("digest = %s, want %s", digest, sha(archive))
 	}
 	served := requests.Load()
-	if _, again, err := Pull(cache, src); err != nil || again != digest || requests.Load() != served {
+	if _, again, err := Pull(cache, "payments", src); err != nil || again != digest || requests.Load() != served {
 		t.Fatalf("second pull was not served from cache: %v, %d requests", err, requests.Load()-served)
+	}
+
+	// The cached archive belongs to these credentials in this namespace.
+	anonymous := src
+	anonymous.Username, anonymous.Password = "", ""
+	if _, _, err := Pull(cache, "payments", anonymous); err == nil {
+		t.Fatal("a pull without credentials was served the private chart from cache")
+	}
+	if _, _, err := Pull(cache, "other", src); err != nil || requests.Load() == served {
+		t.Fatalf("another namespace was served from cache: %v", err)
 	}
 
 	objects, err := Renderer{}.Render(context.Background(), renderer.Input{
@@ -97,11 +107,20 @@ func TestPullFromHTTPRepositoryCachesAndRenders(t *testing.T) {
 		t.Fatalf("objects = %#v", objects)
 	}
 
-	if _, _, err := Pull(t.TempDir(), ChartSource{Repository: server.URL, Name: "app", Version: "0.1.0", Username: "robot", Password: "wrong", PlainHTTP: true}); err == nil {
+	if _, _, err := Pull(t.TempDir(), "payments", ChartSource{Repository: server.URL, Name: "app", Version: "0.1.0", Username: "robot", Password: "wrong", PlainHTTP: true}); err == nil {
 		t.Fatal("pulled with wrong credentials")
 	}
-	if _, _, err := Pull(t.TempDir(), ChartSource{Repository: "http://charts.example.com", Name: "app", Version: "0.1.0"}); err == nil || !strings.Contains(err.Error(), "https") {
+	if _, _, err := Pull(t.TempDir(), "payments", ChartSource{Repository: "http://charts.example.com", Name: "app", Version: "0.1.0"}); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Fatalf("plain http repository: %v", err)
+	}
+}
+
+func TestPullRefusesVersionRanges(t *testing.T) {
+	for _, version := range []string{">=1.0.0", "^1.2.0", "~1.2", "1.x", "1.0", "1.0.0 || 2.0.0"} {
+		_, _, err := Pull(t.TempDir(), "payments", ChartSource{Repository: "https://charts.example.com", Name: "app", Version: version})
+		if err == nil || !strings.Contains(err.Error(), "exact semantic version") {
+			t.Fatalf("version %q: err = %v", version, err)
+		}
 	}
 }
 
@@ -115,7 +134,7 @@ func TestPullFromOCIRegistry(t *testing.T) {
 	}
 	registry.PushArtifact("charts/app", "0.1.0", "application/vnd.cncf.helm.config.v1+json", config, "application/vnd.cncf.helm.chart.content.v1.tar+gzip", archive)
 
-	_, digest, err := Pull(t.TempDir(), ChartSource{Repository: "oci://" + registry.Host() + "/charts", Name: "app", Version: "0.1.0", Username: "robot", Password: "pw", PlainHTTP: true})
+	_, digest, err := Pull(t.TempDir(), "payments", ChartSource{Repository: "oci://" + registry.Host() + "/charts", Name: "app", Version: "0.1.0", Username: "robot", Password: "pw", PlainHTTP: true})
 	if err != nil {
 		t.Fatal(err)
 	}

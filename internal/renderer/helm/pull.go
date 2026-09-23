@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Masterminds/semver/v3"
 	"helm.sh/helm/v4/pkg/action"
 	"helm.sh/helm/v4/pkg/cli"
 	"helm.sh/helm/v4/pkg/registry"
@@ -30,15 +31,24 @@ type ChartSource struct {
 
 var pullLocks sync.Map
 
-// Pull downloads a pinned chart archive into cacheDir, reusing an earlier
-// download of the same repository, name, and version, and returns the
+// Pull downloads a pinned chart archive into cacheDir for an Application in
+// namespace, reusing an earlier download of the same repository, name, and
+// version only for the same namespace and credentials, and returns the
 // archive path and its sha256 digest. Helm's user configuration, cached
 // credentials, and plugins are never used.
-func Pull(cacheDir string, src ChartSource) (string, string, error) {
+func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 	if !src.PlainHTTP && !strings.HasPrefix(src.Repository, "https://") && !strings.HasPrefix(src.Repository, "oci://") {
 		return "", "", fmt.Errorf("chart repository must use https:// or oci://")
 	}
-	sum := sha256.Sum256([]byte(src.Repository + "\x00" + src.Name + "\x00" + src.Version))
+	// Helm reads the version as a constraint, and a cached range would never
+	// pick up a newer match. Charts such as cert-manager's use a v prefix.
+	if _, err := semver.StrictNewVersion(strings.TrimPrefix(src.Version, "v")); err != nil {
+		return "", "", fmt.Errorf("chart version %q must be an exact semantic version, not a range: %w", src.Version, err)
+	}
+	// A private chart pulled with one namespace's credentials must never be
+	// served to another namespace, or to a pull without those credentials.
+	credentials := sha256.Sum256([]byte(src.Username + "\x00" + src.Password))
+	sum := sha256.Sum256([]byte(src.Repository + "\x00" + src.Name + "\x00" + src.Version + "\x00" + namespace + "\x00" + hex.EncodeToString(credentials[:])))
 	dest := filepath.Join(cacheDir, hex.EncodeToString(sum[:]))
 	lock, _ := pullLocks.LoadOrStore(dest, &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
