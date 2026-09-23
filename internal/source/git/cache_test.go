@@ -427,3 +427,22 @@ func TestCacheKeepsSymlinkChainsAndDanglingLinksInside(t *testing.T) {
 		t.Fatalf("a/app.yaml = %q, %v", content, err)
 	}
 }
+
+func TestCacheDoesNotGuessADetachedRemoteHEAD(t *testing.T) {
+	dir := t.TempDir()
+	// master is also the local cache's own HEAD, so falling back to it
+	// would quietly deploy the wrong commit.
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.Master}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: ConfigMap\n"}, nil)
+	commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: Secret\n"}, nil)
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, first)); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := NewCache(filepath.Join(t.TempDir(), "cache")).Resolve(context.Background(), source.GitRepository{URL: filepath.Join(dir, ".git")})
+	if err == nil && resolved.Revision != first.String() {
+		t.Fatalf("revision = %s, want the detached HEAD %s or an error", resolved.Revision, first)
+	}
+}

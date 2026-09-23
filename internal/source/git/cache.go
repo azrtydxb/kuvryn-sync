@@ -225,9 +225,19 @@ func (c *Cache) resolve(ctx context.Context, repo *gogit.Repository, auth transp
 			return "", classifyGitError(err, "Could not list Git remote")
 		}
 		for _, ref := range refs {
-			if ref.Name() == plumbing.HEAD && ref.Type() == plumbing.SymbolicReference {
-				revision = ref.Target().String()
+			if ref.Name() != plumbing.HEAD {
+				continue
 			}
+			// A remote with a detached HEAD advertises the commit itself.
+			if ref.Type() == plumbing.HashReference {
+				return ref.Hash().String(), nil
+			}
+			revision = ref.Target().String()
+		}
+		// Never fall back to the local cache's own HEAD, which names a branch
+		// the remote may not use as its default.
+		if revision == defaultRevision {
+			return "", classified(source.FailureReasonSourceFailure, "Git remote does not advertise a default branch; set a revision", nil)
 		}
 	}
 	hash, err := repo.ResolveRevision(plumbing.Revision(revision))
