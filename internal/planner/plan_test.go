@@ -211,6 +211,40 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 	}
 }
 
+func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
+	// Both managers applied the same value, so both own data.value; solder is
+	// listed last so a single-owner map would lose the other manager.
+	live := cm("shared", "live")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("kubectl", `{"f:data":{"f:value":{}}}`),
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{cm("shared", "desired")}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts := plan.RevisionPlan(10).Resources[0].Conflicts
+	if len(conflicts) != 1 || conflicts[0].Path != "data.value" || conflicts[0].Manager != "kubectl" {
+		t.Fatalf("conflicts = %#v, want one on data.value with kubectl", conflicts)
+	}
+
+	// A field Solder shares is still Solder's: dropping it is a change.
+	removed := cm("shared", "live")
+	_ = unstructured.SetNestedField(removed.Object, "old", "data", "removed")
+	removed.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`),
+		managedBy("kubectl", `{"f:data":{"f:removed":{}}}`),
+	})
+	plan, err = Build([]unstructured.Unstructured{cm("shared", "live")}, []unstructured.Unstructured{removed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := plan.RevisionPlan(10).Resources[0].Changes
+	if len(fields) != 1 || fields[0].Path != "data.removed" {
+		t.Fatalf("changes = %#v, want the removal of data.removed", fields)
+	}
+}
+
 func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
 	deployment := func(image string, extra map[string]any) unstructured.Unstructured {
 		container := map[string]any{"name": "api", "image": image}

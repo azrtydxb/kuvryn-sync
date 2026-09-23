@@ -3,6 +3,7 @@ package planner
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -137,7 +138,7 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 		if _, declared := df[path]; declared {
 			continue
 		}
-		if manager, owned := owners.owner(path); owned && manager == solderFieldManager {
+		if slices.Contains(owners[path], solderFieldManager) {
 			paths[path] = struct{}{}
 		}
 	}
@@ -236,29 +237,30 @@ func deleteWarnings(obj unstructured.Unstructured) []string {
 }
 
 // detectConflicts reports changed fields another field manager owns, which
-// Server-Side Apply would refuse without force.
+// Server-Side Apply would refuse without force. A field Solder shares with
+// other managers conflicts with each of them.
 func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanFieldChange) []corev1alpha1.PlanConflict {
 	owners := fieldOwners(live)
 	conflicts := []corev1alpha1.PlanConflict{}
 	for _, field := range fields {
-		manager, owned := owners.owner(field.Path)
-		if !owned || manager == solderFieldManager {
-			continue
+		for _, manager := range owners[field.Path] {
+			if manager == solderFieldManager {
+				continue
+			}
+			conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})
 		}
-		conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})
 	}
 	return conflicts
 }
 
-// ownership maps field paths, in the planner's flattened notation, to the
-// field manager that owns them. List items, which managedFields identify by
-// key (k:), value (v:), or index (i:), are resolved against the live object.
-type ownership struct {
-	fields map[string]string
-}
+// ownership maps field paths, in the planner's flattened notation, to every
+// field manager that owns them, sorted. List items, which managedFields
+// identify by key (k:), value (v:), or index (i:), are resolved against the
+// live object.
+type ownership map[string][]string
 
 func fieldOwners(live unstructured.Unstructured) ownership {
-	o := ownership{fields: map[string]string{}}
+	o := ownership{}
 	for _, managed := range live.GetManagedFields() {
 		if managed.Manager == "" || managed.FieldsV1 == nil {
 			continue
@@ -268,6 +270,10 @@ func fieldOwners(live unstructured.Unstructured) ownership {
 			continue
 		}
 		o.walk(tree, "", live.Object, managed.Manager)
+	}
+	for path, managers := range o {
+		slices.Sort(managers)
+		o[path] = slices.Compact(managers)
 	}
 	return o
 }
@@ -284,7 +290,7 @@ func (o ownership) walk(node map[string]any, prefix string, liveValue any, manag
 			continue
 		}
 		if len(child) == 0 || (len(child) == 1 && child["."] != nil) {
-			o.fields[path] = manager
+			o[path] = append(o[path], manager)
 			continue
 		}
 		o.walk(child, path, childLive, manager)
@@ -342,11 +348,6 @@ func matchesKey(entry, fields map[string]any) bool {
 		}
 	}
 	return true
-}
-
-func (o ownership) owner(path string) (string, bool) {
-	manager, ok := o.fields[path]
-	return manager, ok
 }
 
 // RevisionPlan converts a plan to the bounded API status representation.
