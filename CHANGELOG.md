@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: the Git source cache was never cleaned. Every commit Solder rendered
+  stayed checked out on disk forever. Each replica now prunes, every hour,
+  checkouts no Revision or Repository refers to and clones of deleted
+  Repositories.
+- Fixed: the Repository and Application controllers each used their own cache
+  instance over the same directory, so two fetches of one repository could
+  write the same clone at once. They now share one cache and its locks.
+- Tracing works: with `OTEL_EXPORTER_OTLP_ENDPOINT` set, the manager exports a
+  span per Application reconcile over OTLP gRPC, configured by the exporter's
+  `OTEL_*` variables. Before, nothing installed a tracer provider, so the documented
+  tracing produced nothing. Span errors are redacted like status messages. The
+  Helm chart gains `extraEnv` to pass the variables.
+
 ## 0.2.0
 
 _Each Application now applies as its own service account, and Solder reaches

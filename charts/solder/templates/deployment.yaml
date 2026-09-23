@@ -46,6 +46,10 @@ spec:
             - name: receiver
               containerPort: 9292
             {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:

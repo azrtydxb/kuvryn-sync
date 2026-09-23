@@ -394,14 +394,39 @@ leaderElection: true
 Use at least two replicas for controller availability, while remembering that
 only the elected leader reconciles at any moment.
 
+## Source cache
+
+Each replica keeps a bare clone of every Repository and a checkout of every
+commit it renders, under `/tmp/solder-source-cache` (an `emptyDir` in the
+chart). Every hour it removes checkouts that no Revision or Repository still
+refers to, and clones of Repositories that no longer exist, once they have gone
+unused for an hour. Checkouts for Revisions kept by history retention stay, so
+the cache grows with `spec.history` and the number of Repositories, not with
+every commit ever rendered. Size the volume for that.
+
 ## Metrics and tracing
 
 Solder registers Prometheus collectors with bounded labels for reconciliation,
 plans, sync results, and health. Expose metrics using the generated service and
 your cluster's monitoring stack.
 
-An optional OpenTelemetry tracing seam exists for environments that configure a
-tracer provider. Tracing must not include Secret values.
+Tracing is off by default. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) on the manager and Solder exports an
+`Application/Reconcile` span for every Application reconcile over OTLP gRPC;
+HTTP/protobuf export is not supported. The OTLP gRPC exporter's variables apply,
+such as `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_INSECURE`, as do
+`OTEL_SERVICE_NAME` (default `solder`) and `OTEL_RESOURCE_ATTRIBUTES`;
+`OTEL_SDK_DISABLED=true` turns tracing off again. Export failures are logged by
+the manager. With Helm, pass the variables through `extraEnv`:
+
+```yaml
+extraEnv:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://otel-collector.observability:4317
+```
+
+A span records the reconcile's error, redacted like status messages, and does
+not name the Application.
 
 ## Repository-driven Application discovery
 

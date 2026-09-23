@@ -48,3 +48,9 @@ Entry shape (unindented in real entries):
 - Class: taste
 - Missed by: rubric
 - Adaptation: REVIEW.md now asks for every copied comment to be re-read against the file it lands in.
+
+## 2026-09-23 Copilot review of PR #6 — prune stopped at the first checkout it could not remove
+
+- Class: mechanical
+- Missed by: rubric
+- Adaptation: REVIEW.md now asks for every instance of a fixed pattern to be fixed; the pre-PR review had flagged the outer loop only. `TestPruneKeepsGoingPastACheckoutItCannotRemove` pins the inner loop.

@@ -34,6 +34,8 @@ Check every hunk for:
   runners reach the internal network.
 - Comments copied into several files: re-read each copy against the file
   it now sits in; a claim true for one workflow is often false for the next.
+- A fix for a finding: search the diff for every other instance of the same
+  pattern (the same loop shape, the same early return) and fix those too.
 - Prose and markdown: code spans unbroken, lists formatted, wording that
   says what the code actually does.
 
