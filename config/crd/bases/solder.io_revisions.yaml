@@ -12,478 +12,518 @@ spec:
     listKind: RevisionList
     plural: revisions
     shortNames:
-    - rev
-    - revs
+      - rev
+      - revs
     singular: revision
   scope: Namespaced
   versions:
-  - additionalPrinterColumns:
-    - jsonPath: .status.phase
-      name: Phase
-      type: string
-    - jsonPath: .spec.applicationRef.name
-      name: Application
-      type: string
-    - jsonPath: .spec.source.revision
-      name: Revision
-      type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: Revision is an auditable, bounded record of one deployment attempt.
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: spec defines immutable deployment attempt identity.
-            properties:
-              applicationRef:
-                description: applicationRef references the Application that owns this
-                  deployment attempt.
-                properties:
-                  name:
-                    description: name is the referenced object name.
-                    minLength: 1
-                    type: string
-                required:
-                - name
-                type: object
-              desiredStateHash:
-                description: desiredStateHash is a deterministic fingerprint of rendered
-                  desired state.
-                type: string
-              provenance:
-                description: |-
-                  provenance optionally links this desired-state change to build artifacts
-                  and pipeline runs without coupling Solder to a specific CI system.
-                properties:
-                  artifact:
-                    description: artifact identifies the immutable artifact promoted
-                      into desired state.
+    - additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .spec.applicationRef.name
+          name: Application
+          type: string
+        - jsonPath: .spec.source.revision
+          name: Revision
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: Revision is an auditable, bounded record of one deployment attempt.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines immutable deployment attempt identity.
+              properties:
+                applicationRef:
+                  description:
+                    applicationRef references the Application that owns this
+                    deployment attempt.
+                  properties:
+                    name:
+                      description: name is the referenced object name.
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                  type: object
+                desiredStateHash:
+                  description:
+                    desiredStateHash is a deterministic fingerprint of rendered
+                    desired state.
+                  type: string
+                provenance:
+                  description: |-
+                    provenance optionally links this desired-state change to build artifacts
+                    and pipeline runs without coupling Solder to a specific CI system.
+                  properties:
+                    artifact:
+                      description:
+                        artifact identifies the immutable artifact promoted
+                        into desired state.
+                      properties:
+                        digest:
+                          type: string
+                        type:
+                          type: string
+                        uri:
+                          type: string
+                      type: object
+                    pipeline:
+                      description:
+                        pipeline identifies the pipeline run that promoted
+                        desired state.
+                      properties:
+                        provider:
+                          type: string
+                        run:
+                          type: string
+                      type: object
+                    source:
+                      description:
+                        source identifies the product source that produced
+                        the artifact.
+                      properties:
+                        repository:
+                          type: string
+                        revision:
+                          type: string
+                      type: object
+                  type: object
+                source:
+                  description:
+                    source records the exact desired-state source used for
+                    this attempt.
+                  properties:
+                    path:
+                      description:
+                        path is the repository-relative path rendered for
+                        this Revision.
+                      type: string
+                    render:
+                      description:
+                        render records the render configuration used for
+                        this Revision.
+                      properties:
+                        helm:
+                          description: helm configures Helm rendering when type is helm.
+                          properties:
+                            releaseName:
+                              description:
+                                releaseName is the Helm release name used
+                                for template rendering.
+                              type: string
+                            valuesFiles:
+                              description:
+                                valuesFiles are repository-relative values
+                                files.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          type: object
+                        type:
+                          description: type identifies the renderer.
+                          enum:
+                            - yaml
+                            - kustomize
+                            - helm
+                          type: string
+                      required:
+                        - type
+                      type: object
+                    repositoryRef:
+                      description:
+                        repositoryRef references the Repository used for
+                        this Revision.
+                      properties:
+                        name:
+                          description: name is the referenced object name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                    revision:
+                      description:
+                        revision is the resolved source revision, usually
+                        a full Git commit SHA.
+                      minLength: 1
+                      type: string
+                  required:
+                    - render
+                    - repositoryRef
+                    - revision
+                  type: object
+              required:
+                - applicationRef
+                - source
+              type: object
+            status:
+              description: status defines observed lifecycle, plan, and health state.
+              properties:
+                attempts:
+                  description:
+                    attempts counts reconciliation attempts for retry-loop
+                    protection.
+                  format: int32
+                  minimum: 0
+                  type: integer
+                completedAt:
+                  description:
+                    completedAt records when this Revision reached a terminal
+                    phase.
+                  format: date-time
+                  type: string
+                conditions:
+                  description:
+                    conditions represent the current state of the Revision
+                    resource.
+                  items:
+                    description:
+                      Condition contains details for one aspect of the current
+                      state of this API Resource.
                     properties:
-                      digest:
+                      lastTransitionTime:
+                        description: |-
+                          lastTransitionTime is the last time the condition transitioned from one status to another.
+                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: |-
+                          message is a human readable message indicating details about the transition.
+                          This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: |-
+                          observedGeneration represents the .metadata.generation that the condition was set based upon.
+                          For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                          with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: |-
+                          reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                          Producers of specific condition types may define expected values and meanings for this field,
+                          and whether the values are considered a guaranteed API.
+                          The value should be a CamelCase string.
+                          This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
                         type: string
                       type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                         type: string
-                      uri:
-                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
                     type: object
-                  pipeline:
-                    description: pipeline identifies the pipeline run that promoted
-                      desired state.
-                    properties:
-                      provider:
-                        type: string
-                      run:
-                        type: string
-                    type: object
-                  source:
-                    description: source identifies the product source that produced
-                      the artifact.
-                    properties:
-                      repository:
-                        type: string
-                      revision:
-                        type: string
-                    type: object
-                type: object
-              source:
-                description: source records the exact desired-state source used for
-                  this attempt.
-                properties:
-                  path:
-                    description: path is the repository-relative path rendered for
-                      this Revision.
-                    type: string
-                  render:
-                    description: render records the render configuration used for
-                      this Revision.
-                    properties:
-                      helm:
-                        description: helm configures Helm rendering when type is helm.
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                failure:
+                  description:
+                    failure records the most recent deterministic failure
+                    classification.
+                  properties:
+                    message:
+                      description: message is a concise human-readable explanation.
+                      type: string
+                    reason:
+                      description:
+                        reason is a stable category such as RenderFailure
+                        or HealthFailure.
+                      type: string
+                    resource:
+                      description: resource identifies the affected resource when applicable.
+                      properties:
+                        apiVersion:
+                          description:
+                            apiVersion is the resource API version, such
+                            as apps/v1.
+                          minLength: 1
+                          type: string
+                        kind:
+                          description: kind is the Kubernetes resource kind.
+                          minLength: 1
+                          type: string
+                        name:
+                          description: name is the resource name.
+                          minLength: 1
+                          type: string
+                        namespace:
+                          description: namespace is empty for cluster-scoped resources.
+                          type: string
+                      required:
+                        - apiVersion
+                        - kind
+                        - name
+                      type: object
+                    retryable:
+                      description:
+                        retryable indicates whether retrying the same desired
+                        revision can help.
+                      type: boolean
+                  type: object
+                health:
+                  description: health summarizes health observed for this attempt.
+                  properties:
+                    degraded:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    healthy:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    progressing:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    total:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    unknown:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  type: object
+                phase:
+                  description: phase is the lifecycle state of this deployment attempt.
+                  enum:
+                    - Pending
+                    - Planning
+                    - AwaitingApproval
+                    - Applying
+                    - Observing
+                    - Healthy
+                    - Failed
+                    - RollingBack
+                    - RolledBack
+                    - Cancelled
+                  type: string
+                plan:
+                  description: plan stores bounded, redacted deployment plan details.
+                  properties:
+                    resources:
+                      description:
+                        resources is intentionally bounded by the planner
+                        before it is written.
+                      items:
+                        description:
+                          PlanResourceChange describes one resource in a
+                          deployment plan.
                         properties:
-                          releaseName:
-                            description: releaseName is the Helm release name used
-                              for template rendering.
+                          action:
+                            description:
+                              PlanAction classifies the change for a planned
+                              resource.
+                            enum:
+                              - Create
+                              - Update
+                              - Delete
+                              - Unchanged
                             type: string
-                          valuesFiles:
-                            description: valuesFiles are repository-relative values
-                              files.
+                          changes:
+                            items:
+                              description:
+                                PlanFieldChange captures a redacted, machine-readable
+                                field-level change.
+                              properties:
+                                after:
+                                  description:
+                                    after is a safe string representation
+                                    of the desired value.
+                                  type: string
+                                before:
+                                  description:
+                                    before is a safe string representation
+                                    of the previous value.
+                                  type: string
+                                path:
+                                  description:
+                                    path identifies the changed field in
+                                    normalized Kubernetes object form.
+                                  minLength: 1
+                                  type: string
+                                redacted:
+                                  description:
+                                    redacted indicates that the real value
+                                    was intentionally hidden.
+                                  type: boolean
+                              required:
+                                - path
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          conflicts:
+                            description:
+                              conflicts lists SSA ownership conflicts that
+                              fail by default before mutation.
+                            items:
+                              description:
+                                PlanConflict captures a server-side apply
+                                ownership conflict detected before mutation.
+                              properties:
+                                manager:
+                                  description:
+                                    manager is the non-Solder field manager
+                                    currently owning the field.
+                                  minLength: 1
+                                  type: string
+                                path:
+                                  description:
+                                    path identifies the desired field that
+                                    conflicts with another field manager.
+                                  minLength: 1
+                                  type: string
+                                policy:
+                                  description:
+                                    policy records the conflict behavior
+                                    that will be used by apply.
+                                  enum:
+                                    - fail
+                                  type: string
+                              required:
+                                - manager
+                                - path
+                                - policy
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          destructive:
+                            description:
+                              destructive is true for deletes and other planned
+                              operations that remove live state.
+                            type: boolean
+                          resource:
+                            description:
+                              ResourceRef identifies a Kubernetes resource
+                              in a plan, graph, or status.
+                            properties:
+                              apiVersion:
+                                description:
+                                  apiVersion is the resource API version,
+                                  such as apps/v1.
+                                minLength: 1
+                                type: string
+                              kind:
+                                description: kind is the Kubernetes resource kind.
+                                minLength: 1
+                                type: string
+                              name:
+                                description: name is the resource name.
+                                minLength: 1
+                                type: string
+                              namespace:
+                                description: namespace is empty for cluster-scoped resources.
+                                type: string
+                            required:
+                              - apiVersion
+                              - kind
+                              - name
+                            type: object
+                          warnings:
+                            description:
+                              warnings carry conspicuous safety information
+                              such as high-risk prune candidates.
                             items:
                               type: string
                             type: array
                             x-kubernetes-list-type: atomic
+                        required:
+                          - action
+                          - resource
                         type: object
-                      type:
-                        description: type identifies the renderer.
-                        enum:
-                        - yaml
-                        - kustomize
-                        - helm
-                        type: string
-                    required:
-                    - type
-                    type: object
-                  repositoryRef:
-                    description: repositoryRef references the Repository used for
-                      this Revision.
-                    properties:
-                      name:
-                        description: name is the referenced object name.
-                        minLength: 1
-                        type: string
-                    required:
-                    - name
-                    type: object
-                  revision:
-                    description: revision is the resolved source revision, usually
-                      a full Git commit SHA.
-                    minLength: 1
-                    type: string
-                required:
-                - render
-                - repositoryRef
-                - revision
-                type: object
-            required:
-            - applicationRef
-            - source
-            type: object
-          status:
-            description: status defines observed lifecycle, plan, and health state.
-            properties:
-              attempts:
-                description: attempts counts reconciliation attempts for retry-loop
-                  protection.
-                format: int32
-                minimum: 0
-                type: integer
-              completedAt:
-                description: completedAt records when this Revision reached a terminal
-                  phase.
-                format: date-time
-                type: string
-              conditions:
-                description: conditions represent the current state of the Revision
-                  resource.
-                items:
-                  description: Condition contains details for one aspect of the current
-                    state of this API Resource.
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    summary:
+                      description:
+                        PlanSummary is a bounded summary of planned resource
+                        actions.
+                      properties:
+                        create:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        delete:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        truncated:
+                          description:
+                            truncated is true when detailed plan output was
+                            bounded for etcd safety.
+                          type: boolean
+                        unchanged:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        update:
+                          format: int32
+                          minimum: 0
+                          type: integer
+                      type: object
+                  type: object
+                previousRevision:
+                  description:
+                    previousRevision references the prior healthy Revision
+                    when known.
                   properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
+                    name:
+                      description: name is the referenced object name.
                       minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              failure:
-                description: failure records the most recent deterministic failure
-                  classification.
-                properties:
-                  message:
-                    description: message is a concise human-readable explanation.
-                    type: string
-                  reason:
-                    description: reason is a stable category such as RenderFailure
-                      or HealthFailure.
-                    type: string
-                  resource:
-                    description: resource identifies the affected resource when applicable.
-                    properties:
-                      apiVersion:
-                        description: apiVersion is the resource API version, such
-                          as apps/v1.
-                        minLength: 1
-                        type: string
-                      kind:
-                        description: kind is the Kubernetes resource kind.
-                        minLength: 1
-                        type: string
-                      name:
-                        description: name is the resource name.
-                        minLength: 1
-                        type: string
-                      namespace:
-                        description: namespace is empty for cluster-scoped resources.
-                        type: string
-                    required:
-                    - apiVersion
-                    - kind
                     - name
-                    type: object
-                  retryable:
-                    description: retryable indicates whether retrying the same desired
-                      revision can help.
-                    type: boolean
-                type: object
-              health:
-                description: health summarizes health observed for this attempt.
-                properties:
-                  degraded:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  healthy:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  progressing:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  total:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  unknown:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                type: object
-              phase:
-                description: phase is the lifecycle state of this deployment attempt.
-                enum:
-                - Pending
-                - Planning
-                - AwaitingApproval
-                - Applying
-                - Observing
-                - Healthy
-                - Failed
-                - RollingBack
-                - RolledBack
-                - Cancelled
-                type: string
-              plan:
-                description: plan stores bounded, redacted deployment plan details.
-                properties:
-                  resources:
-                    description: resources is intentionally bounded by the planner
-                      before it is written.
-                    items:
-                      description: PlanResourceChange describes one resource in a
-                        deployment plan.
-                      properties:
-                        action:
-                          description: PlanAction classifies the change for a planned
-                            resource.
-                          enum:
-                          - Create
-                          - Update
-                          - Delete
-                          - Unchanged
-                          type: string
-                        changes:
-                          items:
-                            description: PlanFieldChange captures a redacted, machine-readable
-                              field-level change.
-                            properties:
-                              after:
-                                description: after is a safe string representation
-                                  of the desired value.
-                                type: string
-                              before:
-                                description: before is a safe string representation
-                                  of the previous value.
-                                type: string
-                              path:
-                                description: path identifies the changed field in
-                                  normalized Kubernetes object form.
-                                minLength: 1
-                                type: string
-                              redacted:
-                                description: redacted indicates that the real value
-                                  was intentionally hidden.
-                                type: boolean
-                            required:
-                            - path
-                            type: object
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        conflicts:
-                          description: conflicts lists SSA ownership conflicts that
-                            fail by default before mutation.
-                          items:
-                            description: PlanConflict captures a server-side apply
-                              ownership conflict detected before mutation.
-                            properties:
-                              manager:
-                                description: manager is the non-Solder field manager
-                                  currently owning the field.
-                                minLength: 1
-                                type: string
-                              path:
-                                description: path identifies the desired field that
-                                  conflicts with another field manager.
-                                minLength: 1
-                                type: string
-                              policy:
-                                description: policy records the conflict behavior
-                                  that will be used by apply.
-                                enum:
-                                - fail
-                                type: string
-                            required:
-                            - manager
-                            - path
-                            - policy
-                            type: object
-                          type: array
-                          x-kubernetes-list-type: atomic
-                        destructive:
-                          description: destructive is true for deletes and other planned
-                            operations that remove live state.
-                          type: boolean
-                        resource:
-                          description: ResourceRef identifies a Kubernetes resource
-                            in a plan, graph, or status.
-                          properties:
-                            apiVersion:
-                              description: apiVersion is the resource API version,
-                                such as apps/v1.
-                              minLength: 1
-                              type: string
-                            kind:
-                              description: kind is the Kubernetes resource kind.
-                              minLength: 1
-                              type: string
-                            name:
-                              description: name is the resource name.
-                              minLength: 1
-                              type: string
-                            namespace:
-                              description: namespace is empty for cluster-scoped resources.
-                              type: string
-                          required:
-                          - apiVersion
-                          - kind
-                          - name
-                          type: object
-                        warnings:
-                          description: warnings carry conspicuous safety information
-                            such as high-risk prune candidates.
-                          items:
-                            type: string
-                          type: array
-                          x-kubernetes-list-type: atomic
-                      required:
-                      - action
-                      - resource
-                      type: object
-                    type: array
-                    x-kubernetes-list-type: atomic
-                  summary:
-                    description: PlanSummary is a bounded summary of planned resource
-                      actions.
-                    properties:
-                      create:
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      delete:
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      truncated:
-                        description: truncated is true when detailed plan output was
-                          bounded for etcd safety.
-                        type: boolean
-                      unchanged:
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      update:
-                        format: int32
-                        minimum: 0
-                        type: integer
-                    type: object
-                type: object
-              previousRevision:
-                description: previousRevision references the prior healthy Revision
-                  when known.
-                properties:
-                  name:
-                    description: name is the referenced object name.
-                    minLength: 1
-                    type: string
-                required:
-                - name
-                type: object
-              startedAt:
-                description: startedAt records when processing began.
-                format: date-time
-                type: string
-            type: object
-        required:
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
+                  type: object
+                startedAt:
+                  description: startedAt records when processing began.
+                  format: date-time
+                  type: string
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
