@@ -344,7 +344,10 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Application already synced", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
 		return ctrl.Result{}, nil
 	}
-	if application.Status.DeployedRevision == resolved.Revision && !application.Spec.Sync.SelfHeal {
+	// Differences after a finished rollout are drift, which only self-heal
+	// repairs; a rollout still in progress keeps going instead.
+	rollingOut := previousPhase == corev1alpha1.RevisionPhaseObserving || previousPhase == corev1alpha1.RevisionPhaseApplying
+	if application.Status.DeployedRevision == resolved.Revision && !application.Spec.Sync.SelfHeal && !rollingOut {
 		application.Status.Sync.State = corev1alpha1.SyncStateDrifted
 		revision.Status.Phase = corev1alpha1.RevisionPhaseObserving
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {

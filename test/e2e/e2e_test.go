@@ -425,6 +425,46 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 		})
 
+		It("should run hooks and waves in order for a real rollout", func() {
+			manifestPath := writeTempManifest(stagedApplicationManifest)
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", manifestPath))
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply staged rollout resources")
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+			})
+			get := func(args ...string) string {
+				output, err := utils.Run(exec.Command("kubectl", args...))
+				Expect(err).NotTo(HaveOccurred())
+				return strings.TrimSpace(output)
+			}
+
+			By("waiting for the Revision to become Healthy with both hooks done")
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
+					"-l", "solder.io/application=solder-e2e-staged", "-o",
+					"jsonpath={.items[0].status.phase} {range .items[0].status.hooks[*]}{.stage}={.state} {end}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.Fields(output)).To(ConsistOf("Healthy", "PreSync=Healthy", "PostSync=Healthy"))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying each group started only after the previous one was Healthy")
+			field := func(kind, name, path string) time.Time {
+				value := get("get", kind, name, "-n", "solder-e2e-staged", "-o", "jsonpath={"+path+"}")
+				parsed, err := time.Parse(time.RFC3339, value)
+				Expect(err).NotTo(HaveOccurred(), "%s %s %s = %q", kind, name, path, value)
+				return parsed
+			}
+			created := ".metadata.creationTimestamp"
+			migrated := field("job", "solder-e2e-migrate", ".status.completionTime")
+			deployed := field("deployment", "solder-e2e-api", created)
+			available := field("deployment", "solder-e2e-api", `.status.conditions[?(@.type=="Available")].lastTransitionTime`)
+			wave1 := field("configmap", "solder-e2e-after-api", created)
+			smoke := field("job", "solder-e2e-smoke", created)
+			Expect(migrated).NotTo(BeTemporally(">", deployed), "Deployment created before the pre-sync hook finished")
+			Expect(available).NotTo(BeTemporally(">", wave1), "wave 1 applied before wave 0 was available")
+			Expect(wave1).NotTo(BeTemporally(">", smoke), "post-sync hook ran before the last wave was applied")
+		})
+
 		It("should reject a HealthCheck with an invalid CEL rule at admission", func() {
 			manifestPath := writeTempManifest(`apiVersion: solder.io/v1alpha1
 kind: HealthCheck
@@ -760,4 +800,64 @@ spec:
   sync:
     automatic: false
     conflictPolicy: fail
+`
+
+// stagedApplicationManifest deploys the fixture's staged/ path: a pre-sync
+// hook Job, a wave-0 Deployment, a wave-1 ConfigMap, and a post-sync hook Job.
+const stagedApplicationManifest = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: solder-e2e-staged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solder-e2e-staged-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: solder-e2e-staged-deployer
+  namespace: solder-e2e-staged
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: solder-e2e-staged-deployer
+    namespace: default
+---
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: solder-e2e-staged-repo
+spec:
+  type: git
+  git:
+    url: https://github.com/azrtydxb/solder-e2e-app.git
+    revision: main
+  pollInterval: 30s
+---
+apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-staged
+spec:
+  serviceAccountName: solder-e2e-staged-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-staged-repo
+    path: staged
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e-staged
+  sync:
+    automatic: true
+    prune: true
+    conflictPolicy: fail
+  health:
+    timeout: 5m
 `

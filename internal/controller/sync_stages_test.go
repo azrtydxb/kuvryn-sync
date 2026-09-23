@@ -138,6 +138,12 @@ var _ = Describe("Sync hooks and waves", func() {
 	})
 
 	It("applies a later wave only once the earlier wave is Healthy", func() {
+		// Without self-heal, a rollout still in progress must not be mistaken
+		// for drift of a finished one.
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		app.Spec.Sync.SelfHeal = false
+		Expect(k8sClient.Update(ctx, app)).To(Succeed())
 		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
 		reconcileOnce(r)
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "wave 1 applied before wave 0 was Healthy")
