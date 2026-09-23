@@ -57,6 +57,14 @@ func TestRewriteMarkers(t *testing.T) {
 	}
 }
 
+func TestRewriteSkipsMarkersWithExtraParts(t *testing.T) {
+	in := "tag: 1.0.0 # {\"$imagepolicy\": \"payments:api:tag:extra\"}\n"
+	out, changes := Rewrite("deploy.yaml", []byte(in), "payments", images)
+	if len(changes) != 0 || string(out) != in {
+		t.Fatalf("a marker with four parts was rewritten: %q, %#v", out, changes)
+	}
+}
+
 // origin creates a bare repository with one commit on main and returns its path.
 func origin(t *testing.T) string {
 	t.Helper()

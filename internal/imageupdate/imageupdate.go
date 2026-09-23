@@ -60,10 +60,11 @@ func Rewrite(file string, data []byte, namespace string, images map[string]Image
 			continue
 		}
 		ref := strings.Split(groups[6], ":")
-		if len(ref) < 2 || ref[0] != namespace {
+		if len(ref) < 2 || len(ref) > 3 || ref[0] != namespace {
 			continue
 		}
-		image, ok := images[ref[0]+":"+ref[1]]
+		policy := ref[0] + ":" + ref[1]
+		image, ok := images[policy]
 		if !ok {
 			continue
 		}
@@ -82,7 +83,7 @@ func Rewrite(file string, data []byte, namespace string, images map[string]Image
 			continue
 		}
 		lines[i] = groups[1] + groups[2] + value + groups[4] + groups[5]
-		changes = append(changes, Change{File: file, Policy: ref[0] + ":" + ref[1], Old: groups[3], New: value})
+		changes = append(changes, Change{File: file, Policy: policy, Old: groups[3], New: value})
 	}
 	return []byte(strings.Join(lines, "\n")), changes
 }
@@ -147,7 +148,7 @@ func (u *Updater) attempt(ctx context.Context, req Request, auth transport.AuthM
 	if err != nil {
 		return "", nil, fmt.Errorf("clone %s: %w", req.Branch, err)
 	}
-	changes, err := rewriteTree(fs, cleanPath(req.Path), req.Namespace, req.Images)
+	changes, err := rewriteTree(fs, path.Clean("/"+strings.TrimSpace(req.Path)), req.Namespace, req.Images)
 	if err != nil || len(changes) == 0 {
 		return "", nil, err
 	}
@@ -202,10 +203,6 @@ func rewriteTree(fs billy.Filesystem, root, namespace string, images map[string]
 		return util.WriteFile(fs, name, updated, info.Mode())
 	})
 	return changes, err
-}
-
-func cleanPath(p string) string {
-	return path.Clean("/" + strings.TrimSpace(p))
 }
 
 func message(changes []Change) string {
