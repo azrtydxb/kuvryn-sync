@@ -37,6 +37,15 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install kubectl
+        run: |
+          KUBECTL_VERSION=v1.35.1
+          base="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/$(go env GOARCH)"
+          curl -fsSLo kubectl "${base}/kubectl"
+          echo "$(curl -fsSL "${base}/kubectl.sha256")  kubectl" | sha256sum -c -
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          rm kubectl
+
       - name: Install the latest version of kind
         run: |
           curl -Lo ./kind "https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)"
