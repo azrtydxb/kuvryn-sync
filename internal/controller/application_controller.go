@@ -30,6 +30,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -110,7 +111,8 @@ type ApplicationReconciler struct {
 	// set it today.
 	ChartCAFile string
 
-	watches *driftWatches
+	watches      *driftWatches
+	healthChecks healthCheckCache
 }
 
 // +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
@@ -498,11 +500,41 @@ func (r *ApplicationReconciler) healthEvaluator(ctx context.Context, application
 	if err := r.List(ctx, &checks); err != nil {
 		return health.Evaluator{}, err
 	}
-	evaluator, err := health.NewEvaluator(checks.Items)
+	evaluator, err := r.healthChecks.get(checks.Items)
 	if err != nil {
 		r.event(application, corev1.EventTypeWarning, "InvalidHealthCheck", safeMessage(err, "A HealthCheck rule is invalid"))
 	}
 	return evaluator, nil
+}
+
+// healthCheckCache keeps the Evaluator compiled from the cluster's
+// HealthChecks and compiles again only when one is added, changed or removed.
+// An Evaluator is read-only once built, so workers share it safely.
+type healthCheckCache struct {
+	mu        sync.Mutex
+	compiled  bool
+	key       string
+	evaluator health.Evaluator
+	err       error
+	// compiles counts compilations, for tests.
+	compiles int
+}
+
+func (c *healthCheckCache) get(checks []corev1alpha1.HealthCheck) (health.Evaluator, error) {
+	versions := make([]string, 0, len(checks))
+	for _, check := range checks {
+		versions = append(versions, check.Name+"/"+string(check.UID)+"/"+check.ResourceVersion)
+	}
+	slices.Sort(versions)
+	key := strings.Join(versions, ",")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.compiled || c.key != key {
+		c.evaluator, c.err = health.NewEvaluator(checks)
+		c.compiled, c.key = true, key
+		c.compiles++
+	}
+	return c.evaluator, c.err
 }
 
 // ensureWatches starts drift watches for kinds the controller may watch and

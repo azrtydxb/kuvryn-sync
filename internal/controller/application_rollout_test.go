@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -47,6 +48,46 @@ func TestGroupHealthCountsMissingObjects(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].State != corev1alpha1.HealthStateDegraded {
 		t.Fatalf("missing hook = %#v, want one Degraded result", results)
+	}
+}
+
+func TestHealthCheckCacheCompilesOnlyWhenHealthChecksChange(t *testing.T) {
+	check := func(resourceVersion, expression string) corev1alpha1.HealthCheck {
+		return corev1alpha1.HealthCheck{
+			ObjectMeta: metav1.ObjectMeta{Name: "widgets", UID: "uid-1", ResourceVersion: resourceVersion},
+			Spec: corev1alpha1.HealthCheckSpec{Group: "example.com", Kind: "Widget", Rules: []corev1alpha1.HealthRule{{
+				Expression: expression, State: corev1alpha1.HealthStateProgressing, Message: "matched",
+			}}},
+		}
+	}
+	widget := customObject("Widget", "w", "")
+	widget.SetNamespace("payments")
+	state := func(evaluator health.Evaluator) corev1alpha1.HealthState {
+		t.Helper()
+		result, err := evaluator.Evaluate(widget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.State
+	}
+	cache := &healthCheckCache{}
+
+	first, err := cache.get([]corev1alpha1.HealthCheck{check("1", "true")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := cache.get([]corev1alpha1.HealthCheck{check("1", "true")})
+	if cache.compiles != 1 || state(first) != corev1alpha1.HealthStateProgressing || state(again) != corev1alpha1.HealthStateProgressing {
+		t.Fatalf("compiles = %d, want 1 for unchanged HealthChecks", cache.compiles)
+	}
+
+	changed, _ := cache.get([]corev1alpha1.HealthCheck{check("2", "false")})
+	if cache.compiles != 2 || state(changed) != corev1alpha1.HealthStateHealthy {
+		t.Fatalf("compiles = %d, want a recompile that applies the changed rule", cache.compiles)
+	}
+	removed, _ := cache.get(nil)
+	if cache.compiles != 3 || state(removed) != corev1alpha1.HealthStateHealthy {
+		t.Fatalf("compiles = %d, want a recompile once the HealthCheck is gone", cache.compiles)
 	}
 }
 
