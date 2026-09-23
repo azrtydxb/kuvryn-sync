@@ -24,19 +24,21 @@ spec:
     revision: main
   applicationConfigPaths:
     - .solder.yaml
+  applicationServiceAccountName: payments-deployer
   pollInterval: 60s
 ```
 
 ### Spec fields
 
-| Field                          | Description                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `spec.type`                    | Source adapter. `v1alpha1` supports `git`.                                                                               |
-| `spec.git.url`                 | Git remote URL. HTTPS and SSH are supported by the source adapter.                                                       |
-| `spec.git.revision`            | Default branch, tag, or exact commit for Applications that omit a revision.                                              |
-| `spec.git.auth.secretRef.name` | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`. |
-| `spec.applicationConfigPaths`  | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |
-| `spec.pollInterval`            | Polling interval when no external wake-up signal exists.                                                                 |
+| Field                                | Description                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                               |
+| `spec.git.url`                       | Git remote URL. HTTPS and SSH are supported by the source adapter.                                                       |
+| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                              |
+| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`. |
+| `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |
+| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.           |
+| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                 |
 
 ### Status fields
 
@@ -84,6 +86,11 @@ For discovered Applications:
 - `metadata.namespace`, when set, must match the Repository namespace.
 - `spec.source.repositoryRef.name` defaults to the discovering Repository.
 - `spec.source.render.type` is required.
+- `spec.serviceAccountName` may only name the Repository's
+  `spec.applicationServiceAccountName`, and defaults to it. When the Repository
+  sets none, discovered Applications may not set a service account and use the
+  controller's default. This keeps Git write access from choosing which
+  service account Solder acts as.
 - `applicationConfigPaths` entries must be repository-relative paths named
   `.solder.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.

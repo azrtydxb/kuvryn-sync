@@ -69,6 +69,7 @@ spec:
   git:
     url: https://github.com/example/platform.git
     revision: main
+  applicationServiceAccountName: payments-deployer
   pollInterval: 60s
 ```
 
@@ -79,7 +80,6 @@ applications:
   - metadata:
       name: payments
     spec:
-      serviceAccountName: payments-deployer
       source:
         path: apps/payments
         render:
@@ -103,7 +103,7 @@ applications:
         limit: 20
 ```
 
-When the `Repository` reconciles, Solder discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
+Discovered Applications run as the Repository's `spec.applicationServiceAccountName` (here `payments-deployer`); a `.solder.yaml` cannot choose a different service account — grant that account what the Applications deploy, as described in the [security model](docs/security.md). When the `Repository` reconciles, Solder discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
 
 Then inspect state:
 

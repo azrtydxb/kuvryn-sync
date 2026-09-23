@@ -93,6 +93,16 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 	if app.Spec.Source.Render.Type == "" {
 		return app, fmt.Errorf("%s application %q must set spec.source.render.type", configPath, app.Name)
 	}
+	// Git write access must not choose which service account Solder acts as;
+	// the Repository owner decides.
+	pinned := repository.Spec.ApplicationServiceAccountName
+	if name := app.Spec.ServiceAccountName; name != "" && name != pinned {
+		if pinned == "" {
+			return app, fmt.Errorf("%s application %q may not set serviceAccountName; set spec.applicationServiceAccountName on Repository %q", configPath, app.Name, repository.Name)
+		}
+		return app, fmt.Errorf("%s application %q names service account %q but Repository %q pins %q", configPath, app.Name, name, repository.Name, pinned)
+	}
+	app.Spec.ServiceAccountName = pinned
 	return app, nil
 }
 

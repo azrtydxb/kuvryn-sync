@@ -33,6 +33,14 @@ type RepositorySpec struct {
 	// +listType=atomic
 	// +optional
 	ApplicationConfigPaths []string `json:"applicationConfigPaths,omitempty"`
+	// applicationServiceAccountName is the service account that Applications
+	// discovered from .solder.yaml run as. Discovered Applications may only
+	// name this account; when it is empty they may not set serviceAccountName
+	// and use the controller's default service account.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	ApplicationServiceAccountName string `json:"applicationServiceAccountName,omitempty"`
 	// pollInterval controls source polling when no external wake-up signal exists.
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`

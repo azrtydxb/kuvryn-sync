@@ -61,6 +61,15 @@ spec:
                     type: string
                   type: array
                   x-kubernetes-list-type: atomic
+                applicationServiceAccountName:
+                  description: |-
+                    applicationServiceAccountName is the service account that Applications
+                    discovered from .solder.yaml run as. Discovered Applications may only
+                    name this account; when it is empty they may not set serviceAccountName
+                    and use the controller's default service account.
+                  maxLength: 253
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
                 git:
                   description: git configures a Git desired-state source.
                   properties:

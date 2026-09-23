@@ -131,7 +131,9 @@ subjects:
     namespace: default
 ```
 
-Set `serviceAccountName: payments-deployer` on each Application. Alternatively,
+Applications you create directly set `spec.serviceAccountName:
+payments-deployer`; Applications declared in `.solder.yaml` (next step) take it
+from the Repository. Alternatively,
 install Solder with `--set defaultServiceAccount=<name>`; Solder then uses the
 service account of that name in each Application's namespace. Applications
 without a service account are refused. The `admin` role cannot create
@@ -159,7 +161,6 @@ applications:
   - metadata:
       name: payments
     spec:
-      serviceAccountName: payments-deployer
       source:
         path: apps/payments
         render:
@@ -182,6 +183,11 @@ applications:
       history:
         limit: 20
 ```
+
+Discovered Applications run as the Repository's
+`spec.applicationServiceAccountName`. Set it to the service account from step
+3, or leave it empty to use the manager's `defaultServiceAccount`; a
+`.solder.yaml` cannot choose a service account itself.
 
 `spec.source.repositoryRef.name` is optional in `.solder.yaml`; when omitted,
 Solder defaults it to the Repository that discovered the file. A full

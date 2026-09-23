@@ -17,6 +17,11 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- **Breaking:** Applications discovered from `.solder.yaml` run as the new
+  Repository field `spec.applicationServiceAccountName` and may not name any
+  other service account; when the Repository sets none, they may not set one
+  and use the controller default. Git write access can no longer choose which
+  service account Solder acts as.
 - Rendered objects without a namespace are placed in `destination.namespace`
   only when the cluster (or a CustomResourceDefinition rendered alongside
   them) says their kind is namespaced. Previously any cluster-scoped kind

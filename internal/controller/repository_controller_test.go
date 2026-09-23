@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -264,6 +265,58 @@ var _ = Describe("Repository Controller", func() {
 		deleted := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "old-payments", Namespace: "default"}, deleted)).To(MatchError(ContainSubstring("not found")))
 	})
+
+	DescribeTable("constrains the service account of discovered Applications",
+		func(pinned, declared, wantAccount, wantError string) {
+			workspace := GinkgoT().TempDir()
+			serviceAccountLine := ""
+			if declared != "" {
+				serviceAccountLine = "\n    serviceAccountName: " + declared
+			}
+			Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications:
+- metadata:
+    name: payments
+  spec:`+serviceAccountLine+`
+    source:
+      path: apps/payments
+      render:
+        type: yaml
+    destination:
+      namespace: payments
+`), 0o600)).To(Succeed())
+			Expect(k8sClient.Create(ctx, &corev1alpha1.Repository{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+				Spec: corev1alpha1.RepositorySpec{
+					Type:                          corev1alpha1.RepositoryTypeGit,
+					Git:                           &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+					ApplicationServiceAccountName: pinned,
+				},
+			})).To(Succeed())
+
+			resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: workspace}}
+			controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &corev1alpha1.Repository{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			app := &corev1alpha1.Application{}
+			appErr := k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, app)
+			if wantError != "" {
+				Expect(updated.Status.State).To(Equal(corev1alpha1.RepositoryStateFailed))
+				Expect(updated.Status.Conditions[0].Message).To(ContainSubstring(wantError))
+				Expect(apierrors.IsNotFound(appErr)).To(BeTrue(), "escalating Application was created")
+				return
+			}
+			Expect(appErr).NotTo(HaveOccurred())
+			Expect(app.Spec.ServiceAccountName).To(Equal(wantAccount))
+		},
+		Entry("inherits the pinned account", "payments-deployer", "", "payments-deployer", ""),
+		Entry("accepts naming the pinned account", "payments-deployer", "payments-deployer", "payments-deployer", ""),
+		Entry("uses the controller default when nothing is pinned", "", "", "", ""),
+		Entry("rejects a different account than the pinned one", "payments-deployer", "cluster-operator", "", `pins "payments-deployer"`),
+		Entry("rejects any account when nothing is pinned", "", "cluster-operator", "", "may not set serviceAccountName"),
+	)
 
 	It("reports invalid .solder.yaml files as validation failures", func() {
 		workspace := GinkgoT().TempDir()

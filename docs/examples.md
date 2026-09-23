@@ -12,7 +12,6 @@ applications:
   - metadata:
       name: payments
     spec:
-      serviceAccountName: payments-deployer
       source:
         path: apps/payments/overlays/prod
         render:
@@ -27,7 +26,6 @@ applications:
   - metadata:
       name: search
     spec:
-      serviceAccountName: search-deployer
       source:
         path: apps/search
         render:

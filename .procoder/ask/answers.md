@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 07:13 UTC. procoder reads this
+Written 2026-09-23 07:31 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -9,6 +9,12 @@ it believes. Reword the question and it will be asked again.
 Key: Approver identity capture
 
 Answer: (2026-09-23) Validating admission webhook records the authenticated user.
+
+## (no longer asked)
+
+Key: Discovered Applications when the Repository pins no service account
+
+Answer: (2026-09-23) Discovered Applications may not set serviceAccountName; they use the controller default.
 
 ## (no longer asked)
 
