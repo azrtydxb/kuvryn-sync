@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: solder
+    app.kubernetes.io/managed-by: kustomize
+  name: receiver
+  namespace: system
+spec:
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 9292
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: solder

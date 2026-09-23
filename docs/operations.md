@@ -104,9 +104,16 @@ condition. Registry requests are rate-limited per registry host and counted in
 ## Push webhooks
 
 Instead of waiting for `pollInterval`, Repositories can be fetched as soon as
-GitHub or GitLab reports a push. Enable the receiver (`--webhook-receiver-bind-address=:9292`,
-Helm `webhookReceiver.enabled=true`), expose its Service through your ingress,
-and give the Repository a webhook secret:
+GitHub or GitLab reports a push. The receiver is off by default. Enable it,
+expose its Service through your ingress, and give the Repository a webhook
+secret.
+
+- Helm: set `webhookReceiver.enabled=true`. The chart adds
+  `--webhook-receiver-bind-address=:9292` to the manager and creates the
+  Service `<release>-solder-receiver` on port 80.
+- Kustomize (`config/default`): uncomment the two `[RECEIVER]` entries in
+  `config/default/kustomization.yaml`. They add the same flag and create the
+  Service `solder-receiver` on port 80.
 
 ```yaml
 apiVersion: v1
@@ -128,9 +135,12 @@ the same secret: GitHub signs with it (`X-Hub-Signature-256`), GitLab sends it
 as `X-Gitlab-Token`; both are checked in constant time. A push whose payload
 names the Repository's URL stamps `solder.io/reconcile-requested-at` on the
 Repository, which triggers an immediate fetch; other events are ignored.
-Unknown Repositories get 404, bad signatures 401, bodies over 1 MB 413, and
-more than ten requests per second per Repository 429, all counted in
+Unknown Repositories get 404, bad signatures 401, and bodies over 1 MB 413.
+Each Repository may send a burst of ten requests, refilled at one request per
+second; requests beyond that get 429. All responses are counted in
 `solder_webhook_receiver_requests_total`. Polling continues as a fallback.
+ImagePolicies with `spec.webhook` are served the same way at
+`/hooks/imagepolicies/<namespace>/<name>`, with their own rate limit.
 
 ## Sync hooks and waves
 
@@ -269,8 +279,8 @@ plan summary, and, for `AwaitingApproval`, the `solder approve` command; the
 with `hmacKey`. Slack sinks receive a short text message.
 
 Delivery is best effort and never blocks reconciliation: notifications wait
-in a bounded in-memory queue, are retried up to three times with backoff, and
-are lost if the controller restarts. Failed deliveries emit a
+in a bounded in-memory queue, get up to three delivery attempts with backoff,
+and are lost if the controller restarts. Failed deliveries emit a
 `NotificationFailed` Warning Event and count in
 `solder_notification_deliveries_total{result="failed"}`. A missing sink or
 invalid Secret sets the Application condition `NotificationsReady=False`.
@@ -288,7 +298,9 @@ NotificationSinks if internal endpoints must not be reachable.
 ## Health checks
 
 The manager exposes Kubernetes health/readiness probes configured by the
-controller-runtime scaffold. Check rollout and logs with:
+controller-runtime scaffold. Check rollout and logs with the commands below.
+They use the Deployment name of the raw manifests; a Helm install names it
+`<release>-solder`, such as `solder-solder` for the release `solder`.
 
 ```sh
 kubectl -n solder-system rollout status deployment/solder-controller-manager
@@ -322,6 +334,8 @@ roleRef:
   kind: ClusterRole
   name: solder-watch-certificates
 subjects:
+  # Raw manifests. For a Helm install, use <release>-solder instead, such as
+  # solder-solder for the release solder, in the release's namespace.
   - kind: ServiceAccount
     name: solder-controller-manager
     namespace: solder-system

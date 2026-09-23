@@ -7,6 +7,9 @@ nav_order: 10
 
 ## Controller is not ready
 
+These commands use the Deployment name of the raw manifests. A Helm install
+names it `<release>-solder`, such as `solder-solder` for the release `solder`.
+
 ```sh
 kubectl -n solder-system get pods
 kubectl -n solder-system logs deployment/solder-controller-manager -c manager
@@ -17,6 +20,8 @@ Common causes:
 
 - image pull secret missing for private registries;
 - image architecture does not match cluster nodes;
+- image from a different release than the chart or manifests, which exits on
+  an unknown flag such as `--drift-resync-interval`;
 - read-only filesystem without a writable `/tmp` mount;
 - RBAC denied for managed resources.
 
