@@ -69,6 +69,8 @@ skip` is new.
 - Fixed: a succeeded hook deleted by `ttlSecondsAfterFinished` was re-run, and
   a missing object counted as Healthy.
 - Fixed: `DeploymentStarted` was emitted on every observation requeue.
+- Fixed: `solder_application_reconcile_duration_seconds` measured the time since
+  the manager started instead of each reconcile's own duration.
 - Fixed: when Solder and another manager shared a field, the conflict could go
   unreported until apply failed.
 - RBAC denials while reading, applying, or pruning fail the Revision with
