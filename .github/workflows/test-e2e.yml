@@ -10,7 +10,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   IMG: solder:e2e-${{ github.sha }}
@@ -18,11 +17,10 @@ env:
 jobs:
   test-e2e:
     timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: write
     name: Run on Kind
-    runs-on: arc-azrtydxb-amd64
+    # Pull requests from forks run untrusted code, so they get GitHub-hosted
+    # runners; the lab runners sit on the internal network.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-azrtydxb-amd64' || 'ubuntu-latest' }}
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
