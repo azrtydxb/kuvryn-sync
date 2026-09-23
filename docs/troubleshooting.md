@@ -7,6 +7,9 @@ nav_order: 10
 
 ## Controller is not ready
 
+These commands use the Deployment name of the raw manifests. A Helm install
+names it `<release>-solder`, such as `solder-solder` for the release `solder`.
+
 ```sh
 kubectl -n solder-system get pods
 kubectl -n solder-system logs deployment/solder-controller-manager -c manager
@@ -17,6 +20,8 @@ Common causes:
 
 - image pull secret missing for private registries;
 - image architecture does not match cluster nodes;
+- image from a different release than the chart or manifests, which exits on
+  an unknown flag such as `--drift-resync-interval`;
 - read-only filesystem without a writable `/tmp` mount;
 - RBAC denied for managed resources.
 
@@ -31,7 +36,8 @@ Check:
 
 - Git URL is reachable from the cluster;
 - branch, tag, or commit exists;
-- referenced Secret exists in the same namespace;
+- referenced Secret exists in the same namespace and is labelled
+  `solder.io/git-credentials: "true"`;
 - credentials are valid and allowed to read the repository;
 - every configured `spec.applicationConfigPaths` entry is repository-relative,
   unique, stays inside the repository, and is named `.solder.yaml`;
@@ -46,7 +52,9 @@ solder history <name> -n <namespace>
 solder plan <name> -n <namespace>
 ```
 
-For manual approval policies, approve the exact Revision:
+For manual approval policies, approve the exact Revision. An `ApprovalStale`
+Event means the plan changed after approval; review `solder plan` and approve
+again:
 
 ```sh
 solder sync <application> -n <namespace> --revision <revision-name>
@@ -75,6 +83,25 @@ Inspect the managed workload resources named in Revision plan or failure status.
 Health timeouts are controlled by `spec.health.timeout` and failure behavior by
 `spec.strategy.failurePolicy`.
 
+## ServiceAccountRequired or Forbidden
+
+`ServiceAccountRequired` means the Application sets no `spec.serviceAccountName`
+and the manager has no `--default-service-account`. Set one of them.
+
+`Forbidden` means the Application's service account may not read, apply, or
+delete a resource. The failure message names the verb and resource. Check what
+the account may do:
+
+```sh
+kubectl auth can-i --list -n <destination-namespace> \
+  --as system:serviceaccount:<application-namespace>:<service-account>
+```
+
+Grant the missing permission, then push a new commit or switch the Application
+to a service account that has it; retry limits otherwise keep the failed
+Revision blocked. A `PruneInventoryIncomplete` Warning Event names kinds the
+account may not list, whose managed objects Solder cannot prune.
+
 ## Server-Side Apply conflict
 
 Solder fails conflicts by default. Inspect the failing field manager with:
@@ -84,8 +111,9 @@ kubectl get <kind> <name> -n <namespace> -o yaml --show-managed-fields
 ```
 
 Resolve ownership intentionally: update the external manager, move the field out
-of Solder's desired state, or recreate the resource under a clear owner. Solder
-will not force-take ownership in `v1alpha1`.
+of Solder's desired state, recreate the resource under a clear owner, or, when
+Solder should take over (for example while migrating), set
+`spec.sync.conflictPolicy: adopt` and review the takeover in the plan.
 
 ## Helm or Kustomize render failure
 
@@ -93,7 +121,17 @@ Check that the desired-state repository contains the expected path and renderer
 inputs:
 
 - `render.type: yaml` expects Kubernetes YAML files under the path.
-- `render.type: kustomize` expects a Kustomize root.
-- `render.type: helm` expects a chart and optional values files.
+- `render.type: kustomize` expects a Kustomize root. Bases and resources must be
+  in the same repository; a kustomization naming a URL or Git remote is refused
+  with the reference in the error.
+- `render.type: helm` expects a chart and optional values files inside the
+  repository. Chart dependencies must be vendored into `charts/` (run
+  `helm dependency build` and commit the result). `.Release.Namespace` is the
+  Application's destination namespace.
+- A checkout fails if the commit contains a symlink, or chain of symlinks,
+  that resolves outside it, or an entry named `.solder-checkout`.
+- `render.helm.chart.version` must be an exact version; ranges are refused.
+- Without a `revision`, the remote must advertise a default branch (`HEAD`);
+  otherwise set a revision.
 
 Use `solder diagnose` and controller logs for the deterministic failure reason.

@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-const marker = "REDACTED"
+// Placeholder is the text that replaces a redacted value.
+const Placeholder = "REDACTED"
 
 var assignments = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(password|token|secret|credential|private[-_]?key|client[-_]?secret)(\s*[:=]\s*)[^\s,;]+`),
@@ -16,17 +17,17 @@ var assignments = []*regexp.Regexp{
 func String(value string) string {
 	out := value
 	for _, re := range assignments {
-		out = re.ReplaceAllString(out, `${1}${2}`+marker)
+		out = re.ReplaceAllString(out, `${1}${2}`+Placeholder)
 	}
 	return out
 }
 
 // Value returns a fully redacted placeholder when a field is sensitive.
 func Value(value string) string {
-	if value == "" || strings.Contains(value, marker) {
+	if value == "" || strings.Contains(value, Placeholder) {
 		return value
 	}
-	return marker
+	return Placeholder
 }
 
 // SensitivePath reports whether a Kubernetes field path can contain secret material.

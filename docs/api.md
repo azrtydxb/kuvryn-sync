@@ -24,19 +24,23 @@ spec:
     revision: main
   applicationConfigPaths:
     - .solder.yaml
+  applicationServiceAccountName: payments-deployer
   pollInterval: 60s
 ```
 
 ### Spec fields
 
-| Field                          | Description                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------- |
-| `spec.type`                    | Source adapter. `v1alpha1` supports `git`.                                  |
-| `spec.git.url`                 | Git remote URL. HTTPS and SSH are supported by the source adapter.          |
-| `spec.git.revision`            | Default branch, tag, or exact commit for Applications that omit a revision. |
-| `spec.git.auth.secretRef.name` | Secret in the Repository namespace for private Git credentials.             |
-| `spec.applicationConfigPaths`  | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.  |
-| `spec.pollInterval`            | Polling interval when no external wake-up signal exists.                    |
+| Field                                | Description                                                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                |
+| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.         |
+| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                               |
+| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`.  |
+| `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                                |
+| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.            |
+| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                  |
+| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                       |
+| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`. |
 
 ### Status fields
 
@@ -84,6 +88,11 @@ For discovered Applications:
 - `metadata.namespace`, when set, must match the Repository namespace.
 - `spec.source.repositoryRef.name` defaults to the discovering Repository.
 - `spec.source.render.type` is required.
+- `spec.serviceAccountName` may only name the Repository's
+  `spec.applicationServiceAccountName`, and defaults to it. When the Repository
+  sets none, discovered Applications may not set a service account and use the
+  controller's default. This keeps Git write access from choosing which
+  service account Solder acts as.
 - `applicationConfigPaths` entries must be repository-relative paths named
   `.solder.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.
@@ -105,6 +114,7 @@ metadata:
   name: payments
   namespace: default
 spec:
+  serviceAccountName: payments-deployer
   source:
     repositoryRef:
       name: platform
@@ -134,44 +144,163 @@ spec:
 
 ### Source and render fields
 
-| Field                                 | Description                                                  |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `spec.source.repositoryRef.name`      | Repository in the same namespace.                            |
-| `spec.source.revision`                | Branch, tag, or commit. Defaults to the Repository revision. |
-| `spec.source.path`                    | Repository-relative desired-state path.                      |
-| `spec.source.render.type`             | `yaml`, `kustomize`, or `helm`.                              |
-| `spec.source.render.helm.releaseName` | Helm release name for template rendering.                    |
-| `spec.source.render.helm.valuesFiles` | Repository-relative Helm values files.                       |
+| Field                                  | Description                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec.source.repositoryRef.name`       | Repository in the same namespace.                                                                                                                                                                                                                                                   |
+| `spec.source.revision`                 | Branch, tag, or commit. Defaults to the Repository revision.                                                                                                                                                                                                                        |
+| `spec.source.path`                     | Repository-relative desired-state path.                                                                                                                                                                                                                                             |
+| `spec.source.render.type`              | `yaml`, `kustomize`, or `helm`.                                                                                                                                                                                                                                                     |
+| `spec.source.render.helm.releaseName`  | Helm release name for template rendering.                                                                                                                                                                                                                                           |
+| `spec.source.render.helm.valuesFiles`  | Repository-relative Helm values files.                                                                                                                                                                                                                                              |
+| `spec.source.render.helm.chart`        | Pull `name` at exact `version` from an `https://` Helm repository or `oci://` registry (`repository`), with optional `secretRef` (`username`/`password`, labelled `solder.io/registry-credentials: "true"`). The archive digest is recorded in the Revision's `status.chartDigest`. |
+| `spec.source.render.helm.valuesFrom[]` | `kind` (`ConfigMap` or `Secret`), `name`, and `key` (default `values.yaml`) in the Application namespace, read as the Application's service account. Values from Secrets are masked in plans.                                                                                       |
+| `spec.source.render.helm.values`       | Inline values, merged last.                                                                                                                                                                                                                                                         |
 
 ### Policy fields
 
-| Field                                     | Description                                                     |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| `spec.destination.namespace`              | Default namespace for namespaced desired resources.             |
-| `spec.sync.automatic`                     | Apply approved plans automatically.                             |
-| `spec.sync.prune`                         | Delete previously managed resources removed from desired state. |
-| `spec.sync.selfHeal`                      | Correct managed live drift.                                     |
-| `spec.sync.conflictPolicy`                | SSA conflict behavior. `v1alpha1` supports `fail`.              |
-| `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.     |
-| `spec.strategy.failurePolicy.action`      | Failure action such as rollback.                                |
-| `spec.strategy.failurePolicy.timeout`     | Bounds failure/health observation.                              |
-| `spec.strategy.failurePolicy.maxAttempts` | Retry-loop protection.                                          |
-| `spec.health.timeout`                     | Health observation timeout.                                     |
-| `spec.history.limit`                      | Maximum retained Revisions.                                     |
-| `spec.deletionPolicy`                     | `Orphan` or `DeleteManagedResources`.                           |
-| `spec.suspend`                            | Stop mutations while retaining status.                          |
+| Field                                     | Description                                                                                                                                                                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec.decryption`                         | `provider: sops` and `secretRef.name` of a Secret labelled `solder.io/decryption-key: "true"` whose `.agekey` entries hold age private keys.                                                                                           |
+| `spec.dependsOn[].name`                   | Applications in the same namespace that must be Healthy at their desired revision before this one applies. Cycles are reported as `DependenciesReady=False/DependencyCycle`.                                                           |
+| `spec.notifications[]`                    | Subscriptions: `sinkRef.name` of a NotificationSink and the `events` to send (`AwaitingApproval`, `Healthy`, `Failed`, `RolledBack`).                                                                                                  |
+| `spec.serviceAccountName`                 | Service account Solder impersonates for this Application.                                                                                                                                                                              |
+| `spec.destination.namespace`              | Namespace for namespaced desired resources: objects without one are placed there, objects naming another are rejected. Cluster-scoped kinds, including CRD kinds rendered alongside their CustomResourceDefinition, keep no namespace. |
+| `spec.sync.automatic`                     | Apply approved plans automatically.                                                                                                                                                                                                    |
+| `spec.sync.prune`                         | Delete previously managed resources removed from desired state.                                                                                                                                                                        |
+| `spec.sync.selfHeal`                      | Correct managed live drift.                                                                                                                                                                                                            |
+| `spec.sync.conflictPolicy`                | `fail` (default) stops on SSA ownership conflicts; `adopt` takes over the conflicting fields, listing each field and previous manager in the plan.                                                                                     |
+| `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.                                                                                                                                                                            |
+| `spec.strategy.failurePolicy.action`      | Failure action such as rollback.                                                                                                                                                                                                       |
+| `spec.strategy.failurePolicy.timeout`     | Bounds failure/health observation.                                                                                                                                                                                                     |
+| `spec.strategy.failurePolicy.maxAttempts` | Retry-loop protection.                                                                                                                                                                                                                 |
+| `spec.health.timeout`                     | Health observation timeout.                                                                                                                                                                                                            |
+| `spec.history.limit`                      | Maximum retained Revisions.                                                                                                                                                                                                            |
+| `spec.deletionPolicy`                     | `Orphan` or `DeleteManagedResources`.                                                                                                                                                                                                  |
+| `spec.suspend`                            | Stop mutations while retaining status.                                                                                                                                                                                                 |
 
 ### Status fields
 
-| Field                     | Description                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `status.state`            | High-level health state.                                                                               |
-| `status.desiredRevision`  | Source revision Git asks Solder to run.                                                                |
-| `status.deployedRevision` | Source revision currently deployed after rollback handling.                                            |
-| `status.sync.state`       | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
-| `status.health.state`     | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
-| `status.resources`        | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
-| `status.conditions`       | Kubernetes Conditions for reconciliation.                                                              |
+| Field                       | Description                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `status.state`              | High-level health state.                                                                               |
+| `status.desiredRevision`    | Source revision Git asks Solder to run.                                                                |
+| `status.deployedRevision`   | Source revision currently deployed after rollback handling.                                            |
+| `status.serviceAccountName` | Service account Solder last impersonated for this Application.                                         |
+| `status.sync.state`         | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
+| `status.health.state`       | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
+| `status.managedKinds`       | Kinds Solder last applied; used to prune and watch managed objects of any kind.                        |
+| `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
+| `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
+
+## HealthCheck
+
+`HealthCheck` is a cluster-scoped set of CEL rules that decides the health of
+one kind, for kinds whose status kstatus conventions cannot describe.
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: HealthCheck
+metadata:
+  name: argoproj-rollout
+spec:
+  group: argoproj.io
+  kind: Rollout
+  rules:
+    - expression: object.status.phase == "Degraded"
+      state: Degraded
+      message: Rollout is degraded
+    - expression: object.status.phase == "Healthy"
+      state: Healthy
+    - expression: "true"
+      state: Progressing
+      message: Rollout is progressing
+```
+
+| Field                     | Description                                                          |
+| ------------------------- | -------------------------------------------------------------------- |
+| `spec.group`              | API group of the kind; empty for the core group.                     |
+| `spec.kind`               | Kind the rules apply to.                                             |
+| `spec.rules[].expression` | CEL over the live object, `object`, returning a bool.                |
+| `spec.rules[].state`      | `Healthy`, `Progressing`, or `Degraded` when the expression is true. |
+| `spec.rules[].message`    | Message reported with the state.                                     |
+
+Rules are evaluated in order, and across HealthChecks for the same kind in name
+order; the first true expression decides. When none matches, kstatus
+conventions apply. A validating webhook rejects expressions that do not
+compile or do not return a bool. At runtime each rule has a cost limit; a rule
+that errors or exceeds it reports the object as Progressing with reason
+`HealthCheckFailed`, holding the rollout rather than passing it. Use `has()` to
+guard fields that may be absent.
+
+## NotificationSink
+
+`NotificationSink` is a namespaced destination for Application lifecycle
+notifications. Applications in the same namespace reference it from
+`spec.notifications[].sinkRef`; see
+[Notifications](operations.md#notifications).
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: NotificationSink
+metadata:
+  name: audit
+spec:
+  type: webhook
+  secretRef:
+    name: audit-webhook
+```
+
+| Field                 | Description                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `spec.type`           | `webhook` (a JSON body signed with HMAC-SHA256) or `slack` (a Slack incoming webhook).                                |
+| `spec.secretRef.name` | Secret in the sink's namespace holding `url`, which must be `https`, and, for `webhook` sinks, `hmacKey` for signing. |
+
+NotificationSink has no status. A missing sink or invalid Secret is reported on
+the Application as `NotificationsReady=False`.
+
+## ImagePolicy
+
+`ImagePolicy` scans an image repository and selects the image to run; see
+[Image automation](operations.md#image-automation).
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: ImagePolicy
+metadata:
+  name: api
+spec:
+  image: ghcr.io/acme/api
+  interval: 5m
+  policy:
+    semver:
+      range: ">=1.2.0 <2.0.0"
+```
+
+### Spec fields
+
+| Field                          | Description                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `spec.image`                   | Image repository to scan, such as `ghcr.io/acme/api`.                                                |
+| `spec.secretRef.name`          | Optional `kubernetes.io/dockerconfigjson` Secret, labelled `solder.io/registry-credentials: "true"`. |
+| `spec.interval`                | How often the registry is scanned. Defaults to `5m`.                                                 |
+| `spec.policy.semver.range`     | Select the highest tag within a semver constraint, such as `>=1.2.0 <2.0.0`.                         |
+| `spec.policy.tagPattern.regex` | Select the last tag matching a regular expression.                                                   |
+| `spec.policy.tagPattern.order` | `alphabetical` (default) or `numerical`, by the first capture group or the whole tag.                |
+| `spec.policy.digest.tag`       | Follow the current digest of one fixed tag, such as `main`.                                          |
+| `spec.webhook.secretRef.name`  | Optional Secret whose `token` authenticates requests to `/hooks/imagepolicies/<namespace>/<name>`.   |
+
+Set exactly one of `semver`, `tagPattern`, or `digest`.
+
+### Status fields
+
+| Field                       | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| `status.latestTag`          | Selected tag.                                         |
+| `status.latestDigest`       | Manifest digest of the selected tag.                  |
+| `status.latestImage`        | Immutable reference, `image:tag@digest`.              |
+| `status.lastScannedAt`      | When the registry was last read successfully.         |
+| `status.observedGeneration` | Latest `metadata.generation` processed.               |
+| `status.conditions`         | Kubernetes Conditions; `Ready` reports the selection. |
 
 ## Revision
 
@@ -191,16 +320,18 @@ spec:
 
 ### Status fields
 
-| Field                                     | Description                                                                                                                           |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `status.phase`                            | `Pending`, `Planning`, `AwaitingApproval`, `Applying`, `Observing`, `Healthy`, `Failed`, `RollingBack`, `RolledBack`, or `Cancelled`. |
-| `status.startedAt` / `status.completedAt` | Attempt timing.                                                                                                                       |
-| `status.attempts`                         | Retry-loop protection counter.                                                                                                        |
-| `status.plan`                             | Bounded, redacted plan summary.                                                                                                       |
-| `status.health`                           | Bounded resource health summary.                                                                                                      |
-| `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                    |
-| `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                    |
-| `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                |
+| Field                                     | Description                                                                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status.phase`                            | `Pending`, `Planning`, `AwaitingApproval`, `Applying`, `Observing`, `Healthy`, `Failed`, `RollingBack`, `RolledBack`, or `Cancelled`.                 |
+| `status.startedAt` / `status.completedAt` | Attempt timing.                                                                                                                                       |
+| `status.attempts`                         | Retry-loop protection counter.                                                                                                                        |
+| `status.plan`                             | Bounded, redacted plan summary.                                                                                                                       |
+| `status.health`                           | Bounded resource health summary.                                                                                                                      |
+| `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                                    |
+| `status.approval`                         | Audit record of a manual approval: `approvedBy`, `approvedAt`, `planDigest`, and `desiredStateHash`, which lets one approval cover the whole rollout. |
+| `status.plan.digest`                      | Digest of the desired state and full redacted plan; approvals bind to it.                                                                             |
+| `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                                    |
+| `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                                |
 
 ## Invariants
 

@@ -66,6 +66,9 @@ type ConflictPolicy string
 const (
 	// ConflictPolicyFail keeps conflict handling conservative and explicit.
 	ConflictPolicyFail ConflictPolicy = "fail"
+	// ConflictPolicyAdopt takes ownership of fields another manager holds,
+	// listing each field and its previous manager in the plan.
+	ConflictPolicyAdopt ConflictPolicy = "adopt"
 )
 
 // RenderType identifies the renderer used for an Application source path.
@@ -191,7 +194,7 @@ type PlanConflict struct {
 	// +kubebuilder:validation:MinLength=1
 	Manager string `json:"manager"`
 	// policy records the conflict behavior that will be used by apply.
-	// +kubebuilder:validation:Enum=fail
+	// +kubebuilder:validation:Enum=fail;adopt
 	Policy ConflictPolicy `json:"policy"`
 }
 
@@ -219,6 +222,10 @@ type PlanResourceChange struct {
 // RevisionPlan stores bounded plan details in Revision status.
 type RevisionPlan struct {
 	Summary PlanSummary `json:"summary,omitempty"`
+	// digest identifies the complete plan and desired state; an approval is
+	// valid only for the digest it was given for.
+	// +optional
+	Digest string `json:"digest,omitempty"`
 	// resources is intentionally bounded by the planner before it is written.
 	// +listType=atomic
 	// +optional

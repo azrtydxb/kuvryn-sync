@@ -33,9 +33,53 @@ type RepositorySpec struct {
 	// +listType=atomic
 	// +optional
 	ApplicationConfigPaths []string `json:"applicationConfigPaths,omitempty"`
+	// applicationServiceAccountName is the service account that Applications
+	// discovered from .solder.yaml run as. Discovered Applications may only
+	// name this account; when it is empty they may not set serviceAccountName
+	// and use the controller's default service account.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	ApplicationServiceAccountName string `json:"applicationServiceAccountName,omitempty"`
 	// pollInterval controls source polling when no external wake-up signal exists.
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+	// webhook lets GitHub or GitLab push events trigger an immediate fetch
+	// through Solder's webhook receiver at /hooks/<namespace>/<name>.
+	// +optional
+	Webhook *RepositoryWebhook `json:"webhook,omitempty"`
+	// imageUpdate commits the images selected by ImagePolicies in this
+	// namespace back to the repository, wherever a file carries a marker such
+	// as `# {"$imagepolicy": "<namespace>:<policy>"}`.
+	// +optional
+	ImageUpdate *ImageUpdateSpec `json:"imageUpdate,omitempty"`
+}
+
+// ImageUpdateSpec configures image write-back commits.
+type ImageUpdateSpec struct {
+	// secretRef names a Secret, labelled solder.io/git-credentials=true, with
+	// credentials allowed to push (same keys as spec.git.auth).
+	SecretRef SecretReference `json:"secretRef"`
+	// branch receives the commits; it defaults to spec.git.revision.
+	// +optional
+	Branch string `json:"branch,omitempty"`
+	// path limits which repository-relative directory is scanned for markers.
+	// +optional
+	Path string `json:"path,omitempty"`
+	// authorName and authorEmail sign the commits.
+	// +kubebuilder:default:="Solder"
+	// +optional
+	AuthorName string `json:"authorName,omitempty"`
+	// +kubebuilder:default:="solder@localhost"
+	// +optional
+	AuthorEmail string `json:"authorEmail,omitempty"`
+}
+
+// RepositoryWebhook configures push webhooks for a Repository.
+type RepositoryWebhook struct {
+	// secretRef names a Secret in the Repository namespace whose `token` is the
+	// webhook secret configured on GitHub (HMAC) or GitLab (token).
+	SecretRef SecretReference `json:"secretRef"`
 }
 
 // GitRepositorySpec configures a Git desired-state source.

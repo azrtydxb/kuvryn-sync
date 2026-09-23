@@ -19,8 +19,12 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,10 +33,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	"github.com/azrtydxb/solder/internal/imageupdate"
 	"github.com/azrtydxb/solder/internal/source"
 	gitcache "github.com/azrtydxb/solder/internal/source/git"
 )
@@ -51,6 +61,8 @@ type RepositoryReconciler struct {
 
 	SourceResolver source.Resolver
 	CacheDir       string
+	// ImageUpdater commits ImagePolicy selections back to Git; nil disables it.
+	ImageUpdater *imageupdate.Updater
 }
 
 // +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
@@ -108,6 +120,11 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return result, r.updateStatus(ctx, repository)
 	}
 
+	if pushed := r.updateImages(ctx, repository); pushed {
+		// Fetch the commit just pushed instead of waiting for the next poll.
+		result.RequeueAfter = time.Second
+	}
+
 	now := metav1.Now()
 	repository.Status.State = corev1alpha1.RepositoryStateReady
 	repository.Status.ObservedRevision = resolved.Revision
@@ -137,17 +154,30 @@ func (r *RepositoryReconciler) resolver() source.Resolver {
 	return r.SourceResolver
 }
 
+// GitCredentialsLabel marks a Secret that Solder may use as Git credentials.
+const GitCredentialsLabel = "solder.io/git-credentials"
+
 func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repository *corev1alpha1.Repository) (source.Credentials, error) {
 	if repository.Spec.Git == nil || repository.Spec.Git.Auth == nil || repository.Spec.Git.Auth.SecretRef == nil {
 		return source.Credentials{}, nil
 	}
+	return r.credentialsFromSecret(ctx, repository.Namespace, repository.Spec.Git.Auth.SecretRef.Name)
+}
+
+// credentialsFromSecret loads Git credentials from a labelled Secret.
+func (r *RepositoryReconciler) credentialsFromSecret(ctx context.Context, namespace, name string) (source.Credentials, error) {
 	secret := &corev1.Secret{}
-	key := client.ObjectKey{Namespace: repository.Namespace, Name: repository.Spec.Git.Auth.SecretRef.Name}
+	key := client.ObjectKey{Namespace: namespace, Name: name}
 	if err := r.Get(ctx, key, secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return source.Credentials{}, &source.Error{Reason: source.FailureReasonAuthenticationFailure, Message: "Git authentication Secret was not found", Err: err}
 		}
 		return source.Credentials{}, err
+	}
+	// Whoever writes a Repository chooses both the Git URL and the Secret, so
+	// only Secrets explicitly marked as Git credentials may be sent anywhere.
+	if secret.Labels[GitCredentialsLabel] != "true" {
+		return source.Credentials{}, &source.Error{Reason: source.FailureReasonAuthenticationFailure, Message: fmt.Sprintf("Git authentication Secret is not labelled %s=true", GitCredentialsLabel)}
 	}
 	credentials := source.Credentials{
 		Username:   secretString(secret, "username"),
@@ -218,6 +248,93 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Repository{}).
+		Watches(&corev1alpha1.ImagePolicy{}, handler.EnqueueRequestsFromMapFunc(r.repositoriesForImagePolicy), builder.WithPredicates(latestImageChanged)).
 		Named("repository").
 		Complete(r)
+}
+
+// latestImageChanged admits ImagePolicy updates that select another image.
+// Every scan writes the policy's status, and each of those writes would
+// otherwise cost a Git fetch per Repository in the namespace.
+var latestImageChanged = predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+	old, oldOK := e.ObjectOld.(*corev1alpha1.ImagePolicy)
+	updated, updatedOK := e.ObjectNew.(*corev1alpha1.ImagePolicy)
+	return !oldOK || !updatedOK || old.Status.LatestImage != updated.Status.LatestImage
+}}
+
+// updateImages commits the images selected by ImagePolicies in the
+// Repository's namespace wherever the repository has markers for them, and
+// records the outcome in the ImagesUpdated condition. It never makes the
+// Repository NotReady and reports whether a commit was pushed.
+func (r *RepositoryReconciler) updateImages(ctx context.Context, repository *corev1alpha1.Repository) bool {
+	spec := repository.Spec.ImageUpdate
+	if spec == nil {
+		apimeta.RemoveStatusCondition(&repository.Status.Conditions, "ImagesUpdated")
+		return false
+	}
+	if r.ImageUpdater == nil {
+		apimeta.SetStatusCondition(&repository.Status.Conditions, metav1.Condition{Type: "ImagesUpdated", Status: metav1.ConditionFalse, Reason: "Disabled", Message: "Image write-back is not enabled in this controller", ObservedGeneration: repository.Generation})
+		return false
+	}
+	condition := metav1.Condition{Type: "ImagesUpdated", Status: metav1.ConditionTrue, Reason: "UpToDate", Message: "Image references match their ImagePolicies", ObservedGeneration: repository.Generation}
+	commit, changes, err := r.writeBackImages(ctx, repository, spec)
+	switch {
+	case err != nil:
+		condition.Status, condition.Reason, condition.Message = metav1.ConditionFalse, "UpdateFailed", safeMessage(err, "Image update failed")
+		r.event(repository, corev1.EventTypeWarning, "ImageUpdateFailed", condition.Message)
+	case commit != "":
+		condition.Reason = "Committed"
+		condition.Message = fmt.Sprintf("Pushed %s updating %d image reference(s)", commit, len(changes))
+		r.event(repository, corev1.EventTypeNormal, "ImagesUpdated", condition.Message)
+	}
+	apimeta.SetStatusCondition(&repository.Status.Conditions, condition)
+	return commit != ""
+}
+
+func (r *RepositoryReconciler) writeBackImages(ctx context.Context, repository *corev1alpha1.Repository, spec *corev1alpha1.ImageUpdateSpec) (string, []imageupdate.Change, error) {
+	branch := spec.Branch
+	if branch == "" {
+		branch = repository.Spec.Git.Revision
+	}
+	if branch == "" {
+		return "", nil, fmt.Errorf("set spec.imageUpdate.branch or spec.git.revision")
+	}
+	credentials, err := r.credentialsFromSecret(ctx, repository.Namespace, spec.SecretRef.Name)
+	if err != nil {
+		return "", nil, err
+	}
+	var policies corev1alpha1.ImagePolicyList
+	if err := r.List(ctx, &policies, client.InNamespace(repository.Namespace)); err != nil {
+		return "", nil, err
+	}
+	images := map[string]imageupdate.Image{}
+	for _, policy := range policies.Items {
+		if policy.Status.LatestImage != "" {
+			images[policy.Namespace+":"+policy.Name] = imageupdate.Image{Name: policy.Spec.Image, Tag: policy.Status.LatestTag, Full: policy.Status.LatestImage}
+		}
+	}
+	if len(images) == 0 {
+		return "", nil, nil
+	}
+	return r.ImageUpdater.Update(ctx, imageupdate.Request{
+		URL: repository.Spec.Git.URL, Branch: branch, Path: spec.Path, Auth: credentials,
+		Namespace: repository.Namespace, Images: images,
+		Author: object.Signature{Name: spec.AuthorName, Email: spec.AuthorEmail},
+	})
+}
+
+// repositoriesForImagePolicy re-queues Repositories that write back images
+// in the ImagePolicy's namespace.
+func (r *RepositoryReconciler) repositoriesForImagePolicy(ctx context.Context, obj client.Object) []reconcile.Request {
+	var repositories corev1alpha1.RepositoryList
+	if err := r.List(ctx, &repositories, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	requests := []reconcile.Request{}
+	for _, repository := range repositories.Items {
+		if repository.Spec.ImageUpdate != nil {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&repository)})
+		}
+	}
+	return requests
 }

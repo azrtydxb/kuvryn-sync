@@ -22,18 +22,41 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
+	"io"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/azrtydxb/solder/internal/source"
 )
 
-const defaultRevision = "HEAD"
+const (
+	defaultRevision = "HEAD"
+	// checkoutMarker marks a fully written worktree; no Git entry may use it.
+	checkoutMarker = ".solder-checkout"
+	// maxSymlinkHops bounds symlink resolution like the kernel's loop limit.
+	maxSymlinkHops = 40
+)
+
+// allowLocalRepositories permits filesystem paths as repository URLs. Only
+// tests enable it: a controller has no business reading Git repositories
+// from its own filesystem.
+var allowLocalRepositories = false
 
 // Cache resolves Git refs by maintaining one local bare clone per canonical URL.
 type Cache struct {
@@ -95,8 +118,8 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if revision == "" {
 		revision = defaultRevision
 	}
-	if err := validateAuth(repository); err != nil {
-		return source.ResolvedSource{}, err
+	if !RemoteURL(repository.URL) && !allowLocalRepositories {
+		return source.ResolvedSource{}, classified(source.FailureReasonValidationFailure, "Git repository URL must use https, http, ssh, or git", nil)
 	}
 
 	cacheDir := c.cacheDir(repository.URL)
@@ -107,17 +130,22 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if err := os.MkdirAll(c.Root, 0o700); err != nil {
 		return source.ResolvedSource{}, classified(source.FailureReasonSourceFailure, "Could not create source cache", err)
 	}
-	if err := c.ensureRepository(ctx, cacheDir, repository); err != nil {
-		return source.ResolvedSource{}, err
-	}
-	if err := c.fetch(ctx, cacheDir, repository); err != nil {
-		return source.ResolvedSource{}, err
-	}
-	commit, err := c.revParse(ctx, cacheDir, repository, revision)
+	auth, err := AuthMethod(repository)
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
-	worktree, err := c.materializeWorktree(ctx, cacheDir, repository, commit)
+	repo, err := c.openRepository(cacheDir, repository)
+	if err != nil {
+		return source.ResolvedSource{}, err
+	}
+	if err := c.fetch(ctx, repo, auth); err != nil {
+		return source.ResolvedSource{}, err
+	}
+	commit, err := c.resolve(ctx, repo, auth, revision)
+	if err != nil {
+		return source.ResolvedSource{}, err
+	}
+	worktree, err := c.materializeWorktree(repo, cacheDir, commit)
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
@@ -143,190 +171,354 @@ func (c *Cache) cacheDir(rawURL string) string {
 	return filepath.Join(c.Root, hex.EncodeToString(sum[:]))
 }
 
-func (c *Cache) ensureRepository(ctx context.Context, cacheDir string, repository source.GitRepository) error {
-	if _, err := os.Stat(filepath.Join(cacheDir, "HEAD")); err == nil {
-		return c.git(ctx, cacheDir, repository, "remote", "set-url", "origin", repository.URL)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return classified(source.FailureReasonSourceFailure, "Could not inspect source cache", err)
+func (c *Cache) openRepository(cacheDir string, repository source.GitRepository) (*gogit.Repository, error) {
+	repo, err := gogit.PlainOpen(cacheDir)
+	if errors.Is(err, gogit.ErrRepositoryNotExists) {
+		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+			return nil, classified(source.FailureReasonSourceFailure, "Could not create repository cache", err)
+		}
+		repo, err = gogit.PlainInit(cacheDir, true)
 	}
-	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
-		return classified(source.FailureReasonSourceFailure, "Could not create repository cache", err)
+	if err != nil {
+		return nil, classified(source.FailureReasonSourceFailure, "Could not open repository cache", err)
 	}
-	if err := c.git(ctx, "", repository, "init", "--bare", cacheDir); err != nil {
-		return err
+	remote, err := repo.Remote("origin")
+	if err == nil && len(remote.Config().URLs) == 1 && remote.Config().URLs[0] == repository.URL {
+		return repo, nil
 	}
-	return c.git(ctx, cacheDir, repository, "remote", "add", "origin", repository.URL)
+	if err == nil {
+		if err := repo.DeleteRemote("origin"); err != nil {
+			return nil, classified(source.FailureReasonSourceFailure, "Could not update repository cache remote", err)
+		}
+	}
+	if _, err := repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{repository.URL}}); err != nil {
+		return nil, classified(source.FailureReasonSourceFailure, "Could not configure repository cache remote", err)
+	}
+	return repo, nil
 }
 
-func (c *Cache) fetch(ctx context.Context, cacheDir string, repository source.GitRepository) error {
-	return c.git(ctx, cacheDir, repository,
-		"fetch", "--prune", "origin",
-		"+refs/heads/*:refs/heads/*",
-		"+refs/tags/*:refs/tags/*")
+func (c *Cache) fetch(ctx context.Context, repo *gogit.Repository, auth transport.AuthMethod) error {
+	err := repo.FetchContext(ctx, &gogit.FetchOptions{
+		RemoteName: "origin",
+		RefSpecs:   []config.RefSpec{"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"},
+		Auth:       auth,
+		Tags:       gogit.NoTags,
+		Force:      true,
+		Prune:      true,
+	})
+	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
+		return classifyGitError(err, "Git fetch failed")
+	}
+	return nil
 }
 
-func (c *Cache) materializeWorktree(ctx context.Context, cacheDir string, repository source.GitRepository, commit string) (string, error) {
+// resolve turns a branch, tag, commit (full or abbreviated), or HEAD for the
+// remote's default branch into a commit hash.
+func (c *Cache) resolve(ctx context.Context, repo *gogit.Repository, auth transport.AuthMethod, revision string) (string, error) {
+	if revision == defaultRevision {
+		remote, err := repo.Remote("origin")
+		if err != nil {
+			return "", classified(source.FailureReasonSourceFailure, "Could not resolve Git revision", err)
+		}
+		refs, err := remote.ListContext(ctx, &gogit.ListOptions{Auth: auth})
+		if err != nil {
+			return "", classifyGitError(err, "Could not list Git remote")
+		}
+		for _, ref := range refs {
+			if ref.Name() != plumbing.HEAD {
+				continue
+			}
+			// A remote with a detached HEAD advertises the commit itself.
+			if ref.Type() == plumbing.HashReference {
+				return ref.Hash().String(), nil
+			}
+			revision = ref.Target().String()
+		}
+		// Never fall back to the local cache's own HEAD, which names a branch
+		// the remote may not use as its default.
+		if revision == defaultRevision {
+			return "", classified(source.FailureReasonSourceFailure, "Git remote does not advertise a default branch; set a revision", nil)
+		}
+	}
+	hash, err := repo.ResolveRevision(plumbing.Revision(revision))
+	if err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not resolve Git revision", err)
+	}
+	return hash.String(), nil
+}
+
+// materializeWorktree writes the commit's files to a directory shared by every
+// Application on the same commit, refusing symlinks that resolve outside it.
+func (c *Cache) materializeWorktree(repo *gogit.Repository, cacheDir, commit string) (string, error) {
 	worktree := filepath.Join(cacheDir, "worktrees", commit)
-	if _, err := os.Stat(filepath.Join(worktree, ".solder-checkout")); err == nil {
+	if _, err := os.Stat(filepath.Join(worktree, checkoutMarker)); err == nil {
 		return worktree, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", classified(source.FailureReasonSourceFailure, "Could not inspect source worktree", err)
+	}
+	commitObject, err := repo.CommitObject(plumbing.NewHash(commit))
+	if err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not read Git commit", err)
+	}
+	tree, err := commitObject.Tree()
+	if err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not read Git tree", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(worktree), 0o700); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not create source worktree", err)
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(worktree), commit+"-*")
+	if err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not create source worktree", err)
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+	err = tree.Files().ForEach(func(file *object.File) error { return writeFile(staging, file) })
+	if err == nil {
+		// Each link passed on its own; together they may still form a chain
+		// that leaves the checkout, which only the finished tree shows.
+		err = checkSymlinks(staging)
+	}
+	if err != nil {
+		var sourceErr *source.Error
+		if errors.As(err, &sourceErr) {
+			return "", err
+		}
+		return "", classified(source.FailureReasonSourceFailure, "Could not check out Git commit", err)
+	}
+	if err := createFile(filepath.Join(staging, checkoutMarker), 0o600, strings.NewReader(commit)); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not mark source worktree", err)
 	}
 	if err := os.RemoveAll(worktree); err != nil {
 		return "", classified(source.FailureReasonSourceFailure, "Could not reset source worktree", err)
 	}
-	if err := os.MkdirAll(worktree, 0o700); err != nil {
-		return "", classified(source.FailureReasonSourceFailure, "Could not create source worktree", err)
-	}
-	if err := c.git(ctx, cacheDir, repository, "--work-tree", worktree, "checkout", "-f", commit, "--", "."); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(worktree, ".solder-checkout"), []byte(commit), 0o600); err != nil {
-		return "", classified(source.FailureReasonSourceFailure, "Could not mark source worktree", err)
+	if err := os.Rename(staging, worktree); err != nil {
+		return "", classified(source.FailureReasonSourceFailure, "Could not publish source worktree", err)
 	}
 	return worktree, nil
 }
 
-func (c *Cache) revParse(ctx context.Context, cacheDir string, repository source.GitRepository, revision string) (string, error) {
-	candidates := []string{revision}
-	if !looksLikeCommit(revision) {
-		candidates = append(candidates, "refs/heads/"+revision, "refs/tags/"+revision, "origin/"+revision)
+func writeFile(root string, file *object.File) error {
+	path := filepath.Join(root, filepath.FromSlash(file.Name))
+	if !inside(root, path) {
+		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s escapes the checkout", file.Name), nil)
 	}
-	var last error
-	for _, candidate := range candidates {
-		out, err := c.gitOutput(ctx, cacheDir, repository, "rev-parse", "--verify", candidate+"^{commit}")
-		if err == nil {
-			return strings.TrimSpace(out), nil
-		}
-		last = err
+	if first, _, _ := strings.Cut(file.Name, "/"); strings.EqualFold(first, checkoutMarker) {
+		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s is reserved", file.Name), nil)
 	}
-	return "", classified(source.FailureReasonSourceFailure, "Could not resolve Git revision", last)
-}
-
-func (c *Cache) git(ctx context.Context, dir string, repository source.GitRepository, args ...string) error {
-	_, err := c.gitOutput(ctx, dir, repository, args...)
-	return err
-}
-
-func (c *Cache) gitOutput(ctx context.Context, dir string, repository source.GitRepository, args ...string) (string, error) {
-	env, cleanup, err := gitEnv(repository.Auth)
-	if err != nil {
-		return "", err
+	// A link written earlier may lead a parent directory out of the checkout.
+	if ok, err := resolvesInside(root, path); err != nil {
+		return err
+	} else if !ok {
+		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s escapes the checkout through a symlink", file.Name), nil)
 	}
-	defer cleanup()
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", classifyGitError(safeGitOutput(out), err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
 	}
-	return string(out), nil
-}
-
-func gitEnv(credentials source.Credentials) ([]string, func(), error) {
-	env := append([]string{}, os.Environ()...)
-	env = append(env, "GIT_TERMINAL_PROMPT=0")
-	cleanup := func() {}
-
-	if credentials.SSHKey != "" || credentials.KnownHosts != "" || credentials.Password != "" || credentials.Token != "" {
-		dir, err := os.MkdirTemp("", "solder-git-auth-*")
+	switch file.Mode {
+	case filemode.Symlink:
+		contents, err := file.Contents()
 		if err != nil {
-			return nil, cleanup, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git credentials", err)
+			return err
 		}
-		cleanup = func() { _ = os.RemoveAll(dir) }
-
-		if credentials.SSHKey != "" || credentials.KnownHosts != "" {
-			parts := []string{"ssh", "-o", "BatchMode=yes"}
-			if credentials.KnownHosts != "" {
-				knownHostsPath := filepath.Join(dir, "known_hosts")
-				if err := os.WriteFile(knownHostsPath, []byte(credentials.KnownHosts), 0o600); err != nil {
-					cleanup()
-					return nil, func() {}, classified(source.FailureReasonAuthenticationFailure, "Could not write Git known_hosts", err)
-				}
-				parts = append(parts, "-o", "UserKnownHostsFile="+knownHostsPath)
-			}
-			if credentials.SSHKey != "" {
-				keyPath := filepath.Join(dir, "identity")
-				if err := os.WriteFile(keyPath, []byte(credentials.SSHKey), 0o600); err != nil {
-					cleanup()
-					return nil, func() {}, classified(source.FailureReasonAuthenticationFailure, "Could not write Git SSH key", err)
-				}
-				parts = append(parts, "-i", keyPath)
-			}
-			env = append(env, "GIT_SSH_COMMAND="+strings.Join(parts, " "))
+		target := filepath.FromSlash(contents)
+		if filepath.IsAbs(target) || !inside(root, filepath.Join(filepath.Dir(path), target)) {
+			return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git symlink %s points outside the checkout", file.Name), nil)
 		}
-
-		if credentials.Password != "" || credentials.Token != "" {
-			askpassPath := filepath.Join(dir, "askpass.sh")
-			username := credentials.Username
-			secret := credentials.Password
-			if credentials.Token != "" {
-				if username == "" {
-					username = "oauth2"
-				}
-				secret = credentials.Token
-			}
-			script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*Username*) printf '%%s\\n' %q ;;\n*) printf '%%s\\n' %q ;;\nesac\n", username, secret)
-			if err := os.WriteFile(askpassPath, []byte(script), 0o700); err != nil {
-				cleanup()
-				return nil, func() {}, classified(source.FailureReasonAuthenticationFailure, "Could not write Git askpass helper", err)
-			}
-			env = append(env, "GIT_ASKPASS="+askpassPath)
-		}
+		return os.Symlink(target, path)
+	case filemode.Executable:
+		return writeBlob(path, 0o700, file)
+	default:
+		return writeBlob(path, 0o600, file)
 	}
-	return env, cleanup, nil
 }
 
-func validateAuth(repository source.GitRepository) error {
-	parsed, err := url.Parse(repository.URL)
+func writeBlob(path string, perm os.FileMode, file *object.File) error {
+	reader, err := file.Reader()
 	if err != nil {
-		return classified(source.FailureReasonValidationFailure, "Git repository URL is invalid", err)
+		return err
 	}
-	if parsed.Scheme == "ssh" && repository.Auth.SSHKey == "" && parsed.Host != "" && !isLocalPath(repository.URL) {
-		return classified(source.FailureReasonAuthenticationFailure, "SSH Git repository requires an SSH private key Secret", nil)
+	defer func() { _ = reader.Close() }()
+	return createFile(path, perm, reader)
+}
+
+// createFile writes a new file and fails if anything, a symlink included,
+// already exists at path, so nothing is ever written through a link.
+func createFile(path string, perm os.FileMode, contents io.Reader) error {
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
 	}
-	if strings.HasPrefix(repository.URL, "git@") && repository.Auth.SSHKey == "" {
-		return classified(source.FailureReasonAuthenticationFailure, "SSH Git repository requires an SSH private key Secret", nil)
+	if _, err := io.Copy(out, contents); err != nil {
+		_ = out.Close()
+		return err
 	}
-	return nil
+	return out.Close()
+}
+
+// checkSymlinks refuses any symlink under root that resolves outside it.
+func checkSymlinks(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.Type()&fs.ModeSymlink == 0 {
+			return err
+		}
+		ok, err := resolvesInside(root, path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			rel, _ := filepath.Rel(root, path)
+			return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git symlink %s points outside the checkout", filepath.ToSlash(rel)), nil)
+		}
+		return nil
+	})
+}
+
+// resolvesInside follows path below root one component at a time, resolving
+// every symlink on the way, and reports whether each step stays inside root.
+// A component that does not exist counts as inside: the kernel cannot
+// traverse it either, so dangling links are harmless.
+func resolvesInside(root, path string) (bool, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !inside(root, path) {
+		return false, nil
+	}
+	pending := strings.Split(rel, string(filepath.Separator))
+	current := root
+	for hops := 0; len(pending) > 0; {
+		name := pending[0]
+		pending = pending[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			if current == root {
+				return false, nil
+			}
+			current = filepath.Dir(current)
+			continue
+		}
+		next := filepath.Join(current, name)
+		info, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		if hops++; hops > maxSymlinkHops {
+			return false, nil
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return false, err
+		}
+		if filepath.IsAbs(target) {
+			return false, nil
+		}
+		pending = append(strings.Split(target, string(filepath.Separator)), pending...)
+	}
+	return true, nil
+}
+
+func inside(root, path string) bool {
+	rel, err := filepath.Rel(root, filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// AuthMethod builds go-git credentials. SSH requires known_hosts so an
+// unknown or changed host key is never trusted.
+func AuthMethod(repository source.GitRepository) (transport.AuthMethod, error) {
+	credentials := repository.Auth
+	if isSSH(repository.URL) {
+		endpoint, err := transport.NewEndpoint(repository.URL)
+		if err != nil {
+			return nil, classified(source.FailureReasonValidationFailure, "Git repository URL is invalid", err)
+		}
+		user := endpoint.User
+		if user == "" {
+			user = "git"
+		}
+		if credentials.SSHKey == "" {
+			return nil, classified(source.FailureReasonAuthenticationFailure, "SSH Git repository requires an SSH private key Secret", nil)
+		}
+		keys, err := ssh.NewPublicKeys(user, []byte(credentials.SSHKey), "")
+		if err != nil {
+			return nil, classified(source.FailureReasonAuthenticationFailure, "Git SSH private key is invalid", err)
+		}
+		if strings.TrimSpace(credentials.KnownHosts) == "" {
+			return nil, classified(source.FailureReasonAuthenticationFailure, "SSH Git repository requires known_hosts in the credentials Secret", nil)
+		}
+		callback, err := knownHostsCallback(credentials.KnownHosts)
+		if err != nil {
+			return nil, err
+		}
+		keys.HostKeyCallback = callback
+		return keys, nil
+	}
+	if credentials.Token != "" {
+		username := credentials.Username
+		if username == "" {
+			username = "oauth2"
+		}
+		return &githttp.BasicAuth{Username: username, Password: credentials.Token}, nil
+	}
+	if credentials.Password != "" {
+		return &githttp.BasicAuth{Username: credentials.Username, Password: credentials.Password}, nil
+	}
+	return nil, nil
+}
+
+func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
+	file, err := os.CreateTemp("", "solder-known-hosts-*")
+	if err != nil {
+		return nil, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git known_hosts", err)
+	}
+	defer func() { _ = os.Remove(file.Name()) }()
+	if _, err := file.WriteString(knownHosts); err != nil {
+		_ = file.Close()
+		return nil, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git known_hosts", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git known_hosts", err)
+	}
+	callback, err := knownhosts.New(file.Name())
+	if err != nil {
+		return nil, classified(source.FailureReasonAuthenticationFailure, "Git known_hosts is invalid", err)
+	}
+	return callback, nil
+}
+
+// RemoteURL reports whether rawURL uses a network transport Solder accepts.
+func RemoteURL(rawURL string) bool {
+	for _, scheme := range []string{"https://", "http://", "ssh://", "git://"} {
+		if strings.HasPrefix(rawURL, scheme) {
+			return true
+		}
+	}
+	return isSSH(rawURL)
+}
+
+func isSSH(rawURL string) bool {
+	return strings.HasPrefix(rawURL, "ssh://") || (strings.Contains(rawURL, "@") && strings.Contains(rawURL, ":") && !strings.Contains(rawURL, "://"))
 }
 
 func canonicalURL(rawURL string) string {
 	return strings.TrimSpace(rawURL)
 }
 
-func looksLikeCommit(revision string) bool {
-	if len(revision) < 7 || len(revision) > 64 {
-		return false
-	}
-	for _, r := range revision {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
-			return false
-		}
-	}
-	return true
-}
-
-func isLocalPath(rawURL string) bool {
-	return strings.HasPrefix(rawURL, "/") || strings.HasPrefix(rawURL, "./") || strings.HasPrefix(rawURL, "../")
-}
-
-func classifyGitError(output string, err error) error {
-	lower := strings.ToLower(output)
-	if strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "could not read username") || strings.Contains(lower, "terminal prompts disabled") {
+func classifyGitError(err error, message string) error {
+	if errors.Is(err, transport.ErrAuthenticationRequired) || errors.Is(err, transport.ErrAuthorizationFailed) {
 		return classified(source.FailureReasonAuthenticationFailure, "Git authentication failed", err)
 	}
-	return classified(source.FailureReasonSourceFailure, "Git command failed", err)
-}
-
-func safeGitOutput(output []byte) string {
-	text := string(output)
-	if len(text) > 512 {
-		text = text[:512]
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "unable to authenticate") || strings.Contains(lower, "knownhosts") || strings.Contains(lower, "host key") {
+		return classified(source.FailureReasonAuthenticationFailure, "Git authentication failed", err)
 	}
-	return text
+	return classified(source.FailureReasonSourceFailure, message, err)
 }
 
 func classified(reason source.FailureReason, message string, err error) error {

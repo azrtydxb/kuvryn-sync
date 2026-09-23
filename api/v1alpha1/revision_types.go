@@ -114,11 +114,53 @@ type RevisionStatus struct {
 	// failure records the most recent deterministic failure classification.
 	// +optional
 	Failure *RevisionFailure `json:"failure,omitempty"`
+	// approval records who approved this Revision's plan, when it was applied
+	// through manual approval.
+	// +optional
+	Approval *RevisionApproval `json:"approval,omitempty"`
+	// chartDigest is the sha256 of the Helm chart archive pulled from a chart
+	// repository for this Revision.
+	// +optional
+	ChartDigest string `json:"chartDigest,omitempty"`
+	// hooks reports the pre-sync and post-sync hooks run for this Revision.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Hooks []HookStatus `json:"hooks,omitempty"`
 	// conditions represent the current state of the Revision resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// HookStatus is the state of one sync hook.
+type HookStatus struct {
+	// resource identifies the hook object.
+	Resource ResourceRef `json:"resource"`
+	// stage is PreSync or PostSync.
+	Stage string `json:"stage"`
+	// state is the hook's health: Progressing while it runs, Healthy once it
+	// succeeded, Degraded when it failed.
+	State HealthState `json:"state"`
+	// message explains the state.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// RevisionApproval is the audit record of a manual approval.
+type RevisionApproval struct {
+	// approvedBy is the authenticated user who approved the plan.
+	ApprovedBy string `json:"approvedBy"`
+	// approvedAt is when the approval was admitted.
+	ApprovedAt metav1.Time `json:"approvedAt"`
+	// planDigest is the plan digest the approval was given for.
+	PlanDigest string `json:"planDigest"`
+	// desiredStateHash is the desired state the approved plan was built from.
+	// The approval covers the rest of this Revision's rollout only while the
+	// desired state still has this hash.
+	// +optional
+	DesiredStateHash string `json:"desiredStateHash,omitempty"`
 }
 
 // RevisionFailure describes a machine-readable deployment failure.

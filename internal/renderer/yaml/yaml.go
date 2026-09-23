@@ -37,8 +37,11 @@ type Renderer struct{}
 
 // Render decodes all YAML documents under input.Path in deterministic order.
 func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructured.Unstructured, error) {
-	root, err := safePath(input.Workspace, input.Path)
+	root, err := renderer.Dir(input)
 	if err != nil {
+		return nil, err
+	}
+	if err := renderer.Contained(input.Workspace, root); err != nil {
 		return nil, err
 	}
 	files, err := manifestFiles(root)
@@ -50,13 +53,21 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Messages reach Application status, so they name the file by its
+		// path in the repository rather than in the cache.
+		rel := renderer.Relative(input.Workspace, file)
 		data, err := os.ReadFile(file)
 		if err != nil {
-			return nil, fmt.Errorf("read YAML manifest %s: %w", file, err)
+			return nil, fmt.Errorf("read YAML manifest %s: %w", rel, err)
+		}
+		if input.Decrypt != nil {
+			if data, err = input.Decrypt(rel, data); err != nil {
+				return nil, err
+			}
 		}
 		decoded, err := Decode(data)
 		if err != nil {
-			return nil, fmt.Errorf("decode YAML manifest %s: %w", file, err)
+			return nil, fmt.Errorf("decode YAML manifest %s: %w", rel, err)
 		}
 		objects = append(objects, decoded...)
 	}
@@ -111,23 +122,6 @@ func manifestFiles(root string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
-}
-
-func safePath(workspace, rel string) (string, error) {
-	if workspace == "" {
-		return "", fmt.Errorf("workspace is required")
-	}
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("render path must be relative")
-	}
-	clean := filepath.Clean(rel)
-	if clean == "." {
-		clean = ""
-	}
-	if strings.HasPrefix(clean, "..") {
-		return "", fmt.Errorf("render path must stay inside workspace")
-	}
-	return filepath.Join(workspace, clean), nil
 }
 
 func isYAML(path string) bool {

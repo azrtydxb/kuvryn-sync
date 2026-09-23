@@ -2,9 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"sort"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	"github.com/azrtydxb/solder/internal/redact"
 	"github.com/azrtydxb/solder/internal/syncpolicy"
 	"sigs.k8s.io/yaml"
 )
@@ -12,9 +17,9 @@ import (
 // RenderApplications renders core Application read output from CRD objects.
 func RenderApplications(apps []corev1alpha1.Application) string {
 	var b bytes.Buffer
-	_, _ = fmt.Fprintln(&b, "NAME\tSYNC\tHEALTH\tDESIRED\tDEPLOYED")
+	_, _ = fmt.Fprintln(&b, "NAME\tSYNC\tHEALTH\tDESIRED\tDEPLOYED\tSERVICEACCOUNT")
 	for _, app := range apps {
-		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", app.Name, app.Status.Sync.State, app.Status.Health.State, app.Status.DesiredRevision, app.Status.DeployedRevision)
+		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", app.Name, app.Status.Sync.State, app.Status.Health.State, app.Status.DesiredRevision, app.Status.DeployedRevision, app.Status.ServiceAccountName)
 	}
 	return b.String()
 }
@@ -36,12 +41,20 @@ type MutationPatch struct {
 	Patch    string `json:"patch"`
 }
 
-// BuildSyncPatch validates exact approval and returns a public CRD merge patch.
-func BuildSyncPatch(app corev1alpha1.Application, plannedRevision, approvedRevision string) (MutationPatch, error) {
+// BuildSyncPatch validates exact approval and returns a public CRD merge
+// patch that approves the plan with the given digest. The digest must be the
+// one shown to the approver, so a plan that changed since is not approved.
+func BuildSyncPatch(app corev1alpha1.Application, plannedRevision, approvedRevision, planDigest string) (MutationPatch, error) {
 	if err := syncpolicy.CheckApproval(plannedRevision, syncpolicy.Approval{Revision: approvedRevision}); err != nil {
 		return MutationPatch{}, err
 	}
-	patch := map[string]any{"metadata": map[string]any{"annotations": map[string]string{"solder.io/approved-revision": approvedRevision}}}
+	if planDigest == "" {
+		return MutationPatch{}, fmt.Errorf("an approval needs the plan digest that was reviewed")
+	}
+	patch := map[string]any{"metadata": map[string]any{"annotations": map[string]string{
+		corev1alpha1.ApprovedRevisionAnnotation: approvedRevision,
+		corev1alpha1.ApproveDigestAnnotation:    planDigest,
+	}}}
 	b, err := yaml.Marshal(patch)
 	if err != nil {
 		return MutationPatch{}, err
@@ -57,4 +70,49 @@ func BuildSuspendPatch(app corev1alpha1.Application, suspend bool) (MutationPatc
 		return MutationPatch{}, err
 	}
 	return MutationPatch{Resource: "applications.solder.io", Name: app.Name, Patch: string(b)}, nil
+}
+
+// HistoryEntry is the audit export of one Revision.
+type HistoryEntry struct {
+	Revision       string       `json:"revision"`
+	SourceRevision string       `json:"sourceRevision"`
+	Outcome        string       `json:"outcome"`
+	FailureReason  string       `json:"failureReason,omitempty"`
+	FailureMessage string       `json:"failureMessage,omitempty"`
+	PlanDigest     string       `json:"planDigest,omitempty"`
+	ApprovedBy     string       `json:"approvedBy,omitempty"`
+	ApprovedAt     *metav1.Time `json:"approvedAt,omitempty"`
+	StartedAt      *metav1.Time `json:"startedAt,omitempty"`
+	CompletedAt    *metav1.Time `json:"completedAt,omitempty"`
+}
+
+// RenderHistoryJSON exports Revisions, oldest first, as redacted JSON for audit.
+func RenderHistoryJSON(revisions []corev1alpha1.Revision) (string, error) {
+	sorted := append([]corev1alpha1.Revision(nil), revisions...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].CreationTimestamp.Before(&sorted[j].CreationTimestamp)
+	})
+	entries := make([]HistoryEntry, 0, len(sorted))
+	for _, rev := range sorted {
+		entry := HistoryEntry{
+			Revision:       rev.Name,
+			SourceRevision: rev.Spec.Source.Revision,
+			Outcome:        string(rev.Status.Phase),
+			PlanDigest:     rev.Status.Plan.Digest,
+			StartedAt:      rev.Status.StartedAt,
+			CompletedAt:    rev.Status.CompletedAt,
+		}
+		if failure := rev.Status.Failure; failure != nil {
+			entry.FailureReason = failure.Reason
+			entry.FailureMessage = redact.String(failure.Message)
+		}
+		if approval := rev.Status.Approval; approval != nil {
+			entry.ApprovedBy = approval.ApprovedBy
+			entry.ApprovedAt = &approval.ApprovedAt
+			entry.PlanDigest = approval.PlanDigest
+		}
+		entries = append(entries, entry)
+	}
+	out, err := json.MarshalIndent(entries, "", "  ")
+	return string(out), err
 }

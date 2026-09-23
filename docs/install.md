@@ -14,6 +14,13 @@ chart. Both paths install the same CRDs and controller.
 - `kubectl` with cluster-admin permission for CRD installation.
 - `helm` if using the chart.
 - Network access from the controller Pod to configured Git remotes.
+- [cert-manager](https://cert-manager.io). Solder serves two admission
+  webhooks over TLS with a certificate cert-manager issues and injects: a
+  validating webhook for HealthChecks and a mutating webhook that records who
+  approved an Application's Revision. Both use `failurePolicy: Fail`, so while
+  the webhook is unavailable, creating or updating HealthChecks and
+  Applications is refused. Both the raw manifests and the Helm chart create the
+  Issuer and Certificate and require cert-manager to be running first.
 
 ## Published image
 
@@ -23,14 +30,21 @@ Release images are published to GHCR:
 ghcr.io/azrtydxb/solder:<tag>
 ```
 
-Use immutable release tags such as `v0.1.11` or pin digests in production.
+Use immutable release tags or pin digests in production.
+
+The manifests and the chart must be used with the image of the same release.
+Releases add manager flags and webhooks that older images do not have, so a
+chart or `config/` from one release with another release's image fails to
+start or rejects Application writes. Install from a checkout of the release
+tag, and take the image tag from it: the chart's `appVersion`, prefixed with
+`v`.
 
 ## Raw manifests
 
 Generate or use the checked-in installer bundle:
 
 ```sh
-make build-installer IMG=ghcr.io/azrtydxb/solder:v0.1.11
+make build-installer IMG=ghcr.io/azrtydxb/solder:v$(awk '/^appVersion:/ {print $2}' charts/solder/Chart.yaml)
 kubectl apply -f dist/install.yaml
 ```
 
@@ -43,34 +57,42 @@ kubectl apply -k config/default
 
 ## Helm chart
 
-The alpha chart lives in `charts/solder` and expects CRDs to be installed first:
+The alpha chart lives in `charts/solder` and expects CRDs to be installed
+first. It deploys `ghcr.io/azrtydxb/solder:v<appVersion>` by default; set
+`image.tag` only to an image built from the same commit as the chart.
 
 ```sh
 kubectl apply -f config/crd/bases
 helm upgrade --install solder charts/solder \
   --namespace solder-system \
-  --create-namespace \
-  --set image.repository=ghcr.io/azrtydxb/solder \
-  --set image.tag=v0.1.11
+  --create-namespace
 ```
 
-Verify:
+Verify. The chart names its Deployment, ServiceAccount and Services
+`<release>-solder`, so the release `solder` runs as `deployment/solder-solder`.
+The raw manifests name it `solder-controller-manager` instead.
 
 ```sh
-kubectl -n solder-system rollout status deployment/solder-controller-manager
+kubectl -n solder-system rollout status deployment/solder-solder
 kubectl api-resources --api-group=solder.io
 ```
 
 ## Git credentials
 
 For private Git repositories, create a Secret in the same namespace as the
-Repository and reference it with `spec.git.auth.secretRef.name`.
+Repository and reference it with `spec.git.auth.secretRef.name`. HTTPS remotes
+use `username` and `password`, or `token`. SSH remotes need `sshPrivateKey` and
+`known_hosts`; Solder rejects host keys that are not listed.
 
 ```sh
 kubectl create secret generic platform-git \
   --from-literal=username=git \
   --from-literal=password="$GITHUB_TOKEN"
+kubectl label secret platform-git solder.io/git-credentials=true
 ```
+
+Solder only uses Secrets carrying the `solder.io/git-credentials=true` label,
+so a Repository cannot send an unrelated Secret to an arbitrary Git server.
 
 ```yaml
 apiVersion: solder.io/v1alpha1
@@ -97,11 +119,13 @@ kubectl apply --dry-run=server -f config/crd/bases
 kubectl apply --dry-run=server -f /tmp/solder-chart.yaml -n solder-system
 ```
 
-E2E tests consume a prebuilt image. Use a pullable image that matches your
+E2E tests deploy this checkout's manifests with a prebuilt image, so the image
+must be built from the same commit. Use a pullable image that matches your
 cluster architecture:
 
 ```sh
-make test-e2e-existing-cluster IMG=ghcr.io/azrtydxb/solder:v0.1.11
+make docker-build docker-push IMG=<registry>/solder:<tag>
+make test-e2e-existing-cluster IMG=<registry>/solder:<tag>
 ```
 
 The E2E suite covers the product path: Repository fetch from Git, Application

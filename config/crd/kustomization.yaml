@@ -5,6 +5,9 @@ resources:
   - bases/solder.io_repositories.yaml
   - bases/solder.io_applications.yaml
   - bases/solder.io_revisions.yaml
+  - bases/solder.io_healthchecks.yaml
+  - bases/solder.io_notificationsinks.yaml
+  - bases/solder.io_imagepolicies.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

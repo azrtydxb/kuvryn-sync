@@ -46,6 +46,11 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	@if command -v "$(PRETTIER)" >/dev/null 2>&1; then \
+		"$(PRETTIER)" --log-level warn --write config/crd/bases config/rbac/role.yaml config/webhook/manifests.yaml; \
+	else \
+		echo "prettier not found; generated manifests left unformatted"; \
+	fi
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -107,6 +112,11 @@ test-e2e-existing-cluster: require-e2e-img manifests generate fmt vet ## Run e2e
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+
+# golangci-lint reads compiler export data, so lint with the go.mod toolchain
+# (as CI does) even when a newer Go is installed locally.
+LINT_GOTOOLCHAIN ?= go$(shell awk '/^go /{print $$2}' go.mod)
+lint lint-fix lint-config: export GOTOOLCHAIN := $(LINT_GOTOOLCHAIN)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -211,6 +221,7 @@ KUBECTL ?= kubectl
 KIND ?= kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 HELM ?= helm
+PRETTIER ?= prettier
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint

@@ -22,9 +22,10 @@ COPY . .
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
 
-# Runtime includes git because Repository reconciliation uses the git CLI for source caching.
+# Git, Kustomize, and Helm all run in process, so the runtime needs only CA
+# certificates and a writable /tmp for the source cache.
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates git && mkdir -p /tmp && chmod 1777 /tmp
+RUN apk add --no-cache ca-certificates && mkdir -p /tmp && chmod 1777 /tmp
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

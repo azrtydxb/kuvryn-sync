@@ -71,6 +71,7 @@ kind: Application
 metadata:
   name: config
 spec:
+  serviceAccountName: config-deployer
   source:
     repositoryRef:
       name: platform
@@ -92,6 +93,7 @@ kind: Application
 metadata:
   name: payments
 spec:
+  serviceAccountName: payments-deployer
   source:
     repositoryRef:
       name: platform
@@ -115,6 +117,7 @@ kind: Application
 metadata:
   name: store
 spec:
+  serviceAccountName: store-deployer
   source:
     repositoryRef:
       name: platform

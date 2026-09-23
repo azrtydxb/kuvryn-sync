@@ -19,17 +19,23 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"os"
+	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -39,7 +45,13 @@ import (
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/cli"
 	"github.com/azrtydxb/solder/internal/controller"
+	"github.com/azrtydxb/solder/internal/imagepolicy"
+	"github.com/azrtydxb/solder/internal/imageupdate"
+	"github.com/azrtydxb/solder/internal/impersonate"
+	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
+	"github.com/azrtydxb/solder/internal/receiver"
+	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -68,6 +80,9 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var defaultServiceAccount string
+	var driftResyncInterval time.Duration
+	var receiverAddr string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -86,6 +101,13 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
+		"Service account in the Application namespace that Solder impersonates when an Application sets no "+
+			"serviceAccountName. When empty, such Applications are refused.")
+	flag.DurationVar(&driftResyncInterval, "drift-resync-interval", 5*time.Minute,
+		"How often Applications managing kinds the controller may not watch are re-checked for drift. 0 disables it.")
+	flag.StringVar(&receiverAddr, "webhook-receiver-bind-address", "",
+		"Address for the GitHub/GitLab push webhook receiver, e.g. :9292. Empty disables it.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -93,6 +115,14 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if defaultServiceAccount != "" {
+		if errs := validation.IsDNS1123Subdomain(defaultServiceAccount); len(errs) > 0 {
+			err := errors.New(strings.Join(errs, "; "))
+			setupLog.Error(err, "Invalid default service account", "name", defaultServiceAccount)
+			os.Exit(1)
+		}
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -168,6 +198,9 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "e3d625f0.solder.io",
+		// Git credential Secrets are read directly so the controller never
+		// caches every Secret in the cluster.
+		Client: client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}}},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -186,10 +219,22 @@ func main() {
 	}
 
 	if err := (&controller.RepositoryReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		ImageUpdater: &imageupdate.Updater{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "repository")
+		os.Exit(1)
+	}
+	if receiverAddr != "" {
+		if err := mgr.Add(&receiver.Receiver{Client: mgr.GetClient(), Addr: receiverAddr}); err != nil {
+			setupLog.Error(err, "Failed to add webhook receiver")
+			os.Exit(1)
+		}
+	}
+	notifier := notify.NewDispatcher(nil, 1000)
+	if err := mgr.Add(notifier); err != nil {
+		setupLog.Error(err, "Failed to add notification dispatcher")
 		os.Exit(1)
 	}
 	if err := (&controller.ApplicationReconciler{
@@ -197,6 +242,13 @@ func main() {
 		Scheme:  mgr.GetScheme(),
 		Tracer:  ops.NewOTelTracer("github.com/azrtydxb/solder/controller"),
 		Metrics: ops.PrometheusApplicationMetrics(),
+		Impersonation: impersonate.New(mgr.GetConfig(), client.Options{
+			Scheme: mgr.GetScheme(),
+			Mapper: mgr.GetRESTMapper(),
+		}),
+		DefaultServiceAccount: defaultServiceAccount,
+		DriftResyncInterval:   driftResyncInterval,
+		Notifier:              notifier,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "application")
 		os.Exit(1)
@@ -206,6 +258,28 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "revision")
+		os.Exit(1)
+	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err := webhookv1alpha1.SetupHealthCheckWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "HealthCheck")
+			os.Exit(1)
+		}
+		if err := webhookv1alpha1.SetupApplicationWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "Application")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("Admission webhooks are disabled; manual approval records are not verified and can be forged " +
+			"by anyone who can update an Application")
+	}
+	if err := (&controller.ImagePolicyReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Registry: &imagepolicy.Registry{},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "imagepolicy")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

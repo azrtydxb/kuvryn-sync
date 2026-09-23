@@ -36,9 +36,10 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	if policy == "" {
 		policy = corev1alpha1.ConflictPolicyFail
 	}
-	if policy != corev1alpha1.ConflictPolicyFail {
+	if policy != corev1alpha1.ConflictPolicyFail && policy != corev1alpha1.ConflictPolicyAdopt {
 		return Result{}, fmt.Errorf("unsupported conflict policy %q", policy)
 	}
+
 	manager := a.FieldManager
 	if manager == "" {
 		manager = FieldManager
@@ -46,8 +47,12 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	result := Result{}
 	for i := range desired {
 		obj := desired[i].DeepCopy()
-		markManaged(obj, application, a.ApplicationNamespace, revision)
-		if err := a.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(manager)); err != nil {
+		MarkManaged(obj, application, a.ApplicationNamespace, revision)
+		options := []client.PatchOption{client.FieldOwner(manager)}
+		if policy == corev1alpha1.ConflictPolicyAdopt {
+			options = append(options, client.ForceOwnership)
+		}
+		if err := a.Client.Patch(ctx, obj, client.Apply, options...); err != nil {
 			return result, err
 		}
 		result.Applied++
@@ -55,7 +60,10 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	return result, nil
 }
 
-func markManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {
+// MarkManaged adds the labels and annotation Solder applies with every
+// object. Planning marks desired objects the same way, so this metadata is
+// never mistaken for drift.
+func MarkManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {
 	labels := obj.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}

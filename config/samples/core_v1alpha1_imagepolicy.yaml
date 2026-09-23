@@ -1,0 +1,13 @@
+apiVersion: solder.io/v1alpha1
+kind: ImagePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: solder
+    app.kubernetes.io/managed-by: kustomize
+  name: api
+spec:
+  image: ghcr.io/acme/api
+  interval: 5m
+  policy:
+    semver:
+      range: ">=1.0.0 <2.0.0"

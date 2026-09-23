@@ -23,6 +23,15 @@ Check every hunk for:
   the terminator variants, the case the happy path skips.
 - Test fixtures that trip our own scanners: assemble marker/secret-like
   content at runtime, never as a literal.
+- Containment checks cover the starting path itself, not only the entries
+  found beneath it: a walk rooted at a path that already went through a
+  symlink never sees that link.
+- Identity checks: `system:anonymous` and the `system:unauthenticated` group
+  are unauthenticated even though the username is not empty.
+- Label selectors in charts and manifests: unique per release or instance, or
+  two installs in one namespace route to each other.
+- CI on self-hosted runners: pull requests from forks must not run there; the
+  runners reach the internal network.
 - Prose and markdown: code spans unbroken, lists formatted, wording that
   says what the code actually does.
 

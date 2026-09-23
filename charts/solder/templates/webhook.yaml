@@ -1,0 +1,89 @@
+# The HealthCheck validating webhook needs a TLS certificate; cert-manager
+# issues it and injects the CA bundle. cert-manager must be installed first.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "solder.fullname" . }}-webhook
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: 9443
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "solder.fullname" . }}-selfsigned
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "solder.fullname" . }}-webhook
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+spec:
+  dnsNames:
+    - {{ include "solder.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "solder.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "solder.fullname" . }}-selfsigned
+  secretName: {{ include "solder.fullname" . }}-webhook-cert
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "solder.fullname" . }}-validating
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "solder.fullname" . }}-webhook
+webhooks:
+  - name: vhealthcheck-v1alpha1.kb.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: {{ include "solder.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-solder-io-v1alpha1-healthcheck
+    rules:
+      - apiGroups: ["solder.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["healthchecks"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "solder.fullname" . }}-mutating
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "solder.fullname" . }}-webhook
+webhooks:
+  # Records who approved an Application's plan, and which plan digest.
+  - name: mapplication-v1alpha1.kb.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: {{ include "solder.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-solder-io-v1alpha1-application
+    rules:
+      - apiGroups: ["solder.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["applications"]

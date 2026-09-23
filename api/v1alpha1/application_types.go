@@ -16,7 +16,29 @@ limitations under the License.
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Manual approval annotations on an Application. Users set
+// ApprovedRevisionAnnotation and, to approve a specific plan,
+// ApproveDigestAnnotation; the admission webhook records the rest from the
+// authenticated request and restores them on every other change.
+const (
+	// ApprovedRevisionAnnotation names the Revision being approved.
+	ApprovedRevisionAnnotation = "solder.io/approved-revision"
+	// ApproveDigestAnnotation requests an approval of the plan digest the
+	// approver reviewed. The admission webhook rejects it when the Revision's
+	// plan has since changed, and never stores it.
+	ApproveDigestAnnotation = "solder.io/approve-digest"
+	// ApprovedByAnnotation is the authenticated user who approved.
+	ApprovedByAnnotation = "solder.io/approved-by"
+	// ApprovedAtAnnotation is when the approval was admitted, in RFC 3339.
+	ApprovedAtAnnotation = "solder.io/approved-at"
+	// ApprovedDigestAnnotation is the plan digest the approval binds to.
+	ApprovedDigestAnnotation = "solder.io/approved-digest"
+)
 
 // ApplicationSpec defines the desired state of Application.
 type ApplicationSpec struct {
@@ -45,6 +67,66 @@ type ApplicationSpec struct {
 	// suspend stops Solder from mutating managed resources while retaining status.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
+	// serviceAccountName is the service account in the Application namespace
+	// that Solder impersonates to read, apply, and prune managed resources.
+	// When empty, the controller's default service account is used; when
+	// neither is set, Solder refuses to touch managed resources.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// notifications sends lifecycle notifications to NotificationSinks in the
+	// Application namespace.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	// +optional
+	Notifications []NotificationSubscription `json:"notifications,omitempty"`
+	// dependsOn names Applications in the same namespace that must be Healthy
+	// at their desired revision before this Application applies. Planning
+	// proceeds while they are not.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	DependsOn []LocalObjectReference `json:"dependsOn,omitempty"`
+	// decryption decrypts SOPS-encrypted manifests at render time.
+	// +optional
+	Decryption *DecryptionSpec `json:"decryption,omitempty"`
+}
+
+// DecryptionSpec configures render-time decryption.
+type DecryptionSpec struct {
+	// provider is the encryption format.
+	// +kubebuilder:validation:Enum=sops
+	Provider string `json:"provider"`
+	// secretRef names a Secret in the Application namespace, labelled
+	// solder.io/decryption-key=true, whose entries ending in .agekey hold age
+	// private keys.
+	SecretRef SecretReference `json:"secretRef"`
+}
+
+// NotificationEvent is an Application lifecycle event that can be notified.
+// +kubebuilder:validation:Enum=AwaitingApproval;Healthy;Failed;RolledBack
+type NotificationEvent string
+
+const (
+	// NotificationAwaitingApproval fires when a plan needs manual approval.
+	NotificationAwaitingApproval NotificationEvent = "AwaitingApproval"
+	// NotificationHealthy fires when a deployment becomes healthy.
+	NotificationHealthy NotificationEvent = "Healthy"
+	// NotificationFailed fires when a Revision fails.
+	NotificationFailed NotificationEvent = "Failed"
+	// NotificationRolledBack fires when a rollback completes.
+	NotificationRolledBack NotificationEvent = "RolledBack"
+)
+
+// NotificationSubscription sends selected events to one NotificationSink.
+type NotificationSubscription struct {
+	// sinkRef names a NotificationSink in the Application namespace.
+	SinkRef LocalObjectReference `json:"sinkRef"`
+	// events selects which lifecycle events are sent.
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	Events []NotificationEvent `json:"events"`
 }
 
 // ApplicationSource selects the desired state to render.
@@ -81,6 +163,52 @@ type HelmRenderSpec struct {
 	// +listType=atomic
 	// +optional
 	ValuesFiles []string `json:"valuesFiles,omitempty"`
+	// chart pulls a pinned chart from a Helm (https) or OCI (oci://)
+	// repository instead of rendering source.path as a chart.
+	// +optional
+	Chart *HelmChartSource `json:"chart,omitempty"`
+	// valuesFrom merges values from ConfigMaps and Secrets in the Application
+	// namespace, read as the Application's service account, after valuesFiles.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	ValuesFrom []HelmValuesReference `json:"valuesFrom,omitempty"`
+	// values are merged last, over every other source.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=object
+	// +optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+}
+
+// HelmChartSource identifies a chart in a chart repository.
+type HelmChartSource struct {
+	// repository is an https chart repository URL or an oci:// registry path.
+	// +kubebuilder:validation:Pattern=`^(https|oci)://`
+	Repository string `json:"repository"`
+	// name is the chart name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// version is the exact chart version to pull.
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version"`
+	// secretRef names a Secret, labelled solder.io/registry-credentials=true,
+	// with `username` and `password` for the repository.
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
+}
+
+// HelmValuesReference names values stored in a ConfigMap or Secret.
+type HelmValuesReference struct {
+	// kind is ConfigMap or Secret.
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	Kind string `json:"kind"`
+	// name is the object name in the Application namespace.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// key holds a YAML values document; it defaults to values.yaml.
+	// +optional
+	Key string `json:"key,omitempty"`
 }
 
 // ApplicationDestination constrains where desired objects are applied.
@@ -102,7 +230,7 @@ type SyncPolicy struct {
 	// +optional
 	SelfHeal bool `json:"selfHeal,omitempty"`
 	// conflictPolicy controls SSA ownership conflict behavior.
-	// +kubebuilder:validation:Enum=fail
+	// +kubebuilder:validation:Enum=fail;adopt
 	// +kubebuilder:default:=fail
 	// +optional
 	ConflictPolicy ConflictPolicy `json:"conflictPolicy,omitempty"`
@@ -147,6 +275,10 @@ type ApplicationStatus struct {
 	// deployedRevision is the source revision currently deployed after rollback.
 	// +optional
 	DeployedRevision string `json:"deployedRevision,omitempty"`
+	// serviceAccountName is the service account Solder last impersonated for
+	// this Application.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// sync reports desired/live convergence independent from health.
 	// +optional
 	Sync ApplicationSyncStatus `json:"sync,omitempty"`
@@ -156,6 +288,13 @@ type ApplicationStatus struct {
 	// resources summarizes managed resource health.
 	// +optional
 	Resources ResourceHealthSummary `json:"resources,omitempty"`
+	// managedKinds lists the kinds Solder last applied for this Application.
+	// Pruning and drift watches use it to find managed objects of any kind,
+	// including after a controller restart.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=256
+	// +optional
+	ManagedKinds []ManagedKind `json:"managedKinds,omitempty"`
 	// observedGeneration is the latest metadata.generation processed.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -178,6 +317,14 @@ type ApplicationHealthStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Progressing;Healthy;Degraded;Suspended
 	// +optional
 	State HealthState `json:"state,omitempty"`
+}
+
+// ManagedKind identifies a kind of object Solder manages for an Application.
+type ManagedKind struct {
+	// apiVersion is the group/version of the kind.
+	APIVersion string `json:"apiVersion"`
+	// kind is the object kind.
+	Kind string `json:"kind"`
 }
 
 // ResourceHealthSummary is a bounded count of managed resource health.

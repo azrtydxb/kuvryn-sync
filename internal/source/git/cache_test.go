@@ -18,16 +18,34 @@ package git
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport/client"
+	"github.com/go-git/go-git/v5/plumbing/transport/server"
+	gossh "golang.org/x/crypto/ssh"
+
 	"github.com/azrtydxb/solder/internal/source"
 )
+
+func init() {
+	// Serve file:// in process so tests need no git binary, and allow the
+	// local repositories they create.
+	client.InstallProtocol("file", server.DefaultServer)
+	allowLocalRepositories = true
+}
 
 func TestCacheResolvesBranchesTagsAndCommits(t *testing.T) {
 	ctx := context.Background()
@@ -166,26 +184,265 @@ func TestSSHRepositoryWithoutKeyFailsAuthentication(t *testing.T) {
 func createGitRepository(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	runGit(t, dir, "init", "-b", "main")
-	runGit(t, dir, "config", "user.email", "solder@example.com")
-	runGit(t, dir, "config", "user.name", "Solder Test")
-	if err := os.WriteFile(filepath.Join(dir, "app.yaml"), []byte("kind: ConfigMap\n"), 0o600); err != nil {
-		t.Fatalf("write fixture: %v", err)
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	runGit(t, dir, "add", "app.yaml")
-	runGit(t, dir, "commit", "-m", "initial")
-	runGit(t, dir, "tag", "v1.0.0")
-	commit := runGit(t, dir, "rev-parse", "HEAD")
-	return dir, commit[:len(commit)-1]
+	commit := commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: ConfigMap\n"}, nil)
+	if _, err := repo.CreateTag("v1.0.0", commit, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateTag("v1.0.0-annotated", commit, &gogit.CreateTagOptions{Message: "release", Tagger: signature()}); err != nil {
+		t.Fatal(err)
+	}
+	// The in-process file transport serves the Git directory itself.
+	return filepath.Join(dir, ".git"), commit.String()
 }
 
-func runGit(t *testing.T, dir string, args ...string) string {
+// commitFiles writes files and symlinks (name to target) and commits them.
+func commitFiles(t *testing.T, repo *gogit.Repository, dir string, files, symlinks map[string]string) plumbing.Hash {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	worktree, err := repo.Worktree()
 	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+		t.Fatal(err)
 	}
-	return string(out)
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := worktree.Add(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, target := range symlinks {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := worktree.Add(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit, err := worktree.Commit("commit", &gogit.CommitOptions{Author: signature()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commit
+}
+
+func signature() *object.Signature {
+	return &object.Signature{Name: "Solder Test", Email: "solder@example.com", When: time.Unix(1700000000, 0)}
+}
+
+func TestCacheResolvesAnnotatedTagsShortCommitsAndDefaultBranch(t *testing.T) {
+	ctx := context.Background()
+	repoDir, commit := createGitRepository(t)
+	cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+	for _, revision := range []string{"v1.0.0-annotated", commit[:12], ""} {
+		resolved, err := cache.Resolve(ctx, source.GitRepository{URL: repoDir, Revision: revision})
+		if err != nil {
+			t.Fatalf("resolve %q: %v", revision, err)
+		}
+		if resolved.Revision != commit {
+			t.Fatalf("resolve %q = %q, want %q", revision, resolved.Revision, commit)
+		}
+		content, err := os.ReadFile(filepath.Join(resolved.CacheDir, "app.yaml"))
+		if err != nil || string(content) != "kind: ConfigMap\n" {
+			t.Fatalf("checked-out app.yaml = %q, %v", content, err)
+		}
+	}
+}
+
+func TestCacheRefusesSymlinksOutOfTheCheckout(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: ConfigMap\n"}, map[string]string{"inside": "app.yaml"})
+	cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+	resolved, err := cache.Resolve(ctx, source.GitRepository{URL: filepath.Join(dir, ".git"), Revision: "main"})
+	if err != nil {
+		t.Fatalf("symlink inside the checkout: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(resolved.CacheDir, "inside")); err != nil || string(content) != "kind: ConfigMap\n" {
+		t.Fatalf("inside symlink = %q, %v", content, err)
+	}
+
+	for _, target := range []string{"/var/run/secrets/kubernetes.io/serviceaccount/token", "../../../etc/passwd"} {
+		commitFiles(t, repo, dir, nil, map[string]string{filepath.Base(target) + "-link": target})
+		_, err := cache.Resolve(ctx, source.GitRepository{URL: filepath.Join(dir, ".git"), Revision: "main"})
+		var sourceErr *source.Error
+		if !errors.As(err, &sourceErr) || !strings.Contains(sourceErr.Message, "points outside the checkout") {
+			t.Fatalf("symlink to %s: err = %v", target, err)
+		}
+	}
+}
+
+func TestSSHRepositoryWithoutKnownHostsFailsAuthentication(t *testing.T) {
+	key := testSSHKey(t)
+	_, err := NewCache(t.TempDir()).Resolve(context.Background(), source.GitRepository{
+		URL: "git@example.com:acme/platform.git", Revision: "main", Auth: source.Credentials{SSHKey: key},
+	})
+	var sourceErr *source.Error
+	if !errors.As(err, &sourceErr) || sourceErr.Reason != source.FailureReasonAuthenticationFailure || !strings.Contains(sourceErr.Message, "known_hosts") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLocalRepositoryURLsAreRejected(t *testing.T) {
+	allowLocalRepositories = false
+	defer func() { allowLocalRepositories = true }()
+	for _, url := range []string{"/srv/repo", "file:///srv/repo", "./repo"} {
+		_, err := NewCache(t.TempDir()).Resolve(context.Background(), source.GitRepository{URL: url, Revision: "main"})
+		var sourceErr *source.Error
+		if !errors.As(err, &sourceErr) || sourceErr.Reason != source.FailureReasonValidationFailure {
+			t.Fatalf("%s: err = %v", url, err)
+		}
+	}
+}
+
+func testSSHKey(t *testing.T) string {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := gossh.MarshalPrivateKey(private, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(block))
+}
+
+// treeEntry is a raw Git tree entry: a blob when entries is nil, else a tree.
+type treeEntry struct {
+	name     string
+	mode     filemode.FileMode
+	contents string
+	entries  []treeEntry
+}
+
+// commitTree stores the entries as given, in order and even when a name
+// repeats, as a hostile remote could, and points main at the commit.
+func commitTree(t *testing.T, entries []treeEntry) string {
+	t.Helper()
+	dir := t.TempDir()
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := &object.Commit{Author: *signature(), Committer: *signature(), Message: "commit", TreeHash: storeTree(t, repo, entries)}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), storeObject(t, repo, commit))); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, ".git")
+}
+
+func storeTree(t *testing.T, repo *gogit.Repository, entries []treeEntry) plumbing.Hash {
+	t.Helper()
+	tree := &object.Tree{}
+	for _, entry := range entries {
+		if entry.entries != nil {
+			tree.Entries = append(tree.Entries, object.TreeEntry{Name: entry.name, Mode: filemode.Dir, Hash: storeTree(t, repo, entry.entries)})
+			continue
+		}
+		blob := repo.Storer.NewEncodedObject()
+		blob.SetType(plumbing.BlobObject)
+		writer, err := blob.Writer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(entry.contents)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		hash, err := repo.Storer.SetEncodedObject(blob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree.Entries = append(tree.Entries, object.TreeEntry{Name: entry.name, Mode: entry.mode, Hash: hash})
+	}
+	return storeObject(t, repo, tree)
+}
+
+func storeObject(t *testing.T, repo *gogit.Repository, obj interface {
+	Encode(plumbing.EncodedObject) error
+}) plumbing.Hash {
+	t.Helper()
+	encoded := repo.Storer.NewEncodedObject()
+	if err := obj.Encode(encoded); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := repo.Storer.SetEncodedObject(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
+func link(name, target string) treeEntry {
+	return treeEntry{name: name, mode: filemode.Symlink, contents: target}
+}
+
+func TestCacheRefusesSymlinkChainsOutOfTheCheckout(t *testing.T) {
+	regular := treeEntry{name: "app.yaml", mode: filemode.Regular, contents: "kind: ConfigMap\n"}
+	for name, entries := range map[string][]treeEntry{
+		// Every link is inside on its own, but on disk s is the parent
+		// directory, so writing the marker would follow the chain out.
+		"marker through a chain": {link(".solder-checkout", "s/x"), regular, link("s", "t/.."), link("t", ".")},
+		"climbing chain":         {regular, link("s0", "."), link("s1", "s0/.."), link("s2", "s1/.."), link("s3", "s2/..")},
+		// A tree may repeat a name, so a file can land below an earlier link.
+		"file below a link": {link("a", "."), link("s", "a/.."), {name: "s", entries: []treeEntry{{name: "x", mode: filemode.Regular, contents: "pwned"}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repoDir := commitTree(t, entries)
+			cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+			_, err := cache.Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: "main"})
+			var sourceErr *source.Error
+			if !errors.As(err, &sourceErr) || sourceErr.Reason != source.FailureReasonValidationFailure {
+				t.Fatalf("err = %v", err)
+			}
+			if written, _ := filepath.Glob(filepath.Join(cache.Root, "*", "worktrees", "*")); len(written) != 0 {
+				t.Fatalf("written outside the checkout: %v", written)
+			}
+		})
+	}
+}
+
+func TestCacheKeepsSymlinkChainsAndDanglingLinksInside(t *testing.T) {
+	repoDir := commitTree(t, []treeEntry{
+		link("a", "b"),
+		link("b", "dir/../dir"),
+		link("dangling", "missing/x"),
+		{name: "dir", entries: []treeEntry{{name: "app.yaml", mode: filemode.Regular, contents: "kind: ConfigMap\n"}}},
+	})
+	resolved, err := NewCache(filepath.Join(t.TempDir(), "cache")).Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(resolved.CacheDir, "a", "app.yaml")); err != nil || string(content) != "kind: ConfigMap\n" {
+		t.Fatalf("a/app.yaml = %q, %v", content, err)
+	}
+}
+
+func TestCacheDoesNotGuessADetachedRemoteHEAD(t *testing.T) {
+	dir := t.TempDir()
+	// master is also the local cache's own HEAD, so falling back to it
+	// would quietly deploy the wrong commit.
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.Master}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: ConfigMap\n"}, nil)
+	commitFiles(t, repo, dir, map[string]string{"app.yaml": "kind: Secret\n"}, nil)
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, first)); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := NewCache(filepath.Join(t.TempDir(), "cache")).Resolve(context.Background(), source.GitRepository{URL: filepath.Join(dir, ".git")})
+	if err == nil && resolved.Revision != first.String() {
+		t.Fatalf("revision = %s, want the detached HEAD %s or an error", resolved.Revision, first)
+	}
 }

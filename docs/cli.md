@@ -44,6 +44,13 @@ List Application history:
 solder history payments -n default
 ```
 
+Export the audit trail, oldest first, with approver, plan digest, start and
+completion times, and outcome. Failure messages are redacted:
+
+```sh
+solder history payments -n default -o json
+```
+
 Read one Revision summary:
 
 ```sh
@@ -77,11 +84,18 @@ appear in CLI output.
 
 ## Mutation commands
 
-Approve an exact Revision for a manual sync policy:
+Approve an exact Revision for a manual sync policy (`solder approve` is an
+alias):
 
 ```sh
 solder sync payments -n default --revision payments-abc123
 ```
+
+The command prints the Revision's plan digest and approves exactly that
+digest; if the plan changes before the request is admitted, it is refused and
+you review `solder plan` again. Running it again after an `ApprovalStale`
+Event re-approves the new plan. The approval is recorded under your own
+Kubernetes identity; see [Manual approval](operations.md#manual-approval).
 
 Request rollback to the latest healthy Revision:
 

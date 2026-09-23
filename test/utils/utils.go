@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
 )
@@ -96,8 +97,30 @@ func InstallCertManager() error {
 		"--timeout", "5m",
 	)
 
-	_, err := Run(cmd)
-	return err
+	if _, err := Run(cmd); err != nil {
+		return err
+	}
+	// An Available webhook Deployment can still reject requests until the
+	// cainjector has published its CA bundle, so wait until a server-side
+	// dry run of an Issuer is admitted.
+	probe := `apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: readiness-probe
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+`
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		cmd = exec.Command("kubectl", "apply", "--dry-run=server", "-f", "-")
+		cmd.Stdin = strings.NewReader(probe)
+		_, err := Run(cmd)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed

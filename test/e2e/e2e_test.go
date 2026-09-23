@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -222,6 +223,39 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyMetricsServerStarted, 3*time.Minute, time.Second).Should(Succeed())
 
+			By("waiting for the webhook service endpoints to be ready")
+			verifyWebhookEndpointsReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "endpointslices.discovery.k8s.io", "-n", namespace,
+					"-l", "kubernetes.io/service-name=solder-webhook-service",
+					"-o", "jsonpath={range .items[*]}{range .endpoints[*]}{.addresses[*]}{end}{end}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Webhook endpoints should exist")
+				g.Expect(output).ShouldNot(BeEmpty(), "Webhook endpoints not yet ready")
+			}
+			Eventually(verifyWebhookEndpointsReady, 3*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying the validating webhook server is ready")
+			verifyValidatingWebhookReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "validatingwebhookconfigurations.admissionregistration.k8s.io",
+					"solder-validating-webhook-configuration",
+					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "ValidatingWebhookConfiguration should exist")
+				g.Expect(output).ShouldNot(BeEmpty(), "Validating webhook CA bundle not yet injected")
+			}
+			Eventually(verifyValidatingWebhookReady, 3*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying the mutating webhook server is ready")
+			verifyMutatingWebhookReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+					"solder-mutating-webhook-configuration",
+					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "MutatingWebhookConfiguration should exist")
+				g.Expect(output).ShouldNot(BeEmpty(), "Mutating webhook CA bundle not yet injected")
+			}
+			Eventually(verifyMutatingWebhookReady, 3*time.Minute, time.Second).Should(Succeed())
+
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
@@ -314,6 +348,170 @@ var _ = Describe("Manager", Ordered, func() {
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(Equal("Healthy"))
+		})
+
+		It("should refuse to apply what the Application's service account may not", func() {
+			manifestPath := writeTempManifest(escalationApplicationManifest)
+
+			By("applying an Application whose Git path grants its own service account cluster-admin")
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply escalation e2e resources")
+
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", "solder-e2e-escalation",
+					"--ignore-not-found=true"))
+			})
+
+			By("waiting for the Revision to fail as Forbidden")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command(
+					"kubectl", "get", "revision", "-l", "solder.io/application=solder-e2e-escalation", "-o",
+					"jsonpath={.items[0].status.phase}:{.items[0].status.failure.reason}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Failed:Forbidden"))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying the ClusterRoleBinding was not created")
+			cmd = exec.Command("kubectl", "get", "clusterrolebinding", "solder-e2e-escalation",
+				"--ignore-not-found=true", "-o", "name")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(BeEmpty(), "tenant escalated through Solder")
+		})
+
+		It("should apply a manual Application only after an attributed approval", func() {
+			manifestPath := writeTempManifest(approvalApplicationManifest)
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply approval e2e resources")
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e", "--ignore-not-found=true"))
+			})
+
+			By("waiting for the plan to await approval")
+			var revision, digest string
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
+					"-l", "solder.io/application=solder-e2e-approval",
+					"-o", "jsonpath={.items[0].metadata.name} {.items[0].status.phase} {.items[0].status.plan.digest}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				fields := strings.Fields(output)
+				g.Expect(fields).To(HaveLen(3))
+				g.Expect(fields[1]).To(Equal("AwaitingApproval"))
+				revision, digest = fields[0], fields[2]
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("approving the Revision as the kubectl user")
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "application", "solder-e2e-approval",
+				"solder.io/approved-revision="+revision))
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the webhook recorded the approver and a forged approver is reverted")
+			approver, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(approver).NotTo(BeEmpty())
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "--overwrite", "application", "solder-e2e-approval",
+				"solder.io/approved-by=mallory"))
+			Expect(err).NotTo(HaveOccurred())
+			stillApprover, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stillApprover).To(Equal(approver))
+
+			By("waiting for the approved Revision to apply with its audit record")
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision", revision,
+					"-o", "jsonpath={.status.phase} {.status.approval.approvedBy} {.status.approval.planDigest}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Healthy " + approver + " " + digest))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		It("should run hooks and waves in order for a real rollout", func() {
+			manifestPath := writeTempManifest(stagedApplicationManifest)
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", manifestPath))
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply staged rollout resources")
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+			})
+			get := func(args ...string) string {
+				output, err := utils.Run(exec.Command("kubectl", args...))
+				Expect(err).NotTo(HaveOccurred())
+				return strings.TrimSpace(output)
+			}
+
+			By("waiting for the Revision to become Healthy with both hooks done")
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
+					"-l", "solder.io/application=solder-e2e-staged", "-o",
+					"jsonpath={.items[0].status.phase} {range .items[0].status.hooks[*]}{.stage}={.state} {end}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(strings.Fields(output)).To(ConsistOf("Healthy", "PreSync=Healthy", "PostSync=Healthy"))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying each group started only after the previous one was Healthy")
+			// Kubernetes timestamps have one-second resolution, so a
+			// not-after check between two objects created in the same second
+			// passes whatever order they were created in. Only the pre-sync
+			// boundary has a gap the fixture forces: the migrate Job sleeps
+			// 5 seconds, so if Solder waits for it, the wave-0 Deployment is
+			// created at least 5 seconds after the Job, while without the wait
+			// both are created in the same pass, within a second. That boundary
+			// is asserted strictly. The fixture forces no gap at the other
+			// boundaries, so they are only checked for gross reordering.
+			field := func(kind, name, path string) time.Time {
+				value := get("get", kind, name, "-n", "solder-e2e-staged", "-o", "jsonpath={"+path+"}")
+				parsed, err := time.Parse(time.RFC3339, value)
+				Expect(err).NotTo(HaveOccurred(), "%s %s %s = %q", kind, name, path, value)
+				return parsed
+			}
+			created := ".metadata.creationTimestamp"
+			migrateCreated := field("job", "solder-e2e-migrate", created)
+			migrated := field("job", "solder-e2e-migrate", ".status.completionTime")
+			deployed := field("deployment", "solder-e2e-api", created)
+			available := field("deployment", "solder-e2e-api", `.status.conditions[?(@.type=="Available")].lastTransitionTime`)
+			wave1 := field("configmap", "solder-e2e-after-api", created)
+			smoke := field("job", "solder-e2e-smoke", created)
+			Expect(deployed.Sub(migrateCreated)).To(BeNumerically(">=", 5*time.Second),
+				"Deployment created %s after the pre-sync hook, which runs for at least 5s", deployed.Sub(migrateCreated))
+			Expect(migrated).NotTo(BeTemporally(">", deployed), "Deployment created before the pre-sync hook finished")
+			Expect(available).NotTo(BeTemporally(">", wave1), "wave 1 applied before wave 0 was available")
+			Expect(wave1).NotTo(BeTemporally(">", smoke), "post-sync hook ran before the last wave was applied")
+		})
+
+		It("should reject a HealthCheck with an invalid CEL rule at admission", func() {
+			manifestPath := writeTempManifest(`apiVersion: solder.io/v1alpha1
+kind: HealthCheck
+metadata:
+  name: solder-e2e-invalid
+spec:
+  group: argoproj.io
+  kind: Rollout
+  rules:
+    - expression: "object.status.phase =="
+      state: Healthy
+`)
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			output, err := utils.Run(cmd)
+			Expect(err).To(HaveOccurred(), "invalid HealthCheck was admitted: %s", output)
+			Expect(err.Error()).To(ContainSubstring("spec.rules[0].expression"))
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "healthcheck", "solder-e2e-invalid", "--ignore-not-found=true"))
+		})
+
+		It("should provision the webhook certificate with cert-manager", func() {
+			By("validating that cert-manager has the certificate Secret")
+			verifyCertManager := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "secrets", "webhook-server-cert", "-n", namespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(verifyCertManager).Should(Succeed())
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
@@ -416,15 +614,40 @@ type tokenRequest struct {
 	} `json:"status"`
 }
 
-const productApplicationManifest = `apiVersion: v1
+// fixtureManifest returns the tenant setup every product test needs, followed
+// by application: the destination Namespace, a deployer ServiceAccount in
+// default bound to the admin ClusterRole in the destination only, and a
+// Repository for the e2e fixture repository.
+func fixtureManifest(destination, deployer, repository, application string) string {
+	return fmt.Sprintf(`apiVersion: v1
 kind: Namespace
 metadata:
-  name: solder-e2e
+  name: %[1]s
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: %[2]s
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: %[2]s
+  namespace: %[1]s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: %[2]s
+    namespace: default
 ---
 apiVersion: solder.io/v1alpha1
 kind: Repository
 metadata:
-  name: solder-e2e-product-repo
+  name: %[3]s
 spec:
   type: git
   git:
@@ -432,11 +655,17 @@ spec:
     revision: main
   pollInterval: 30s
 ---
-apiVersion: solder.io/v1alpha1
+`, destination, deployer, repository) + application
+}
+
+var productApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-product-repo",
+	`apiVersion: solder.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-product
 spec:
+  serviceAccountName: solder-e2e-deployer
   source:
     repositoryRef:
       name: solder-e2e-product-repo
@@ -459,4 +688,77 @@ spec:
     timeout: 2m
   history:
     limit: 5
-`
+`)
+
+// escalationApplicationManifest deploys a Git path containing a ClusterRoleBinding
+// that would grant the Application's own namespace-scoped service account
+// cluster-admin.
+var escalationApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-escalation-repo",
+	`apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-escalation
+spec:
+  serviceAccountName: solder-e2e-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-escalation-repo
+    path: escalation
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e
+  sync:
+    automatic: true
+    conflictPolicy: fail
+`)
+
+// approvalApplicationManifest deploys the product fixture with manual approval.
+var approvalApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-approval-repo",
+	`apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-approval
+spec:
+  serviceAccountName: solder-e2e-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-approval-repo
+    path: manifests
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e
+  sync:
+    automatic: false
+    conflictPolicy: fail
+`)
+
+// stagedApplicationManifest deploys the fixture's staged/ path: a pre-sync
+// hook Job that sleeps 5 seconds, a wave-0 Deployment, a wave-1 ConfigMap,
+// and a post-sync hook Job.
+var stagedApplicationManifest = fixtureManifest(
+	"solder-e2e-staged", "solder-e2e-staged-deployer", "solder-e2e-staged-repo",
+	`apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-staged
+spec:
+  serviceAccountName: solder-e2e-staged-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-staged-repo
+    path: staged
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e-staged
+  sync:
+    automatic: true
+    prune: true
+    conflictPolicy: fail
+  health:
+    timeout: 5m
+`)

@@ -32,6 +32,7 @@ operators can see which Git config file owns them.
 An `Application` describes a deployable unit:
 
 - source Repository, revision, path, and renderer;
+- the service account Solder acts as when it reads, applies, and prunes;
 - destination namespace constraints;
 - sync policy for automatic apply, pruning, self-heal, and conflict handling;
 - health observation timeout;
@@ -42,6 +43,13 @@ Applications are the primary object operators watch with `kubectl get app` or
 `solder apps`. They can be applied directly to the Kubernetes API, or declared
 in the source repository's `.solder.yaml` files for Repository-driven GitOps
 bootstrapping.
+
+Applications can depend on other Applications in the same namespace with
+`spec.dependsOn`, for example workloads on the operator that serves their
+custom resources. Solder still plans a dependent, but applies it only once
+every dependency is Healthy at the revision it currently wants, and reports
+what it waits for in the `DependenciesReady` condition. Dependents are
+re-queued as soon as a dependency changes.
 
 ## Revision
 
@@ -63,6 +71,23 @@ Solder keeps convergence and operational health separate:
 An Application can be out of sync but healthy, synced but degraded, or planning
 while still serving traffic from the previous healthy Revision.
 
+Deployments, StatefulSets, DaemonSets, Pods, and Jobs have dedicated health
+rules. Every other kind follows the kstatus conventions most controllers use:
+
+- `status.observedGeneration` behind `metadata.generation` is Progressing;
+- a `Stalled=True` condition is Degraded;
+- a `Reconciling=True` condition, or a `Ready` condition that is not `True`, is
+  Progressing;
+- anything else, including an object with no status, is Healthy.
+
+Applications can order their rollout with
+[sync hooks and waves](operations.md#sync-hooks-and-waves); each group must be
+Healthy before the next is applied.
+
+A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
+expressions. A rollout waits only for Progressing resources, until
+`spec.health.timeout`.
+
 ## Render, normalize, validate, plan
 
 The reconciliation pipeline is:
@@ -78,17 +103,31 @@ The reconciliation pipeline is:
 
 ## Apply and prune
 
-Solder applies with Kubernetes Server-Side Apply. Conflict policy currently
-supports `fail`, which blocks ownership conflicts instead of force-taking fields.
+Solder applies with Kubernetes Server-Side Apply. The default conflict policy,
+`fail`, blocks ownership conflicts instead of force-taking fields; `adopt`
+takes ownership of conflicting fields and lists each one, with its previous
+manager, in the plan.
 
 When pruning is enabled, Solder deletes previously managed resources that are no
-longer present in desired state. Destructive changes are represented in the plan
-before mutation.
+longer present in desired state. It finds them by label across every kind in
+the Application's `status.managedKinds` inventory, so objects of any kind are
+pruned, including after a controller restart. Destructive changes are
+represented in the plan before mutation.
 
 ## Drift and self-heal
 
 Solder can detect live drift by comparing normalized live state to desired state.
 When `selfHeal` is enabled, drift is corrected through the same plan/apply path.
+When it is off, drift is only reported (`Drifted`): the edit is left in place,
+even when it took over a field Solder manages, the Revision stays Healthy, and
+undoing the edit returns the Application to Synced without a new rollout.
+
+Solder notices drift immediately for kinds it watches: ConfigMaps, Secrets,
+Services, Deployments, StatefulSets, and DaemonSets, plus any managed kind the
+controller has been granted `list` and `watch` on. Watches are metadata-only.
+Applications that manage other kinds are re-checked every
+`--drift-resync-interval` (Helm value `driftResyncInterval`, default 5m). See
+[Operations](operations.md#drift-detection-for-other-kinds) to grant watches.
 
 ## Rollback
 

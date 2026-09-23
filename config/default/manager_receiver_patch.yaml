@@ -1,0 +1,12 @@
+# This patch starts the push webhook receiver on port 9292. Use it together
+# with receiver_service.yaml; see [RECEIVER] in kustomization.yaml.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --webhook-receiver-bind-address=:9292
+
+- op: add
+  path: /spec/template/spec/containers/0/ports/-
+  value:
+    containerPort: 9292
+    name: receiver
+    protocol: TCP

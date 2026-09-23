@@ -12,6 +12,7 @@ license: Apache-2.0
 metadata:
   category: development
   author: pascal-watteel
+  contract: "3"
 ---
 
 # solder - AI Agent Guide
@@ -356,4 +357,3 @@ make docker-build docker-push IMG=$IMG
 - **controller-runtime**: https://github.com/kubernetes-sigs/controller-runtime
 - **controller-tools**: https://github.com/kubernetes-sigs/controller-tools
 - **Kubebuilder Repo**: https://github.com/kubernetes-sigs/kubebuilder
-

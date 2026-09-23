@@ -37,6 +37,70 @@ func TestEvaluateMVPResources(t *testing.T) {
 	}
 }
 
+func TestEvaluateFollowsKstatusForOtherKinds(t *testing.T) {
+	withConditions := func(generation, observed int64, conditions ...map[string]any) unstructured.Unstructured {
+		o := obj("cert-manager.io/v1", "Certificate", "payments", "tls")
+		o.SetGeneration(generation)
+		_ = unstructured.SetNestedField(o.Object, observed, "status", "observedGeneration")
+		list := make([]any, 0, len(conditions))
+		for _, c := range conditions {
+			list = append(list, c)
+		}
+		_ = unstructured.SetNestedSlice(o.Object, list, "status", "conditions")
+		return o
+	}
+	cond := func(kind, status string) map[string]any {
+		return map[string]any{"type": kind, "status": status, "message": kind + " is " + status}
+	}
+	cases := []struct {
+		name   string
+		obj    unstructured.Unstructured
+		state  corev1alpha1.HealthState
+		reason string
+	}{
+		{"current", withConditions(2, 2, cond("Ready", "True")), corev1alpha1.HealthStateHealthy, "Ready"},
+		{"generation not observed", withConditions(3, 2, cond("Ready", "True")), corev1alpha1.HealthStateProgressing, "GenerationPending"},
+		{"reconciling", withConditions(2, 2, cond("Reconciling", "True"), cond("Ready", "True")), corev1alpha1.HealthStateProgressing, "Reconciling"},
+		{"not ready", withConditions(2, 2, cond("Ready", "False")), corev1alpha1.HealthStateProgressing, "NotReady"},
+		{"stalled", withConditions(2, 2, cond("Stalled", "True"), cond("Ready", "False")), corev1alpha1.HealthStateDegraded, "Stalled"},
+		{"no status", obj("example.com/v1", "Widget", "payments", "gear"), corev1alpha1.HealthStateHealthy, "Ready"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Evaluate(tc.obj)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != tc.state || got.Reason != tc.reason {
+				t.Fatalf("got %s/%s, want %s/%s", got.State, got.Reason, tc.state, tc.reason)
+			}
+		})
+	}
+}
+
+func TestEvaluateJobs(t *testing.T) {
+	job := func(conditionType string) unstructured.Unstructured {
+		o := obj("batch/v1", "Job", "payments", "migrate")
+		if conditionType != "" {
+			_ = unstructured.SetNestedSlice(o.Object, []any{map[string]any{"type": conditionType, "status": "True"}}, "status", "conditions")
+		}
+		return o
+	}
+	for conditionType, want := range map[string]corev1alpha1.HealthState{
+		"":         corev1alpha1.HealthStateProgressing,
+		"Complete": corev1alpha1.HealthStateHealthy,
+		"Failed":   corev1alpha1.HealthStateDegraded,
+	} {
+		got, err := Evaluate(job(conditionType))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != want {
+			t.Fatalf("job with %q condition = %s, want %s", conditionType, got.State, want)
+		}
+	}
+}
+
 func TestObserveStopsOnHealthyAndTimeout(t *testing.T) {
 	calls := 0
 	results, err := Observe(context.Background(), time.Millisecond, time.Second, func(context.Context) ([]unstructured.Unstructured, error) {

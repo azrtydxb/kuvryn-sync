@@ -1,10 +1,31 @@
 image:
   repository: ghcr.io/azrtydxb/solder
-  tag: v0.1.11
+  # Defaults to v<appVersion> from Chart.yaml. The chart passes flags that
+  # only the image of the same release understands, so override this only
+  # with an image built from the same commit.
+  tag: ""
   pullPolicy: IfNotPresent
 
 replicaCount: 2
 leaderElection: true
+
+# Service account (in each Application's namespace) that Solder impersonates
+# when an Application sets no spec.serviceAccountName. Leave empty to refuse
+# such Applications.
+defaultServiceAccount: ""
+
+# How often Applications that manage kinds the controller may not watch are
+# re-checked for drift. Grant the controller list/watch on a kind to get
+# immediate drift detection for it instead.
+driftResyncInterval: 5m
+
+# Receiver for push webhooks, served by the Service <release>-solder-receiver
+# on port 80: GitHub/GitLab pushes at POST /hooks/<namespace>/<repository>,
+# and registry pushes at POST /hooks/imagepolicies/<namespace>/<name>. Expose
+# the Service through your ingress; requests are authenticated per object with
+# its spec.webhook.secretRef.
+webhookReceiver:
+  enabled: false
 
 resources:
   requests:

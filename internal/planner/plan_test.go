@@ -154,3 +154,127 @@ func withServerFields(obj unstructured.Unstructured) unstructured.Unstructured {
 	obj.Object["status"] = map[string]any{"observed": true}
 	return obj
 }
+
+func managedBy(manager, fields string) metav1.ManagedFieldsEntry {
+	return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1", FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+}
+
+func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
+	desired := cm("shared", "same")
+	live := cm("shared", "same")
+	live.SetLabels(map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments"})
+	_ = unstructured.SetNestedField(live.Object, "defaulted", "data", "serverDefault")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:kustomize.toolkit.fluxcd.io/name":{}}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.Unchanged != 1 || plan.Summary.Update != 0 {
+		t.Fatalf("foreign or defaulted fields were planned as changes: %#v", plan.RevisionPlan(10))
+	}
+}
+
+func TestRemovingAFieldSolderOwnedIsAChange(t *testing.T) {
+	desired := cm("shrinking", "same")
+	live := cm("shrinking", "same")
+	_ = unstructured.SetNestedField(live.Object, "old", "data", "removed")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := plan.RevisionPlan(10).Resources[0].Changes
+	if plan.Summary.Update != 1 || len(fields) != 1 || fields[0].Path != "data.removed" || fields[0].After != "" {
+		t.Fatalf("plan = %#v", plan.RevisionPlan(10))
+	}
+}
+
+func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
+	desired := cm("mixed", "desired")
+	desired.SetLabels(map[string]string{"team": "payments"})
+	live := cm("mixed", "live")
+	live.SetLabels(map[string]string{"team": "search"})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:team":{}}}}`),
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts := plan.RevisionPlan(10).Resources[0].Conflicts
+	if len(conflicts) != 1 || conflicts[0].Path != "metadata.labels.team" || conflicts[0].Manager != "kustomize-controller" {
+		t.Fatalf("conflicts = %#v", conflicts)
+	}
+}
+
+func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
+	// Both managers applied the same value, so both own data.value; solder is
+	// listed last so a single-owner map would lose the other manager.
+	live := cm("shared", "live")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("kubectl", `{"f:data":{"f:value":{}}}`),
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{cm("shared", "desired")}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts := plan.RevisionPlan(10).Resources[0].Conflicts
+	if len(conflicts) != 1 || conflicts[0].Path != "data.value" || conflicts[0].Manager != "kubectl" {
+		t.Fatalf("conflicts = %#v, want one on data.value with kubectl", conflicts)
+	}
+
+	// A field Solder shares is still Solder's: dropping it is a change.
+	removed := cm("shared", "live")
+	_ = unstructured.SetNestedField(removed.Object, "old", "data", "removed")
+	removed.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`),
+		managedBy("kubectl", `{"f:data":{"f:removed":{}}}`),
+	})
+	plan, err = Build([]unstructured.Unstructured{cm("shared", "live")}, []unstructured.Unstructured{removed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := plan.RevisionPlan(10).Resources[0].Changes
+	if len(fields) != 1 || fields[0].Path != "data.removed" {
+		t.Fatalf("changes = %#v, want the removal of data.removed", fields)
+	}
+}
+
+func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
+	deployment := func(image string, extra map[string]any) unstructured.Unstructured {
+		container := map[string]any{"name": "api", "image": image}
+		for k, v := range extra {
+			container[k] = v
+		}
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]any{"name": "api", "namespace": "payments"},
+			"spec":     map[string]any{"template": map[string]any{"spec": map[string]any{"containers": []any{container}}}},
+		}}
+	}
+	live := deployment("nginx:1", map[string]any{"imagePullPolicy": "Always", "terminationMessagePath": "/dev/termination-log"})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder",
+		`{"f:spec":{"f:template":{"f:spec":{"f:containers":{"k:{\"name\":\"api\"}":{".":{},"f:image":{},"f:name":{}}}}}}}`)})
+
+	unchanged, err := Build([]unstructured.Unstructured{deployment("nginx:1", nil)}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Summary.Unchanged != 1 {
+		t.Fatalf("server-defaulted container fields were planned as changes: %#v", unchanged.RevisionPlan(10))
+	}
+
+	changed, err := Build([]unstructured.Unstructured{deployment("nginx:2", nil)}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := changed.RevisionPlan(10).Resources[0].Changes
+	if len(fields) != 1 || fields[0].Path != "spec.template.spec.containers[0].image" || fields[0].After != "nginx:2" {
+		t.Fatalf("image change = %#v", fields)
+	}
+}
