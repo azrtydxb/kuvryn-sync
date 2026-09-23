@@ -122,3 +122,30 @@ func TestHelmChartServicesSelectTheirOwnRelease(t *testing.T) {
 		t.Fatal("found no Services in the chart templates")
 	}
 }
+
+// A Go bump must reach every place that picks a toolchain, or contributors
+// and image builds run an older Go than go.mod requires.
+func TestGoVersionMatchesBuildImages(t *testing.T) {
+	read := func(path string) string {
+		contents, err := os.ReadFile(filepath.Join("..", "..", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(contents)
+	}
+	module := ""
+	for line := range strings.SplitSeq(read("go.mod"), "\n") {
+		if version, ok := strings.CutPrefix(line, "go "); ok {
+			parts := strings.SplitN(version, ".", 3)
+			module = parts[0] + "." + parts[1]
+		}
+	}
+	if module == "" {
+		t.Fatal("go.mod has no go directive")
+	}
+	for _, path := range []string{"Dockerfile", ".devcontainer/devcontainer.json"} {
+		if !strings.Contains(read(path), "golang:"+module) {
+			t.Errorf("%s does not use golang:%s, the Go version go.mod requires", path, module)
+		}
+	}
+}
