@@ -17,6 +17,13 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Fixed: planning compared whole objects, so fields defaulted by the API
+  server or owned by other field managers (an HPA's replicas, another tool's
+  labels) looked like changes forever. Every Deployment re-applied on each
+  reconcile, and any object touched by another manager showed as drift. The
+  planner now reports only fields Solder declares, plus fields it owned and no
+  longer declares, and reports conflicts per exact field and manager,
+  including Update-operation managers.
 - `spec.sync.conflictPolicy: adopt` takes ownership of fields another field
   manager holds (Server-Side Apply force), listing every field and previous
   manager in the plan; `fail` remains the default.

@@ -154,3 +154,59 @@ func withServerFields(obj unstructured.Unstructured) unstructured.Unstructured {
 	obj.Object["status"] = map[string]any{"observed": true}
 	return obj
 }
+
+func managedBy(manager, fields string) metav1.ManagedFieldsEntry {
+	return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1", FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+}
+
+func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
+	desired := cm("shared", "same")
+	live := cm("shared", "same")
+	live.SetLabels(map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments"})
+	_ = unstructured.SetNestedField(live.Object, "defaulted", "data", "serverDefault")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:kustomize.toolkit.fluxcd.io/name":{}}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.Unchanged != 1 || plan.Summary.Update != 0 {
+		t.Fatalf("foreign or defaulted fields were planned as changes: %#v", plan.RevisionPlan(10))
+	}
+}
+
+func TestRemovingAFieldSolderOwnedIsAChange(t *testing.T) {
+	desired := cm("shrinking", "same")
+	live := cm("shrinking", "same")
+	_ = unstructured.SetNestedField(live.Object, "old", "data", "removed")
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := plan.RevisionPlan(10).Resources[0].Changes
+	if plan.Summary.Update != 1 || len(fields) != 1 || fields[0].Path != "data.removed" || fields[0].After != "" {
+		t.Fatalf("plan = %#v", plan.RevisionPlan(10))
+	}
+}
+
+func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
+	desired := cm("mixed", "desired")
+	desired.SetLabels(map[string]string{"team": "payments"})
+	live := cm("mixed", "live")
+	live.SetLabels(map[string]string{"team": "search"})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{
+		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:team":{}}}}`),
+		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+	})
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts := plan.RevisionPlan(10).Resources[0].Conflicts
+	if len(conflicts) != 1 || conflicts[0].Path != "metadata.labels.team" || conflicts[0].Manager != "kustomize-controller" {
+		t.Fatalf("conflicts = %#v", conflicts)
+	}
+}

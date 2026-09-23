@@ -97,6 +97,8 @@ var _ = Describe("Helm charts from a repository with valuesFrom", func() {
 
 	It("pulls the pinned chart, records its digest, merges values in order, and hides Secret values", func() {
 		app := newApplication(appName, corev1alpha1.RenderTypeHelm)
+		// The pre-created ConfigMap is owned by the test client; adopt it.
+		app.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyAdopt
 		app.Spec.Source.Render.Helm = &corev1alpha1.HelmRenderSpec{
 			ReleaseName: "payments",
 			Chart:       &corev1alpha1.HelmChartSource{Repository: server.URL, Name: "app", Version: "0.1.0"},

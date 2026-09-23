@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
@@ -80,18 +79,14 @@ func Build(desired []unstructured.Unstructured, live []unstructured.Unstructured
 			change.Warnings = deleteWarnings(liveObj)
 			plan.Summary.Delete++
 		case want && have:
-			equal, err := normalize.Equal(desiredObj, liveObj)
+			fields, err := changedFields(desiredObj, liveObj)
 			if err != nil {
 				return Plan{}, err
 			}
-			if equal {
+			if len(fields) == 0 {
 				plan.Summary.Unchanged++
 			} else {
 				change.Action = corev1alpha1.PlanActionUpdate
-				fields, err := changedFields(desiredObj, liveObj)
-				if err != nil {
-					return Plan{}, err
-				}
 				change.Fields = fields
 				change.Conflicts = detectConflicts(liveObj, fields)
 				plan.Summary.Update++
@@ -109,10 +104,19 @@ func createFieldChanges(obj unstructured.Unstructured) []corev1alpha1.PlanFieldC
 	return nil
 }
 
+// changedFields lists what Server-Side Apply would change: every field Solder
+// declares that differs from live, and fields Solder owned that desired state
+// no longer declares. Fields only other managers own, or that the API server
+// defaulted, are not Solder's and are never reported.
 func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.PlanFieldChange, error) {
 	if isSecret(desired) || isSecret(live) {
+		equal, err := normalize.Equal(desired, live)
+		if err != nil || equal {
+			return nil, err
+		}
 		return secretFieldChanges(desired, live), nil
 	}
+	owners := fieldOwners(live)
 	d, err := normalize.Object(desired)
 	if err != nil {
 		return nil, err
@@ -130,7 +134,12 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 		paths[path] = struct{}{}
 	}
 	for path := range lf {
-		paths[path] = struct{}{}
+		if _, declared := df[path]; declared {
+			continue
+		}
+		if manager, owned := owners.owner(path); owned && manager == solderFieldManager {
+			paths[path] = struct{}{}
+		}
 	}
 	ordered := make([]string, 0, len(paths))
 	for path := range paths {
@@ -226,66 +235,76 @@ func deleteWarnings(obj unstructured.Unstructured) []string {
 	return warnings
 }
 
+// detectConflicts reports changed fields another field manager owns, which
+// Server-Side Apply would refuse without force.
 func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanFieldChange) []corev1alpha1.PlanConflict {
-	if len(fields) == 0 {
-		return nil
-	}
-	owned := map[string]string{}
-	for _, managed := range live.GetManagedFields() {
-		if managed.Manager == "" || managed.Manager == solderFieldManager || managed.Operation != metav1.ManagedFieldsOperationApply || managed.FieldsV1 == nil {
-			continue
-		}
-		raw, err := managed.FieldsV1.MarshalJSON()
-		if err != nil {
-			continue
-		}
-		var tree map[string]any
-		if err := json.Unmarshal(raw, &tree); err != nil {
-			continue
-		}
-		for _, top := range topLevelManagedFields(tree) {
-			owned[top] = managed.Manager
-		}
-	}
+	owners := fieldOwners(live)
 	conflicts := []corev1alpha1.PlanConflict{}
-	seen := map[string]struct{}{}
 	for _, field := range fields {
-		top := strings.Split(strings.Split(field.Path, ".")[0], "[")[0]
-		manager, ok := owned[top]
-		if !ok {
+		manager, owned := owners.owner(field.Path)
+		if !owned || manager == solderFieldManager {
 			continue
 		}
-		key := field.Path + "\x00" + manager
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
 		conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})
 	}
 	return conflicts
 }
 
-func topLevelManagedFields(tree map[string]any) []string {
-	fields := map[string]struct{}{}
-	var walk func(map[string]any)
-	walk = func(node map[string]any) {
-		for key, value := range node {
-			if strings.HasPrefix(key, "f:") {
-				fields[strings.TrimPrefix(key, "f:")] = struct{}{}
+// ownership maps field paths, in the planner's flattened notation, to the
+// field manager that owns them.
+type ownership struct {
+	fields map[string]string
+	// lists are owned element by element; any path inside counts as owned.
+	lists map[string]string
+}
+
+func fieldOwners(live unstructured.Unstructured) ownership {
+	o := ownership{fields: map[string]string{}, lists: map[string]string{}}
+	for _, managed := range live.GetManagedFields() {
+		if managed.Manager == "" || managed.FieldsV1 == nil {
+			continue
+		}
+		var tree map[string]any
+		if err := json.Unmarshal(managed.FieldsV1.Raw, &tree); err != nil {
+			continue
+		}
+		o.walk(tree, "", managed.Manager)
+	}
+	return o
+}
+
+func (o ownership) walk(node map[string]any, prefix, manager string) {
+	for key, value := range node {
+		name, isField := strings.CutPrefix(key, "f:")
+		if !isField {
+			if key != "." {
+				o.lists[prefix] = manager
 			}
-			child, ok := value.(map[string]any)
-			if ok {
-				walk(child)
-			}
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		child, _ := value.(map[string]any)
+		if len(child) == 0 {
+			o.fields[path] = manager
+			continue
+		}
+		o.walk(child, path, manager)
+	}
+}
+
+func (o ownership) owner(path string) (string, bool) {
+	if manager, ok := o.fields[path]; ok {
+		return manager, true
+	}
+	for list, manager := range o.lists {
+		if strings.HasPrefix(path, list+"[") || strings.HasPrefix(path, list+".") {
+			return manager, true
 		}
 	}
-	walk(tree)
-	out := make([]string, 0, len(fields))
-	for field := range fields {
-		out = append(out, field)
-	}
-	sort.Strings(out)
-	return out
+	return "", false
 }
 
 // RevisionPlan converts a plan to the bounded API status representation.
