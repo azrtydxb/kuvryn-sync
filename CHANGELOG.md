@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Solder now builds with Go 1.26, required by `golang.org/x/crypto` v0.57,
+  which fixes two SSH channel deadlocks a Git server could trigger. Also
+  bumped: `cel-go` v0.31 (JSON private field exposure), `golang.org/x/mod`
+  v0.41 (sumdb verification), and the OTLP trace exporters.
 - **Breaking:** Solder now reads, applies, and prunes each Application's
   resources by impersonating a service account, so tenant RBAC decides what an
   Application may change. Set `spec.serviceAccountName`, or start the manager
