@@ -707,9 +707,9 @@ func helmValues(ctx context.Context, tenant client.Client, namespace string, hel
 
 // mergeValues deep-merges b over a, like Helm merges values files.
 func mergeValues(a, b map[string]any) map[string]any {
-	out := make(map[string]any, len(a))
-	for k, v := range a {
-		out[k] = v
+	out := maps.Clone(a)
+	if out == nil {
+		out = map[string]any{}
 	}
 	for k, v := range b {
 		if bm, ok := v.(map[string]any); ok {
