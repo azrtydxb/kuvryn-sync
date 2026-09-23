@@ -41,6 +41,9 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 	if err != nil {
 		return nil, err
 	}
+	if root, err = resolvedInside(input.Workspace, root); err != nil {
+		return nil, err
+	}
 	files, err := manifestFiles(root)
 	if err != nil {
 		return nil, err
@@ -83,6 +86,25 @@ func Decode(data []byte) ([]unstructured.Unstructured, error) {
 	return objects, nil
 }
 
+// resolvedInside resolves p through symbolic links and refuses it unless it
+// stays inside workspace: a render path that is a link to a directory or file
+// outside the checkout passed safePath's lexical check.
+func resolvedInside(workspace, p string) (string, error) {
+	base, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace: %w", err)
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", fmt.Errorf("inspect render path: %w", err)
+	}
+	rel, err := filepath.Rel(base, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("render path must stay inside workspace")
+	}
+	return real, nil
+}
+
 func manifestFiles(root string) ([]string, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -100,6 +122,13 @@ func manifestFiles(root string) ([]string, error) {
 			return err
 		}
 		if entry.IsDir() {
+			return nil
+		}
+		// A linked manifest can point anywhere on the controller's
+		// filesystem, and whatever it points at would be decoded and
+		// applied. WalkDir lists links without following them; reading one
+		// would follow it, so links are skipped.
+		if entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		if isYAML(path) {

@@ -75,6 +75,8 @@ type RenderSpec struct {
 // HelmRenderSpec configures Helm rendering.
 type HelmRenderSpec struct {
 	// releaseName is the Helm release name used for template rendering.
+	// +kubebuilder:validation:MaxLength=53
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	ReleaseName string `json:"releaseName,omitempty"`
 	// valuesFiles are repository-relative values files.

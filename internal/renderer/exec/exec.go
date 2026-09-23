@@ -21,6 +21,8 @@ import (
 	"fmt"
 	osexec "os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -67,13 +69,26 @@ func (r HelmRenderer) Render(ctx context.Context, input renderer.Input) ([]unstr
 	if releaseName == "" {
 		releaseName = "solder"
 	}
-	args := []string{"template", releaseName, path}
+	// The release name comes from the Application spec. Unchecked and placed
+	// before any "--", a name like "--post-renderer=<path>" was read by Helm
+	// as a flag, and --post-renderer runs a program: argument injection into
+	// the controller. It must be a valid Helm release name, and the
+	// positional arguments go after "--" so nothing there is read as a flag.
+	if len(releaseName) > 53 || !releaseNameRE.MatchString(releaseName) {
+		return nil, fmt.Errorf("helm release name %q is not valid: lowercase letters, digits, '-' and '.', at most 53 characters", releaseName)
+	}
+	args := []string{"template"}
 	for _, valuesFile := range input.ValuesFiles {
 		if filepath.IsAbs(valuesFile) {
-			return nil, fmt.Errorf("Helm values file must be relative")
+			return nil, fmt.Errorf("helm values file must be relative")
 		}
-		args = append(args, "-f", filepath.Join(path, filepath.Clean(valuesFile)))
+		values, err := within(input.Workspace, filepath.Join(path, filepath.Clean(valuesFile)))
+		if err != nil {
+			return nil, fmt.Errorf("helm values file %q: %w", valuesFile, err)
+		}
+		args = append(args, "-f", values)
 	}
+	args = append(args, "--", releaseName, path)
 	out, err := command(ctx, binary, args...)
 	if err != nil {
 		return nil, fmt.Errorf("helm render failed: %w", err)
@@ -98,8 +113,39 @@ func renderPath(input renderer.Input) (string, error) {
 	return filepath.Join(input.Workspace, clean), nil
 }
 
+// within resolves p, following symbolic links, and refuses it unless it stays
+// inside workspace.
+//
+// Values files come from the Application spec and the repository, both
+// untrusted. Only absolute paths used to be refused, so "../../x" walked out
+// of the checkout, and a values file that is itself a link pointed anywhere;
+// either handed Helm a file from the controller's filesystem, such as its
+// service account token.
+func within(workspace, p string) (string, error) {
+	root, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("must stay inside the workspace")
+	}
+	// The resolved path, so Helm reads exactly the file that was checked.
+	return real, nil
+}
+
+// releaseNameRE is Helm's own rule for a release name.
+var releaseNameRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
 func command(ctx context.Context, binary string, args ...string) ([]byte, error) {
-	cmd := osexec.CommandContext(ctx, binary, args...)
+	// binary is helm or kustomize (tests substitute a fake); args is an argv,
+	// never a shell string, and the one user-supplied value, the release name,
+	// is validated and placed after "--".
+	cmd := osexec.CommandContext(ctx, binary, args...) // #nosec G204 -- nosemgrep: dangerous-exec-command -- fixed binary, argv without a shell, validated release name after --
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) > 512 {

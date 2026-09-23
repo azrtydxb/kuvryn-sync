@@ -12,356 +12,382 @@ spec:
     listKind: ApplicationList
     plural: applications
     shortNames:
-    - app
-    - apps
+      - app
+      - apps
     singular: application
   scope: Namespaced
   versions:
-  - additionalPrinterColumns:
-    - jsonPath: .status.state
-      name: State
-      type: string
-    - jsonPath: .status.sync.state
-      name: Sync
-      type: string
-    - jsonPath: .status.health.state
-      name: Health
-      type: string
-    - jsonPath: .status.desiredRevision
-      name: Desired
-      type: string
-    - jsonPath: .status.deployedRevision
-      name: Deployed
-      type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: Application is the main user-facing GitOps deployment abstraction.
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: spec defines the desired deployment behavior.
-            properties:
-              deletionPolicy:
-                default: Orphan
-                description: |-
-                  deletionPolicy controls whether workloads are preserved when the
-                  Application is deleted. The default is Orphan.
-                enum:
-                - Orphan
-                - DeleteManagedResources
-                type: string
-              destination:
-                description: destination constrains where namespaced resources are
-                  applied.
-                properties:
-                  namespace:
-                    description: namespace is the default namespace for namespaced
-                      desired resources.
-                    type: string
-                type: object
-              health:
-                description: health controls rollout observation.
-                properties:
-                  timeout:
-                    description: timeout bounds rollout health observation.
-                    type: string
-                type: object
-              history:
-                description: history controls bounded Revision retention.
-                properties:
-                  limit:
-                    description: limit is the maximum number of Revisions retained
-                      for this Application.
-                    format: int32
-                    minimum: 1
-                    type: integer
-                type: object
-              source:
-                description: source identifies and renders desired Kubernetes objects.
-                properties:
-                  path:
-                    description: path is the repository-relative path containing desired
-                      state.
-                    type: string
-                  render:
-                    description: render configures desired-state rendering.
-                    properties:
-                      helm:
-                        description: helm configures Helm rendering when type is helm.
-                        properties:
-                          releaseName:
-                            description: releaseName is the Helm release name used
-                              for template rendering.
-                            type: string
-                          valuesFiles:
-                            description: valuesFiles are repository-relative values
-                              files.
-                            items:
-                              type: string
-                            type: array
-                            x-kubernetes-list-type: atomic
-                        type: object
-                      type:
-                        description: type identifies the renderer.
-                        enum:
-                        - yaml
-                        - kustomize
-                        - helm
-                        type: string
-                    required:
-                    - type
-                    type: object
-                  repositoryRef:
-                    description: repositoryRef references a Repository in the Application
-                      namespace.
-                    properties:
-                      name:
-                        description: name is the referenced object name.
-                        minLength: 1
-                        type: string
-                    required:
-                    - name
-                    type: object
-                  revision:
-                    description: |-
-                      revision is a branch, tag, or exact commit. When empty, the Repository
-                      default revision is used.
-                    type: string
-                required:
-                - render
-                - repositoryRef
-                type: object
-              strategy:
-                description: strategy controls deployment and failure behavior.
-                properties:
-                  failurePolicy:
-                    description: failurePolicy controls deterministic failure handling.
-                    properties:
-                      action:
-                        default: pause
-                        description: FailureAction controls what happens when a deployment
-                          fails.
-                        enum:
-                        - pause
-                        - rollback
-                        type: string
-                      maxAttempts:
-                        description: maxAttempts bounds retry loops for a failed desired
-                          revision.
-                        format: int32
-                        minimum: 1
-                        type: integer
-                      timeout:
-                        description: timeout bounds apply/health observation before
-                          the attempt fails.
-                        type: string
-                    type: object
-                  type:
-                    default: rolling
-                    description: type names the deployment strategy. v0.1 supports
-                      rolling semantics.
-                    enum:
-                    - rolling
-                    type: string
-                type: object
-              suspend:
-                description: suspend stops Solder from mutating managed resources
-                  while retaining status.
-                type: boolean
-              sync:
-                description: sync controls planning, mutation, pruning, and drift
-                  repair.
-                properties:
-                  automatic:
-                    description: automatic allows Solder to apply approved plans without
-                      a separate command.
-                    type: boolean
-                  conflictPolicy:
-                    default: fail
-                    description: conflictPolicy controls SSA ownership conflict behavior.
-                    enum:
-                    - fail
-                    type: string
-                  prune:
-                    description: prune allows deletion of previously managed objects
-                      no longer in desired state.
-                    type: boolean
-                  selfHeal:
-                    description: selfHeal allows Solder to correct managed drift.
-                    type: boolean
-                type: object
-            required:
-            - destination
-            - source
-            type: object
-          status:
-            description: status defines observed sync, health, and revision state.
-            properties:
-              conditions:
-                description: conditions represent the current state of the Application
-                  resource.
-                items:
-                  description: Condition contains details for one aspect of the current
-                    state of this API Resource.
+    - additionalPrinterColumns:
+        - jsonPath: .status.state
+          name: State
+          type: string
+        - jsonPath: .status.sync.state
+          name: Sync
+          type: string
+        - jsonPath: .status.health.state
+          name: Health
+          type: string
+        - jsonPath: .status.desiredRevision
+          name: Desired
+          type: string
+        - jsonPath: .status.deployedRevision
+          name: Deployed
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: Application is the main user-facing GitOps deployment abstraction.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines the desired deployment behavior.
+              properties:
+                deletionPolicy:
+                  default: Orphan
+                  description: |-
+                    deletionPolicy controls whether workloads are preserved when the
+                    Application is deleted. The default is Orphan.
+                  enum:
+                    - Orphan
+                    - DeleteManagedResources
+                  type: string
+                destination:
+                  description:
+                    destination constrains where namespaced resources are
+                    applied.
                   properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
+                    namespace:
+                      description:
+                        namespace is the default namespace for namespaced
+                        desired resources.
                       type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
+                  type: object
+                health:
+                  description: health controls rollout observation.
+                  properties:
+                    timeout:
+                      description: timeout bounds rollout health observation.
                       type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
+                  type: object
+                history:
+                  description: history controls bounded Revision retention.
+                  properties:
+                    limit:
+                      description:
+                        limit is the maximum number of Revisions retained
+                        for this Application.
+                      format: int32
+                      minimum: 1
                       type: integer
-                    reason:
+                  type: object
+                source:
+                  description: source identifies and renders desired Kubernetes objects.
+                  properties:
+                    path:
+                      description:
+                        path is the repository-relative path containing desired
+                        state.
+                      type: string
+                    render:
+                      description: render configures desired-state rendering.
+                      properties:
+                        helm:
+                          description: helm configures Helm rendering when type is helm.
+                          properties:
+                            releaseName:
+                              description:
+                                releaseName is the Helm release name used
+                                for template rendering.
+                              maxLength: 53
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            valuesFiles:
+                              description:
+                                valuesFiles are repository-relative values
+                                files.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          type: object
+                        type:
+                          description: type identifies the renderer.
+                          enum:
+                            - yaml
+                            - kustomize
+                            - helm
+                          type: string
+                      required:
+                        - type
+                      type: object
+                    repositoryRef:
+                      description:
+                        repositoryRef references a Repository in the Application
+                        namespace.
+                      properties:
+                        name:
+                          description: name is the referenced object name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                    revision:
                       description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        revision is a branch, tag, or exact commit. When empty, the Repository
+                        default revision is used.
                       type: string
                   required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
+                    - render
+                    - repositoryRef
                   type: object
-                type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
-              deployedRevision:
-                description: deployedRevision is the source revision currently deployed
-                  after rollback.
-                type: string
-              desiredRevision:
-                description: desiredRevision is the source revision Git currently
-                  asks Solder to run.
-                type: string
-              health:
-                description: health reports operational health independent from sync.
-                properties:
-                  state:
-                    description: HealthState describes operational health separately
-                      from sync state.
-                    enum:
+                strategy:
+                  description: strategy controls deployment and failure behavior.
+                  properties:
+                    failurePolicy:
+                      description: failurePolicy controls deterministic failure handling.
+                      properties:
+                        action:
+                          default: pause
+                          description:
+                            FailureAction controls what happens when a deployment
+                            fails.
+                          enum:
+                            - pause
+                            - rollback
+                          type: string
+                        maxAttempts:
+                          description:
+                            maxAttempts bounds retry loops for a failed desired
+                            revision.
+                          format: int32
+                          minimum: 1
+                          type: integer
+                        timeout:
+                          description:
+                            timeout bounds apply/health observation before
+                            the attempt fails.
+                          type: string
+                      type: object
+                    type:
+                      default: rolling
+                      description:
+                        type names the deployment strategy. v0.1 supports
+                        rolling semantics.
+                      enum:
+                        - rolling
+                      type: string
+                  type: object
+                suspend:
+                  description:
+                    suspend stops Solder from mutating managed resources
+                    while retaining status.
+                  type: boolean
+                sync:
+                  description:
+                    sync controls planning, mutation, pruning, and drift
+                    repair.
+                  properties:
+                    automatic:
+                      description:
+                        automatic allows Solder to apply approved plans without
+                        a separate command.
+                      type: boolean
+                    conflictPolicy:
+                      default: fail
+                      description: conflictPolicy controls SSA ownership conflict behavior.
+                      enum:
+                        - fail
+                      type: string
+                    prune:
+                      description:
+                        prune allows deletion of previously managed objects
+                        no longer in desired state.
+                      type: boolean
+                    selfHeal:
+                      description: selfHeal allows Solder to correct managed drift.
+                      type: boolean
+                  type: object
+              required:
+                - destination
+                - source
+              type: object
+            status:
+              description: status defines observed sync, health, and revision state.
+              properties:
+                conditions:
+                  description:
+                    conditions represent the current state of the Application
+                    resource.
+                  items:
+                    description:
+                      Condition contains details for one aspect of the current
+                      state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: |-
+                          lastTransitionTime is the last time the condition transitioned from one status to another.
+                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: |-
+                          message is a human readable message indicating details about the transition.
+                          This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: |-
+                          observedGeneration represents the .metadata.generation that the condition was set based upon.
+                          For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                          with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: |-
+                          reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                          Producers of specific condition types may define expected values and meanings for this field,
+                          and whether the values are considered a guaranteed API.
+                          The value should be a CamelCase string.
+                          This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                deployedRevision:
+                  description:
+                    deployedRevision is the source revision currently deployed
+                    after rollback.
+                  type: string
+                desiredRevision:
+                  description:
+                    desiredRevision is the source revision Git currently
+                    asks Solder to run.
+                  type: string
+                health:
+                  description: health reports operational health independent from sync.
+                  properties:
+                    state:
+                      description:
+                        HealthState describes operational health separately
+                        from sync state.
+                      enum:
+                        - Unknown
+                        - Progressing
+                        - Healthy
+                        - Degraded
+                        - Suspended
+                      type: string
+                  type: object
+                observedGeneration:
+                  description:
+                    observedGeneration is the latest metadata.generation
+                    processed.
+                  format: int64
+                  type: integer
+                resources:
+                  description: resources summarizes managed resource health.
+                  properties:
+                    degraded:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    healthy:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    progressing:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    total:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    unknown:
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  type: object
+                state:
+                  description:
+                    state is the high-level health state displayed by kubectl
+                    and the CLI.
+                  enum:
                     - Unknown
                     - Progressing
                     - Healthy
                     - Degraded
                     - Suspended
-                    type: string
-                type: object
-              observedGeneration:
-                description: observedGeneration is the latest metadata.generation
-                  processed.
-                format: int64
-                type: integer
-              resources:
-                description: resources summarizes managed resource health.
-                properties:
-                  degraded:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  healthy:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  progressing:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  total:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                  unknown:
-                    format: int32
-                    minimum: 0
-                    type: integer
-                type: object
-              state:
-                description: state is the high-level health state displayed by kubectl
-                  and the CLI.
-                enum:
-                - Unknown
-                - Progressing
-                - Healthy
-                - Degraded
-                - Suspended
-                type: string
-              sync:
-                description: sync reports desired/live convergence independent from
-                  health.
-                properties:
-                  state:
-                    description: SyncState describes desired/live convergence separately
-                      from health.
-                    enum:
-                    - Unknown
-                    - Synced
-                    - OutOfSync
-                    - Drifted
-                    - Planning
-                    - AwaitingApproval
-                    - Applying
-                    - Pruning
-                    type: string
-                type: object
-            type: object
-        required:
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
+                  type: string
+                sync:
+                  description:
+                    sync reports desired/live convergence independent from
+                    health.
+                  properties:
+                    state:
+                      description:
+                        SyncState describes desired/live convergence separately
+                        from health.
+                      enum:
+                        - Unknown
+                        - Synced
+                        - OutOfSync
+                        - Drifted
+                        - Planning
+                        - AwaitingApproval
+                        - Applying
+                        - Pruning
+                      type: string
+                  type: object
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

@@ -129,6 +129,18 @@ func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
 
 func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, configPath string) ([]corev1alpha1.Application, bool, error) {
 	path := filepath.Join(workspace, filepath.FromSlash(configPath))
+	// The path is checked lexically in solderConfigPaths, but the file and the
+	// directories above it are repository content: a symbolic link anywhere
+	// along it would have the controller read, parse and create Applications
+	// from any file on its own filesystem. It must resolve inside the workspace.
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		base, berr := filepath.EvalSymlinks(workspace)
+		rel, rerr := filepath.Rel(base, real)
+		if berr != nil || rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return nil, true, fmt.Errorf("%s resolves outside the repository; Solder config files must be regular files in it", configPath)
+		}
+		path = real
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

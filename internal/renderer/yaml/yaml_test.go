@@ -42,3 +42,48 @@ func TestRendererRejectsPathTraversal(t *testing.T) {
 		t.Fatal("expected path traversal error")
 	}
 }
+
+// TestRendererIgnoresLinksOutOfTheWorkspace proves repository content cannot
+// make the controller read, and then apply, YAML from elsewhere on its own
+// filesystem. WalkDir listed a linked manifest and os.ReadFile followed it,
+// and a render path that was itself a link passed the lexical check. proved
+// by: dropping the symlink skip renders "stolen"; dropping resolvedInside
+// renders the linked directory.
+func TestRendererIgnoresLinksOutOfTheWorkspace(t *testing.T) {
+	outside := t.TempDir()
+	stolen := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: stolen\n"
+	if err := os.WriteFile(filepath.Join(outside, "cm.yaml"), []byte(stolen), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	app := filepath.Join(workspace, "app")
+	if err := os.MkdirAll(app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mine := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: mine\n"
+	if err := os.WriteFile(filepath.Join(app, "cm.yaml"), []byte(mine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "cm.yaml"), filepath.Join(app, "leak.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "linkdir")); err != nil {
+		t.Fatal(err)
+	}
+
+	objects, err := (Renderer{}).Render(context.Background(), renderer.Input{Workspace: workspace, Path: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objects {
+		if o.GetName() == "stolen" {
+			t.Fatal("a manifest linked from outside the workspace must not be rendered")
+		}
+	}
+	if len(objects) != 1 || objects[0].GetName() != "mine" {
+		t.Fatalf("the workspace's own manifest must still render: %v", objects)
+	}
+	if _, err := (Renderer{}).Render(context.Background(), renderer.Input{Workspace: workspace, Path: "linkdir"}); err == nil {
+		t.Fatal("a render path that links out of the workspace must be refused")
+	}
+}
