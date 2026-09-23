@@ -221,9 +221,15 @@ var _ = Describe("Application approval webhook without an authenticated user", f
 			Name: "anonymous", Namespace: "default",
 			Annotations: map[string]string{corev1alpha1.ApprovedRevisionAnnotation: "any"},
 		}}
-		anonymous := admission.NewContextWithRequest(ctx, admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{UserInfo: authenticationv1.UserInfo{}}})
-		err := defaulter.Default(anonymous, app)
-		Expect(apierrors.IsForbidden(err)).To(BeTrue(), "err = %v", err)
+		for _, user := range []authenticationv1.UserInfo{
+			{},
+			{Username: "system:anonymous", Groups: []string{"system:unauthenticated"}},
+			{Username: "someone", Groups: []string{"system:unauthenticated"}},
+		} {
+			anonymous := admission.NewContextWithRequest(ctx, admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{UserInfo: user}})
+			err := defaulter.Default(anonymous, app.DeepCopy())
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "user %+v: err = %v", user, err)
+		}
 		Expect(app.GetAnnotations()).NotTo(HaveKey(corev1alpha1.ApprovedByAnnotation))
 	})
 })

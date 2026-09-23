@@ -20,7 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
+
+	authenticationv1 "k8s.io/api/authentication/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -29,6 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+)
+
+// authenticated reports whether an admission request carries a real identity.
+// Anonymous requests have a non-empty username (system:anonymous), so the
+// username alone does not tell.
+func authenticated(user authenticationv1.UserInfo) bool {
+	return user.Username != "" && user.Username != anonymousUser && !slices.Contains(user.Groups, unauthenticatedGroup)
+}
+
+const (
+	anonymousUser        = "system:anonymous"
+	unauthenticatedGroup = "system:unauthenticated"
 )
 
 // SetupApplicationWebhookWithManager registers the webhook for Application in the manager.
@@ -102,7 +117,7 @@ func (d *ApplicationCustomDefaulter) Default(ctx context.Context, obj *corev1alp
 		}
 		return nil
 	}
-	if req.UserInfo.Username == "" {
+	if !authenticated(req.UserInfo) {
 		return apierrors.NewForbidden(schema.GroupResource{Group: corev1alpha1.GroupVersion.Group, Resource: "applications"}, obj.Name, fmt.Errorf("an approval must come from an authenticated user"))
 	}
 	revision := &corev1alpha1.Revision{}
