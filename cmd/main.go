@@ -46,6 +46,7 @@ import (
 	"github.com/azrtydxb/solder/internal/cli"
 	"github.com/azrtydxb/solder/internal/controller"
 	"github.com/azrtydxb/solder/internal/imagepolicy"
+	"github.com/azrtydxb/solder/internal/imageupdate"
 	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
@@ -218,8 +219,9 @@ func main() {
 	}
 
 	if err := (&controller.RepositoryReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		ImageUpdater: &imageupdate.Updater{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "repository")
 		os.Exit(1)
@@ -264,13 +266,13 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "HealthCheck")
 			os.Exit(1)
 		}
-	}
-	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err := webhookv1alpha1.SetupApplicationWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Application")
 			os.Exit(1)
 		}
+	} else {
+		setupLog.Info("Admission webhooks are disabled; manual approval records are not verified and can be forged " +
+			"by anyone who can update an Application")
 	}
 	if err := (&controller.ImagePolicyReconciler{
 		Client:   mgr.GetClient(),

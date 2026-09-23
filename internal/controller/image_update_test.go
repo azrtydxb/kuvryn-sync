@@ -94,6 +94,21 @@ var _ = Describe("Image write-back", func() {
 		deleteObject(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "writer", Namespace: "default"}})
 	})
 
+	It("reports image write-back as disabled when no updater is configured", func() {
+		reconciler := &RepositoryReconciler{
+			Client: k8sClient, Scheme: k8sClient.Scheme(),
+			SourceResolver: &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "abc", CacheDir: GinkgoT().TempDir()}},
+		}
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		updated := &corev1alpha1.Repository{}
+		Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+		condition := apimeta.FindStatusCondition(updated.Status.Conditions, "ImagesUpdated")
+		Expect(condition).NotTo(BeNil(), "spec.imageUpdate was ignored without a trace")
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+		Expect(condition.Reason).To(Equal("Disabled"))
+	})
+
 	It("commits the selected image to Git once and reports it", func() {
 		reconciler := &RepositoryReconciler{
 			Client: k8sClient, Scheme: k8sClient.Scheme(),

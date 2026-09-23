@@ -256,8 +256,12 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // Repository NotReady and reports whether a commit was pushed.
 func (r *RepositoryReconciler) updateImages(ctx context.Context, repository *corev1alpha1.Repository) bool {
 	spec := repository.Spec.ImageUpdate
-	if spec == nil || r.ImageUpdater == nil {
+	if spec == nil {
 		apimeta.RemoveStatusCondition(&repository.Status.Conditions, "ImagesUpdated")
+		return false
+	}
+	if r.ImageUpdater == nil {
+		apimeta.SetStatusCondition(&repository.Status.Conditions, metav1.Condition{Type: "ImagesUpdated", Status: metav1.ConditionFalse, Reason: "Disabled", Message: "Image write-back is not enabled in this controller", ObservedGeneration: repository.Generation})
 		return false
 	}
 	condition := metav1.Condition{Type: "ImagesUpdated", Status: metav1.ConditionTrue, Reason: "UpToDate", Message: "Image references match their ImagePolicies", ObservedGeneration: repository.Generation}
