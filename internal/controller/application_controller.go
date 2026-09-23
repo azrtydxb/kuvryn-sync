@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -227,6 +228,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.Status().Update(ctx, application)
 	}
 
+	// Drift of a finished rollout is reported without re-evaluating health, so
+	// it keeps the health last observed.
+	previousHealth, previousState := application.Status.Health.State, application.Status.State
 	application.Status.ObservedGeneration = application.Generation
 	application.Status.DesiredRevision = resolved.Revision
 	application.Status.State = corev1alpha1.HealthStateUnknown
@@ -243,6 +247,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	previousPhase := revision.Status.Phase
 	if blocked := retryBlocked(application, revision); blocked != nil {
 		return ctrl.Result{}, r.reportRetryBlocked(ctx, application, revision, *blocked)
+	}
+	// Whether a rollout is finished comes from the Revision, not from its
+	// phase, which planning, approval, dependency waits and failures overwrite.
+	rollout := rolloutOf(revision, previousPhase)
+	// A rollout starts over, running its hooks again, unless it is still in
+	// progress or this Revision is the one deployed and it finished.
+	fresh := rollout == rolloutNotStarted || (rollout == rolloutComplete && application.Status.DeployedRevision != resolved.Revision)
+	if fresh {
+		revision.Status.Hooks = nil
 	}
 
 	now := metav1.Now()
@@ -295,15 +308,17 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		applier.MarkManaged(&marked[i], application.Name, application.Namespace, revision.Name)
 	}
 	rendered = marked
-	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, rendered)
+	// Hooks that already succeeded for this Revision are not planned: once
+	// cleaned up they would otherwise look like drift and run again. They
+	// stay desired, so they are never pruned.
+	hooks := hookStates(revision.Status.Hooks)
+	planned := withoutCompletedHooks(rendered, hooks)
+	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, planned)
 	if err != nil {
 		failure := accessFailure(err, "PlanFailure", "Live state could not be read", true)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
-	liveObjects := make([]unstructured.Unstructured, 0, len(liveResult.Found))
-	for _, obj := range liveResult.Found {
-		liveObjects = append(liveObjects, obj)
-	}
+	liveObjects := slices.Collect(maps.Values(liveResult.Found))
 	managedStale := []unstructured.Unstructured{}
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := listManagedObjects(ctx, tenant, application, objectKinds(rendered))
@@ -316,7 +331,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		liveObjects = append(liveObjects, managedStale...)
 	}
 
-	plan, err := planner.Build(rendered, liveObjects)
+	plan, err := planner.Build(planned, liveObjects)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -333,14 +348,12 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
-	if failure := conflictFailure(plan); failure != nil {
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
-	}
+	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
-		// A rollout still being observed is not done just because nothing
-		// is left to apply: keep waiting until every group is Healthy.
-		if previousPhase == corev1alpha1.RevisionPhaseObserving || previousPhase == corev1alpha1.RevisionPhaseApplying {
-			return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale)
+		// A rollout in progress is not done just because nothing is left to
+		// apply: keep waiting until every group is Healthy.
+		if rollout == rolloutInProgress {
+			return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
 		}
 		application.Status.ManagedKinds = managedKinds(objectKinds(rendered))
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
@@ -350,19 +363,25 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Application already synced", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
 		return ctrl.Result{}, nil
 	}
-	// Differences after a finished rollout are drift, which only self-heal
-	// repairs; a rollout still in progress keeps going instead.
-	rollingOut := previousPhase == corev1alpha1.RevisionPhaseObserving || previousPhase == corev1alpha1.RevisionPhaseApplying
-	if application.Status.DeployedRevision == resolved.Revision && !application.Spec.Sync.SelfHeal && !rollingOut {
+	// Differences after this Revision's rollout finished are drift, which
+	// only self-heal repairs. Nothing is applied, so conflicts do not matter,
+	// and the Revision keeps its finished phase so the next reconcile does
+	// not mistake it for a rollout in progress.
+	if !fresh && rollout == rolloutComplete && !application.Spec.Sync.SelfHeal {
+		revision.Status.Phase = finishedPhase(previousPhase)
 		application.Status.Sync.State = corev1alpha1.SyncStateDrifted
-		revision.Status.Phase = corev1alpha1.RevisionPhaseObserving
+		application.Status.Health.State, application.Status.State = previousHealth, previousState
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
 		if err := r.Status().Update(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
+		log.Info("Application drifted from its deployed Revision", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
 		return ctrl.Result{}, nil
+	}
+	if failure := conflictFailure(plan); failure != nil {
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
 	if ready, err := r.dependenciesReady(ctx, application); err != nil {
 		return ctrl.Result{}, err
@@ -372,7 +391,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, r.Status().Update(ctx, application)
 	}
-	approval, stale := manualApproval(application, revision)
+	approval, stale := manualApproval(application, revision, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
 		status.AwaitApproval(revision, application)
 		if previousPhase != corev1alpha1.RevisionPhaseAwaitingApproval {
@@ -395,13 +414,18 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !application.Spec.Sync.Automatic {
 		revision.Status.Approval = approval
 	}
-	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale)
+	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
 }
 
 // manualApproval returns the approval recorded for exactly this Revision and
 // plan digest. stale reports an approval for this Revision whose plan has
 // changed since, which must be approved again.
-func manualApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision) (approval *corev1alpha1.RevisionApproval, stale bool) {
+//
+// Applying one group of a rollout changes the plan for the next, so an
+// approval this rollout already acted on covers the rest of it, but only
+// while the webhook-stamped approval still stands and the desired state is
+// the one it was given for: new desired objects need a fresh approval.
+func manualApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, stale bool) {
 	annotations := application.GetAnnotations()
 	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name {
 		return nil, false
@@ -409,10 +433,18 @@ func manualApproval(application *corev1alpha1.Application, revision *corev1alpha
 	approvedBy := annotations[corev1alpha1.ApprovedByAnnotation]
 	digest := annotations[corev1alpha1.ApprovedDigestAnnotation]
 	approvedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.ApprovedAtAnnotation])
-	if approvedBy == "" || err != nil || digest != revision.Status.Plan.Digest {
+	if approvedBy == "" || err != nil {
 		return nil, true
 	}
-	return &corev1alpha1.RevisionApproval{ApprovedBy: approvedBy, ApprovedAt: metav1.NewTime(approvedAt), PlanDigest: digest}, false
+	if digest == revision.Status.Plan.Digest {
+		return &corev1alpha1.RevisionApproval{ApprovedBy: approvedBy, ApprovedAt: metav1.NewTime(approvedAt), PlanDigest: digest, DesiredStateHash: revision.Spec.DesiredStateHash}, false
+	}
+	if recorded := revision.Status.Approval; recorded != nil && rollout == rolloutInProgress &&
+		recorded.PlanDigest == digest && recorded.ApprovedBy == approvedBy &&
+		recorded.DesiredStateHash != "" && recorded.DesiredStateHash == revision.Spec.DesiredStateHash {
+		return recorded, false
+	}
+	return nil, true
 }
 
 // planDigest fingerprints what an approval covers: the rendered desired state
@@ -963,13 +995,16 @@ func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructur
 	return stale
 }
 
-func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured) (ctrl.Result, error) {
-	resuming := revision.Status.Phase == corev1alpha1.RevisionPhaseObserving
+func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured, progress rolloutProgress) (ctrl.Result, error) {
+	// A retry after a failure is a new attempt; anything else in progress is
+	// the same deployment carrying on.
+	resuming := progress.state == rolloutInProgress && progress.previousPhase != corev1alpha1.RevisionPhaseFailed
 	status.StartApplying(revision, application, metav1.Now())
 	if err := syncpolicy.EnsureMutationAllowed(*application, revision.Status.Phase); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ApplyBlocked", Message: safeMessage(err, "Application is not allowed to apply"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
+	setRolloutComplete(revision, false)
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -984,12 +1019,12 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	application.Status.ManagedKinds = managedKinds(objectKinds(desired))
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
-	revision.Status.Hooks = nil
 	results := []health.Result{}
 	pruned := false
 	// Every reconcile walks the groups from the start: re-applying a group
 	// that already converged is a no-op, and the walk stops at the first
-	// group that is not yet Healthy.
+	// group that is not yet Healthy. Hooks are the exception: each runs once
+	// per rollout, so one already applied is only watched, never re-applied.
 	for _, group := range ordering.Groups(desired) {
 		if group.Stage == ordering.StagePostSync && !pruned {
 			if failure := r.pruneStale(ctx, tenant, application, pruneCandidates); failure != nil {
@@ -998,8 +1033,10 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 			pruned = true
 		}
 		hook := group.Stage != ordering.StageSync
+		pending, watched, done := group.Objects, []unstructured.Unstructured(nil), []health.Result(nil)
 		if hook {
-			replacing, err := replaceStaleHooks(ctx, tenant, group.Objects, revision.Name)
+			pending, watched, done = splitHooks(group.Objects, progress.hooks)
+			replacing, err := replaceStaleHooks(ctx, tenant, pending, revision.Name)
 			if err != nil {
 				failure := accessFailure(err, "HookFailed", "Previous hooks could not be removed", true)
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -1008,19 +1045,22 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				return r.observe(ctx, application, revision, results, 2*time.Second)
 			}
 		}
-		if _, err := apply.Apply(ctx, application.Name, revision.Name, group.Objects, policy); err != nil {
-			failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
-			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+		if len(pending) > 0 {
+			if _, err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
+				failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
+				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+			}
 		}
-		groupResults, err := groupHealth(ctx, tenant, evaluator, group.Objects)
+		checked, err := groupHealth(ctx, tenant, evaluator, append(watched, pending...), hook)
 		if err != nil {
 			failure := accessFailure(err, "HealthFailure", "Applied resources could not be read", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
-		results = append(results, groupResults...)
 		if hook {
-			revision.Status.Hooks = append(revision.Status.Hooks, hookStatuses(group.Stage, groupResults)...)
+			recordHooks(revision, group.Stage, checked)
 		}
+		groupResults := append(done, checked...)
+		results = append(results, groupResults...)
 		for _, result := range groupResults {
 			if result.State != corev1alpha1.HealthStateDegraded {
 				continue
@@ -1091,29 +1131,31 @@ func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Cl
 	return nil
 }
 
-// groupHealth reads and evaluates the live state of one group's objects.
-func groupHealth(ctx context.Context, tenant client.Client, evaluator health.Evaluator, objects []unstructured.Unstructured) ([]health.Result, error) {
+// groupHealth reads and evaluates the live state of one group's objects,
+// all of which Solder has applied. A missing object is not there yet and is
+// Progressing, except a hook: one that vanished before it was seen to
+// succeed has failed, since it is never applied twice.
+func groupHealth(ctx context.Context, tenant client.Client, evaluator health.Evaluator, objects []unstructured.Unstructured, hooks bool) ([]health.Result, error) {
 	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, objects)
 	if err != nil {
 		return nil, err
 	}
-	results := make([]health.Result, 0, len(liveResult.Found))
-	for _, obj := range ordering.Apply(mapValues(liveResult.Found)) {
+	results := make([]health.Result, 0, len(objects))
+	for _, obj := range ordering.Apply(slices.Collect(maps.Values(liveResult.Found))) {
 		result, err := evaluator.Evaluate(obj)
 		if err != nil {
 			return nil, err
 		}
 		results = append(results, result)
 	}
-	return results, nil
-}
-
-func mapValues(found map[resource.ID]unstructured.Unstructured) []unstructured.Unstructured {
-	out := make([]unstructured.Unstructured, 0, len(found))
-	for _, obj := range found {
-		out = append(out, obj)
+	for _, id := range liveResult.Missing {
+		result := health.Result{Resource: id, State: corev1alpha1.HealthStateProgressing, Reason: "NotFound", Message: "resource does not exist yet"}
+		if hooks {
+			result.State, result.Reason, result.Message = corev1alpha1.HealthStateDegraded, "HookMissing", "hook was deleted before it reported success"
+		}
+		results = append(results, result)
 	}
-	return out
+	return results, nil
 }
 
 // replaceStaleHooks deletes hook objects left by an earlier Revision, so each
@@ -1143,19 +1185,9 @@ func replaceStaleHooks(ctx context.Context, tenant client.Client, hooks []unstru
 	return replacing, nil
 }
 
-func hookStatuses(stage string, results []health.Result) []corev1alpha1.HookStatus {
-	out := make([]corev1alpha1.HookStatus, 0, len(results))
-	for _, result := range results {
-		out = append(out, corev1alpha1.HookStatus{
-			Resource: corev1alpha1.ResourceRef{APIVersion: result.Resource.APIVersion(), Kind: result.Resource.Kind, Namespace: result.Resource.Namespace, Name: result.Resource.Name},
-			Stage:    stage, State: result.State, Message: result.Message,
-		})
-	}
-	return out
-}
-
 func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, healthyMessage string, transition bool) error {
 	status.CompleteHealthy(revision, application, metav1.Now())
+	setRolloutComplete(revision, true)
 	if application.GetAnnotations()["solder.io/rollback-revision"] != "" {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRolledBack
 		application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync

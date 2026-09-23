@@ -273,6 +273,12 @@ spec:
                         approvedBy is the authenticated user who approved
                         the plan.
                       type: string
+                    desiredStateHash:
+                      description: |-
+                        desiredStateHash is the desired state the approved plan was built from.
+                        The approval covers the rest of this Revision's rollout only while the
+                        desired state still has this hash.
+                      type: string
                     planDigest:
                       description:
                         planDigest is the plan digest the approval was given

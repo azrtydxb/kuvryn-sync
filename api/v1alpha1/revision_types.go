@@ -156,6 +156,11 @@ type RevisionApproval struct {
 	ApprovedAt metav1.Time `json:"approvedAt"`
 	// planDigest is the plan digest the approval was given for.
 	PlanDigest string `json:"planDigest"`
+	// desiredStateHash is the desired state the approved plan was built from.
+	// The approval covers the rest of this Revision's rollout only while the
+	// desired state still has this hash.
+	// +optional
+	DesiredStateHash string `json:"desiredStateHash,omitempty"`
 }
 
 // RevisionFailure describes a machine-readable deployment failure.

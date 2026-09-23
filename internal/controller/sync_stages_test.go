@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -126,6 +129,231 @@ var _ = Describe("Sync hooks and waves", func() {
 		}
 		return latest
 	}
+
+	updateApplication := func(mutate func(*corev1alpha1.Application)) {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		mutate(app)
+		Expect(k8sClient.Update(ctx, app)).To(Succeed())
+	}
+	application := func() *corev1alpha1.Application {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		return app
+	}
+	markDeploymentReady := func() {
+		live := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "api", Namespace: "payments"}, live)).To(Succeed())
+		live.Status.ObservedGeneration, live.Status.Replicas, live.Status.AvailableReplicas, live.Status.ReadyReplicas, live.Status.UpdatedReplicas = live.Generation, 1, 1, 1, 1
+		Expect(k8sClient.Status().Update(ctx, live)).To(Succeed())
+	}
+	widgetExists := func() bool {
+		widget := customObject("Widget", "", "")
+		err := k8sClient.Get(ctx, widgetKey, &widget)
+		Expect(client.IgnoreNotFound(err)).To(Succeed())
+		return err == nil
+	}
+	deleteWidget := func() {
+		widget := customObject("Widget", "migrate", "")
+		widget.SetNamespace("payments")
+		Expect(k8sClient.Delete(ctx, &widget)).To(Succeed())
+		Eventually(widgetExists).Should(BeFalse())
+	}
+	countEvents := func(events []string, reason string) int {
+		n := 0
+		for _, event := range events {
+			if strings.Contains(event, " "+reason+" ") {
+				n++
+			}
+		}
+		return n
+	}
+
+	DescribeTable("reports drift without reverting it when self-heal is off", func(policy corev1alpha1.ConflictPolicy) {
+		// Nothing is applied while drifted, so even a hand edit that took
+		// over a field is reported rather than failed as a conflict.
+		updateApplication(func(app *corev1alpha1.Application) {
+			app.Spec.Sync.SelfHeal = false
+			app.Spec.Sync.ConflictPolicy = policy
+		})
+		r := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+
+		live := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, configKey, live)).To(Succeed())
+		live.Data["key"] = "edited-by-hand"
+		Expect(k8sClient.Update(ctx, live)).To(Succeed())
+		for range 3 {
+			reconcileOnce(r)
+			Expect(k8sClient.Get(ctx, configKey, live)).To(Succeed())
+			Expect(live.Data).To(HaveKeyWithValue("key", "edited-by-hand"), "self-heal is off, yet the edit was reverted")
+			Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateDrifted))
+		}
+		// Drift keeps the finished rollout's phase and last observed health.
+		Expect(application().Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+
+		// Undoing the edit settles the Application without a new rollout.
+		recorder := record.NewFakeRecorder(50)
+		r.Recorder = recorder
+		live.Data["key"] = "desired"
+		Expect(k8sClient.Update(ctx, live)).To(Succeed())
+		reconcileOnce(r)
+		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
+		Expect(countEvents(drainEvents(recorder), "DeploymentStarted")).To(BeZero())
+	},
+		Entry("with the fail conflict policy", corev1alpha1.ConflictPolicyFail),
+		Entry("with the adopt conflict policy", corev1alpha1.ConflictPolicyAdopt),
+	)
+
+	It("resumes a rollout a dependency interrupted instead of calling it drift", func() {
+		operatorKey := types.NamespacedName{Name: "operator", Namespace: "default"}
+		operator := newApplication(operatorKey.Name, corev1alpha1.RenderTypeYAML)
+		Expect(k8sClient.Create(ctx, operator)).To(Succeed())
+		DeferCleanup(func() {
+			deleteObject(ctx, &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: operatorKey.Name, Namespace: operatorKey.Namespace}})
+		})
+		setOperatorHealth := func(state corev1alpha1.HealthState) {
+			Expect(k8sClient.Get(ctx, operatorKey, operator)).To(Succeed())
+			operator.Status.ObservedGeneration = operator.Generation
+			operator.Status.Health.State = state
+			operator.Status.DesiredRevision, operator.Status.DeployedRevision = "sha-1", "sha-1"
+			Expect(k8sClient.Status().Update(ctx, operator)).To(Succeed())
+		}
+		updateApplication(func(app *corev1alpha1.Application) {
+			app.Spec.Sync.SelfHeal = false
+			app.Spec.DependsOn = []corev1alpha1.LocalObjectReference{{Name: operatorKey.Name}}
+		})
+		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
+		setOperatorHealth(corev1alpha1.HealthStateHealthy)
+		reconcileOnce(r)
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "api", Namespace: "payments"}, &appsv1.Deployment{})).To(Succeed())
+
+		setOperatorHealth(corev1alpha1.HealthStateProgressing)
+		markDeploymentReady()
+		reconcileOnce(r)
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "wave 1 applied while a dependency was not Healthy")
+
+		setOperatorHealth(corev1alpha1.HealthStateHealthy)
+		reconcileOnce(r)
+		Expect(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{})).To(Succeed(), "the interrupted rollout was treated as drift and never finished")
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
+	})
+
+	It("retries a failed rollout instead of calling it drift", func() {
+		attempts := int32(3)
+		updateApplication(func(app *corev1alpha1.Application) {
+			app.Spec.Sync.SelfHeal = false
+			app.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts
+		})
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		Expect(application().Status.DeployedRevision).To(Equal("resolved-sha"))
+		setWidgetConditions(map[string]any{"type": "Stalled", "status": "True", "message": "database locked"})
+		reconcileOnce(r)
+		failed := latestRevision()
+		Expect(failed.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseFailed))
+
+		// Skip the retry backoff, then let the hook recover.
+		failed.Status.CompletedAt = &metav1.Time{Time: time.Now().Add(-time.Hour)}
+		Expect(k8sClient.Status().Update(ctx, &failed)).To(Succeed())
+		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
+		reconcileOnce(r)
+		Expect(application().Status.Sync.State).NotTo(Equal(corev1alpha1.SyncStateDrifted))
+		Expect(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{})).To(Succeed(), "the retry was treated as drift and never applied")
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+	})
+
+	It("finishes a manual multi-group rollout on a single approval", func() {
+		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = false })
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
+		approve(ctx, key, latestRevision(), "alice@example.com")
+
+		reconcileOnce(r)
+		Expect(widgetExists()).To(BeTrue())
+		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving), "the rollout stopped for approval after the pre-sync hook")
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "api", Namespace: "payments"}, &appsv1.Deployment{})).To(Succeed())
+
+		markDeploymentReady()
+		reconcileOnce(r)
+		Expect(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{})).To(Succeed())
+		done := latestRevision()
+		Expect(done.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(done.Status.Approval).NotTo(BeNil())
+		Expect(done.Status.Approval.ApprovedBy).To(Equal("alice@example.com"))
+	})
+
+	It("asks for a fresh approval when desired state changes during a manual rollout", func() {
+		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = false })
+		capture := &capturingRenderer{objects: []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "reviewed"), "solder.io/sync-wave", "1")}}
+		r := newApplicationReconciler(nil, capture)
+		reconcileOnce(r)
+		approve(ctx, key, latestRevision(), "alice@example.com")
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving))
+
+		capture.objects = []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "changed-after-review"), "solder.io/sync-wave", "1")}
+		markDeploymentReady()
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "changed desired state was applied on an old approval")
+	})
+
+	It("never runs a succeeded hook again, even after it is cleaned up", func() {
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0")}, nil)
+		reconcileOnce(r)
+		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Hooks).To(ConsistOf(HaveField("State", corev1alpha1.HealthStateHealthy)))
+
+		// Like a Job removed by ttlSecondsAfterFinished.
+		deleteWidget()
+		reconcileOnce(r)
+		Expect(widgetExists()).To(BeFalse(), "the succeeded hook ran again mid-rollout")
+		markDeploymentReady()
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+
+		reconcileOnce(r)
+		Expect(widgetExists()).To(BeFalse(), "self-heal ran the succeeded hook again")
+		app := application()
+		Expect(app.Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
+		Expect(latestRevision().Status.Plan.Summary.Create).To(BeZero(), "a cleaned-up hook was planned as drift")
+	})
+
+	It("fails a hook that disappears before it succeeded", func() {
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		deleteWidget()
+		reconcileOnce(r)
+		failure := latestRevision().Status.Failure
+		Expect(failure).NotTo(BeNil())
+		Expect(failure.Reason).To(Equal("HookFailed"))
+		Expect(failure.Message).To(And(ContainSubstring("Widget/migrate"), ContainSubstring("deleted")))
+		Expect(widgetExists()).To(BeFalse())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue())
+	})
+
+	It("announces a deployment once while observing it", func() {
+		recorder := record.NewFakeRecorder(100)
+		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0")}, nil)
+		r.Recorder = recorder
+		for range 3 {
+			reconcileOnce(r)
+		}
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving))
+		Expect(countEvents(drainEvents(recorder), "DeploymentStarted")).To(Equal(1))
+	})
 
 	It("keeps observing an unready rollout instead of declaring it Healthy", func() {
 		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0")}, nil)
