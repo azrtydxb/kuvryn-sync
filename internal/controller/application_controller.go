@@ -338,6 +338,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, nil
 	}
+	if ready, err := r.dependenciesReady(ctx, application); err != nil {
+		return ctrl.Result{}, err
+	} else if !ready {
+		if err := r.updateRevisionStatus(ctx, revision); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.Status().Update(ctx, application)
+	}
 	approval, stale := manualApproval(application, revision)
 	if !application.Spec.Sync.Automatic && approval == nil {
 		status.AwaitApproval(revision, application)
@@ -1032,6 +1040,7 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	built, err := ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Application{}).
+		Watches(&corev1alpha1.Application{}, handler.EnqueueRequestsFromMapFunc(r.dependentsOf)).
 		Watches(&corev1alpha1.Repository{}, handler.EnqueueRequestsFromMapFunc(r.applicationsForRepository)).
 		WatchesMetadata(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		WatchesMetadata(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
@@ -1108,4 +1117,99 @@ func (r *ApplicationReconciler) notificationTarget(ctx context.Context, namespac
 		return notify.Target{}, fmt.Errorf("NotificationSink %s secret must hold an hmacKey for webhook signing", name)
 	}
 	return target, nil
+}
+
+// dependenciesReady reports whether every dependsOn Application is Healthy at
+// its desired revision, recording the DependenciesReady condition. A cycle is
+// reported and never becomes ready; dependents are re-queued by a watch
+// instead of polling.
+func (r *ApplicationReconciler) dependenciesReady(ctx context.Context, application *corev1alpha1.Application) (bool, error) {
+	if len(application.Spec.DependsOn) == 0 {
+		apimeta.RemoveStatusCondition(&application.Status.Conditions, "DependenciesReady")
+		return true, nil
+	}
+	var apps corev1alpha1.ApplicationList
+	if err := r.List(ctx, &apps, client.InNamespace(application.Namespace)); err != nil {
+		return false, err
+	}
+	byName := map[string]*corev1alpha1.Application{}
+	for i := range apps.Items {
+		byName[apps.Items[i].Name] = &apps.Items[i]
+	}
+	condition := metav1.Condition{Type: "DependenciesReady", Status: metav1.ConditionTrue, Reason: "DependenciesHealthy", Message: "All dependencies are Healthy", ObservedGeneration: application.Generation}
+	if cycle := dependencyCycle(application.Name, application.Spec.DependsOn, byName); cycle != "" {
+		condition.Status, condition.Reason, condition.Message = metav1.ConditionFalse, "DependencyCycle", "dependsOn forms a cycle: "+cycle
+	} else {
+		pending := []string{}
+		for _, dep := range application.Spec.DependsOn {
+			if !dependencyHealthy(byName[dep.Name]) {
+				pending = append(pending, dep.Name)
+			}
+		}
+		if len(pending) > 0 {
+			condition.Status, condition.Reason = metav1.ConditionFalse, "DependencyNotReady"
+			condition.Message = "Waiting for Healthy dependencies: " + strings.Join(pending, ", ")
+		}
+	}
+	apimeta.SetStatusCondition(&application.Status.Conditions, condition)
+	return condition.Status == metav1.ConditionTrue, nil
+}
+
+func dependencyHealthy(dep *corev1alpha1.Application) bool {
+	return dep != nil &&
+		dep.Status.ObservedGeneration == dep.Generation &&
+		dep.Status.Health.State == corev1alpha1.HealthStateHealthy &&
+		dep.Status.DesiredRevision != "" &&
+		dep.Status.DeployedRevision == dep.Status.DesiredRevision
+}
+
+// dependencyCycle returns the cycle through start as "a -> b -> a", or "".
+func dependencyCycle(start string, deps []corev1alpha1.LocalObjectReference, byName map[string]*corev1alpha1.Application) string {
+	var visit func(name string, path []string, seen map[string]bool) []string
+	visit = func(name string, path []string, seen map[string]bool) []string {
+		if name == start && len(path) > 0 {
+			return append(path, name)
+		}
+		if seen[name] {
+			return nil
+		}
+		seen[name] = true
+		next := deps
+		if len(path) > 0 {
+			app := byName[name]
+			if app == nil {
+				return nil
+			}
+			next = app.Spec.DependsOn
+		}
+		for _, dep := range next {
+			if cycle := visit(dep.Name, append(path, name), seen); cycle != nil {
+				return cycle
+			}
+		}
+		return nil
+	}
+	if cycle := visit(start, nil, map[string]bool{}); cycle != nil {
+		return strings.Join(cycle, " -> ")
+	}
+	return ""
+}
+
+// dependentsOf re-queues Applications in the same namespace that depend on
+// the changed Application.
+func (r *ApplicationReconciler) dependentsOf(ctx context.Context, obj client.Object) []reconcile.Request {
+	var apps corev1alpha1.ApplicationList
+	if err := r.List(ctx, &apps, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	requests := []reconcile.Request{}
+	for _, app := range apps.Items {
+		for _, dep := range app.Spec.DependsOn {
+			if dep.Name == obj.GetName() {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&app)})
+				break
+			}
+		}
+	}
+	return requests
 }

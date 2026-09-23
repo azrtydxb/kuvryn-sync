@@ -70,6 +70,26 @@ spec:
                     - Orphan
                     - DeleteManagedResources
                   type: string
+                dependsOn:
+                  description: |-
+                    dependsOn names Applications in the same namespace that must be Healthy
+                    at their desired revision before this Application applies. Planning
+                    proceeds while they are not.
+                  items:
+                    description:
+                      LocalObjectReference references an object in the same
+                      namespace.
+                    properties:
+                      name:
+                        description: name is the referenced object name.
+                        minLength: 1
+                        type: string
+                    required:
+                      - name
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-type: atomic
                 destination:
                   description:
                     destination constrains where namespaced resources are

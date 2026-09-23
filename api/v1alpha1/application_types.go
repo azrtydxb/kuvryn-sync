@@ -73,6 +73,13 @@ type ApplicationSpec struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	Notifications []NotificationSubscription `json:"notifications,omitempty"`
+	// dependsOn names Applications in the same namespace that must be Healthy
+	// at their desired revision before this Application applies. Planning
+	// proceeds while they are not.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	DependsOn []LocalObjectReference `json:"dependsOn,omitempty"`
 }
 
 // NotificationEvent is an Application lifecycle event that can be notified.
