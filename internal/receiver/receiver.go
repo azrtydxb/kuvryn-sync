@@ -74,6 +74,7 @@ func (r *Receiver) NeedLeaderElection() bool { return false }
 func (r *Receiver) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /hooks/{namespace}/{name}", r.receive)
+	mux.HandleFunc("POST /hooks/imagepolicies/{namespace}/{name}", r.receiveImage)
 	return mux
 }
 
@@ -117,18 +118,58 @@ func (r *Receiver) receive(w http.ResponseWriter, req *http.Request) {
 		reply(w, http.StatusBadRequest, "repository_mismatch")
 		return
 	}
-	patch := client.MergeFrom(repository.DeepCopy())
-	annotations := repository.GetAnnotations()
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	annotations[RequestedAtAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
-	repository.SetAnnotations(annotations)
-	if err := r.Client.Patch(ctx, repository, patch); err != nil {
+	if err := requestReconcile(ctx, r.Client, repository); err != nil {
 		reply(w, http.StatusInternalServerError, "error")
 		return
 	}
 	reply(w, http.StatusAccepted, "accepted")
+}
+
+// receiveImage requests an immediate scan of an ImagePolicy. Any
+// authenticated request counts, since registries differ in what they send.
+func (r *Receiver) receiveImage(w http.ResponseWriter, req *http.Request) {
+	key := client.ObjectKey{Namespace: req.PathValue("namespace"), Name: req.PathValue("name")}
+	ctx := req.Context()
+	policy := &corev1alpha1.ImagePolicy{}
+	if err := r.Client.Get(ctx, key, policy); err != nil || policy.Spec.Webhook == nil {
+		reply(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if !r.limiter("imagepolicy/" + key.String()).Allow() {
+		reply(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
+	if err != nil {
+		reply(w, http.StatusRequestEntityTooLarge, "too_large")
+		return
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: key.Namespace, Name: policy.Spec.Webhook.SecretRef.Name}, secret); err != nil || len(secret.Data["token"]) == 0 {
+		reply(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if !authentic(req, body, secret.Data["token"]) {
+		reply(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if err := requestReconcile(ctx, r.Client, policy); err != nil {
+		reply(w, http.StatusInternalServerError, "error")
+		return
+	}
+	reply(w, http.StatusAccepted, "accepted")
+}
+
+// requestReconcile stamps RequestedAtAnnotation, which re-queues obj.
+func requestReconcile(ctx context.Context, c client.Client, obj client.Object) error {
+	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[RequestedAtAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
+	obj.SetAnnotations(annotations)
+	return c.Patch(ctx, obj, patch)
 }
 
 func (r *Receiver) limiter(key string) *rate.Limiter {
@@ -149,7 +190,8 @@ func (r *Receiver) limiter(key string) *rate.Limiter {
 	return limiter
 }
 
-// authentic verifies a GitHub HMAC signature or a GitLab token in constant time.
+// authentic verifies a GitHub HMAC signature, a GitLab token, or a Bearer
+// token in constant time.
 func authentic(req *http.Request, body, token []byte) bool {
 	if signature := req.Header.Get("X-Hub-Signature-256"); signature != "" {
 		mac := hmac.New(sha256.New, token)
@@ -158,6 +200,9 @@ func authentic(req *http.Request, body, token []byte) bool {
 	}
 	if gitlab := req.Header.Get("X-Gitlab-Token"); gitlab != "" {
 		return subtle.ConstantTimeCompare([]byte(gitlab), token) == 1
+	}
+	if bearer, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer "); ok && bearer != "" {
+		return subtle.ConstantTimeCompare([]byte(bearer), token) == 1
 	}
 	return false
 }

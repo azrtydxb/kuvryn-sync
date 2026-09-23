@@ -17,6 +17,9 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- ImagePolicies with `spec.webhook` scan immediately when the registry or CI
+  calls `/hooks/imagepolicies/<namespace>/<name>` on the receiver (Bearer
+  token, GitHub signature, or GitLab token).
 - `Repository.spec.imageUpdate` commits ImagePolicy selections back to Git
   wherever Flux-compatible `{"$imagepolicy": "ns:name"}` markers appear,
   retrying when the branch moves and reporting `ImagesUpdated`.

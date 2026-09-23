@@ -89,6 +89,12 @@ image: ghcr.io/acme/api:1.0.0 # {"$imagepolicy": "payments:api"}
 tag: 1.0.0 # {"$imagepolicy": "payments:api:tag"}
 ```
 
+To scan as soon as CI or the registry publishes an image, add
+`spec.webhook.secretRef` to the ImagePolicy (a Secret with `token`) and call
+`POST /hooks/imagepolicies/<namespace>/<policy>` on the webhook receiver with
+`Authorization: Bearer <token>`, a GitHub package-event signature, or a GitLab
+token. Interval scanning continues as a fallback.
+
 Markers may only name ImagePolicies in the Repository's namespace. Solder
 commits only when something changed, retries when the branch moved during
 the push, and reports the result in the Repository's `ImagesUpdated`

@@ -35,6 +35,17 @@ type ImagePolicySpec struct {
 	Interval metav1.Duration `json:"interval,omitempty"`
 	// policy decides which image is selected.
 	Policy ImageSelectionPolicy `json:"policy"`
+	// webhook lets a registry or CI trigger an immediate scan through
+	// Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+	// +optional
+	Webhook *ImagePolicyWebhook `json:"webhook,omitempty"`
+}
+
+// ImagePolicyWebhook configures push notifications for an ImagePolicy.
+type ImagePolicyWebhook struct {
+	// secretRef names a Secret whose `token` authenticates requests, as a
+	// GitHub signature, a GitLab token, or an Authorization Bearer token.
+	SecretRef SecretReference `json:"secretRef"`
 }
 
 // ImageSelectionPolicy chooses one tag; exactly one field must be set.

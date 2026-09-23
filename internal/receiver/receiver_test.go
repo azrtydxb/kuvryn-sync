@@ -126,3 +126,39 @@ func TestReceiverRunsOnEveryReplica(t *testing.T) {
 		t.Fatal("receiver would only listen on the leader, but the Service routes to every replica")
 	}
 }
+
+func TestRegistryWebhookRequestsAnImageScan(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = corev1alpha1.AddToScheme(scheme)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&corev1alpha1.ImagePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "payments"},
+			Spec: corev1alpha1.ImagePolicySpec{
+				Image:   "ghcr.io/acme/api",
+				Policy:  corev1alpha1.ImageSelectionPolicy{Semver: &corev1alpha1.SemverPolicy{Range: "^1"}},
+				Webhook: &corev1alpha1.ImagePolicyWebhook{SecretRef: corev1alpha1.SecretReference{Name: "registry-hook"}},
+			},
+		},
+		&corev1alpha1.ImagePolicy{ObjectMeta: metav1.ObjectMeta{Name: "no-hook", Namespace: "payments"}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "registry-hook", Namespace: "payments"}, Data: map[string][]byte{"token": []byte("reg-token")}},
+	).Build()
+	r := &Receiver{Client: c, Limit: rate.Inf, Burst: 1}
+	requested := func() string {
+		policy := &corev1alpha1.ImagePolicy{}
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: "payments", Name: "api"}, policy); err != nil {
+			t.Fatal(err)
+		}
+		return policy.GetAnnotations()[RequestedAtAnnotation]
+	}
+
+	if code := post(r, "/hooks/imagepolicies/payments/api", `{}`, map[string]string{"Authorization": "Bearer wrong"}); code != http.StatusUnauthorized || requested() != "" {
+		t.Fatalf("wrong token: code = %d", code)
+	}
+	if code := post(r, "/hooks/imagepolicies/payments/no-hook", `{}`, map[string]string{"Authorization": "Bearer reg-token"}); code != http.StatusNotFound {
+		t.Fatalf("policy without webhook: code = %d", code)
+	}
+	if code := post(r, "/hooks/imagepolicies/payments/api", `{"action":"published"}`, map[string]string{"Authorization": "Bearer reg-token"}); code != http.StatusAccepted || requested() == "" {
+		t.Fatalf("valid token: code = %d, annotation = %q", code, requested())
+	}
+}

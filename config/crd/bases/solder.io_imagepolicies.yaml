@@ -124,6 +124,26 @@ spec:
                   required:
                     - name
                   type: object
+                webhook:
+                  description: |-
+                    webhook lets a registry or CI trigger an immediate scan through
+                    Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+                  properties:
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret whose `token` authenticates requests, as a
+                        GitHub signature, a GitLab token, or an Authorization Bearer token.
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
               required:
                 - image
                 - policy
