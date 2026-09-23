@@ -514,3 +514,33 @@ func TestCacheDoesNotGuessADetachedRemoteHEAD(t *testing.T) {
 		t.Fatalf("revision = %s, want the detached HEAD %s or an error", resolved.Revision, first)
 	}
 }
+
+func TestPruneKeepsGoingPastACheckoutItCannotRemove(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	url := "https://git.example/platform.git"
+	worktrees := filepath.Join(cache.cacheDir(url), "worktrees")
+	stuck := filepath.Join(worktrees, "aaaa", "locked")
+	stale := filepath.Join(worktrees, "bbbb")
+	for _, dir := range []string{stuck, stale} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "file"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	age(t, cache.Root)
+	// A directory without write permission cannot have its entries removed.
+	if err := os.Chmod(stuck, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
+
+	removed, err := cache.Prune(map[string][]string{url: {}}, time.Now().Add(-time.Hour))
+	if err == nil {
+		t.Fatal("an unremovable checkout was not reported")
+	}
+	if len(removed) != 1 || removed[0] != stale {
+		t.Fatalf("removed = %v, want the stale checkout after the stuck one", removed)
+	}
+}

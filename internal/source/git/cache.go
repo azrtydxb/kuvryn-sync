@@ -138,6 +138,7 @@ func (c *Cache) pruneRepository(dir string, commits map[string]bool, olderThan t
 		return nil, classified(source.FailureReasonSourceFailure, "Could not inspect source worktrees", err)
 	}
 	removed := []string{}
+	var errs []error
 	for _, entry := range entries {
 		path := filepath.Join(worktrees, entry.Name())
 		// Staging directories left by an interrupted checkout are named
@@ -146,11 +147,12 @@ func (c *Cache) pruneRepository(dir string, commits map[string]bool, olderThan t
 			continue
 		}
 		if err := os.RemoveAll(path); err != nil {
-			return removed, classified(source.FailureReasonSourceFailure, "Could not remove unused source worktree", err)
+			errs = append(errs, classified(source.FailureReasonSourceFailure, "Could not remove unused source worktree", err))
+			continue
 		}
 		removed = append(removed, path)
 	}
-	return removed, nil
+	return removed, errors.Join(errs...)
 }
 
 // unusedSince reports whether path was last used before t. A path that
