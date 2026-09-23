@@ -33,9 +33,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
@@ -245,10 +248,19 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Repository{}).
-		Watches(&corev1alpha1.ImagePolicy{}, handler.EnqueueRequestsFromMapFunc(r.repositoriesForImagePolicy)).
+		Watches(&corev1alpha1.ImagePolicy{}, handler.EnqueueRequestsFromMapFunc(r.repositoriesForImagePolicy), builder.WithPredicates(latestImageChanged)).
 		Named("repository").
 		Complete(r)
 }
+
+// latestImageChanged admits ImagePolicy updates that select another image.
+// Every scan writes the policy's status, and each of those writes would
+// otherwise cost a Git fetch per Repository in the namespace.
+var latestImageChanged = predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+	old, oldOK := e.ObjectOld.(*corev1alpha1.ImagePolicy)
+	updated, updatedOK := e.ObjectNew.(*corev1alpha1.ImagePolicy)
+	return !oldOK || !updatedOK || old.Status.LatestImage != updated.Status.LatestImage
+}}
 
 // updateImages commits the images selected by ImagePolicies in the
 // Repository's namespace wherever the repository has markers for them, and

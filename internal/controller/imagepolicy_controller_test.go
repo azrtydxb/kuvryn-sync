@@ -19,6 +19,9 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -28,11 +31,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/imagepolicy"
 	"github.com/azrtydxb/solder/internal/imagepolicy/registrytest"
+	"github.com/azrtydxb/solder/internal/receiver"
 )
 
 const (
@@ -56,6 +61,7 @@ var _ = Describe("ImagePolicy Controller", func() {
 		registry.Close()
 		deleteObject(ctx, &corev1alpha1.ImagePolicy{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"}})
 		deleteObject(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "registry", Namespace: "default"}})
+		deleteObject(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "registry-hook", Namespace: "default"}})
 	})
 
 	createPolicy := func(labelled bool) {
@@ -96,6 +102,48 @@ var _ = Describe("ImagePolicy Controller", func() {
 		Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
 		Expect(policy.Status.LatestTag).To(Equal("1.1.0"))
 		Expect(policy.Status.LatestDigest).To(Equal(digestTwo))
+	})
+
+	It("rescans on a receiver request but not on its own status writes", func() {
+		createPolicy(true)
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "registry-hook", Namespace: "default"},
+			Data:       map[string][]byte{"token": []byte("hook-token")},
+		})).To(Succeed())
+		policy := &corev1alpha1.ImagePolicy{}
+		Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
+		policy.Spec.Webhook = &corev1alpha1.ImagePolicyWebhook{SecretRef: corev1alpha1.SecretReference{Name: "registry-hook"}}
+		Expect(k8sClient.Update(ctx, policy)).To(Succeed())
+		snapshot := func() *corev1alpha1.ImagePolicy {
+			current := &corev1alpha1.ImagePolicy{}
+			Expect(k8sClient.Get(ctx, key, current)).To(Succeed())
+			return current
+		}
+		update := func(old, updated *corev1alpha1.ImagePolicy) event.UpdateEvent {
+			return event.UpdateEvent{ObjectOld: old, ObjectNew: updated}
+		}
+
+		unscanned := snapshot()
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		selected := snapshot()
+		Expect(imagePolicyChanges.Update(update(unscanned, selected))).To(BeFalse(), "a status write re-queued the policy")
+		Expect(latestImageChanged.Update(update(unscanned, selected))).To(BeTrue(), "a new selection did not reach Repositories")
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		rescanned := snapshot()
+		Expect(rescanned.Status.LastScannedAt).NotTo(Equal(unscanned.Status.LastScannedAt))
+		Expect(imagePolicyChanges.Update(update(selected, rescanned))).To(BeFalse(), "a status write re-queued the policy")
+		Expect(latestImageChanged.Update(update(selected, rescanned))).To(BeFalse(), "an unchanged selection re-queued Repositories")
+
+		request := httptest.NewRequest(http.MethodPost, "/hooks/imagepolicies/default/api", strings.NewReader("{}"))
+		request.Header.Set("Authorization", "Bearer hook-token")
+		response := httptest.NewRecorder()
+		(&receiver.Receiver{Client: k8sClient}).Handler().ServeHTTP(response, request)
+		Expect(response.Code).To(Equal(http.StatusAccepted))
+		requested := snapshot()
+		Expect(imagePolicyChanges.Update(update(rescanned, requested))).To(BeTrue(), "a receiver request did not trigger a scan")
 	})
 
 	It("refuses registry credentials that are not labelled for registries", func() {
