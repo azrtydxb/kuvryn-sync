@@ -109,7 +109,7 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if revision == "" {
 		revision = defaultRevision
 	}
-	if !remoteURL(repository.URL) && !allowLocalRepositories {
+	if !RemoteURL(repository.URL) && !allowLocalRepositories {
 		return source.ResolvedSource{}, classified(source.FailureReasonValidationFailure, "Git repository URL must use https, http, ssh, or git", nil)
 	}
 
@@ -121,7 +121,7 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if err := os.MkdirAll(c.Root, 0o700); err != nil {
 		return source.ResolvedSource{}, classified(source.FailureReasonSourceFailure, "Could not create source cache", err)
 	}
-	auth, err := authMethod(repository)
+	auth, err := AuthMethod(repository)
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
@@ -303,9 +303,9 @@ func inside(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// authMethod builds go-git credentials. SSH requires known_hosts so an
+// AuthMethod builds go-git credentials. SSH requires known_hosts so an
 // unknown or changed host key is never trusted.
-func authMethod(repository source.GitRepository) (transport.AuthMethod, error) {
+func AuthMethod(repository source.GitRepository) (transport.AuthMethod, error) {
 	credentials := repository.Auth
 	if isSSH(repository.URL) {
 		endpoint, err := transport.NewEndpoint(repository.URL)
@@ -366,7 +366,8 @@ func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
 	return callback, nil
 }
 
-func remoteURL(rawURL string) bool {
+// RemoteURL reports whether rawURL uses a network transport Solder accepts.
+func RemoteURL(rawURL string) bool {
 	for _, scheme := range []string{"https://", "http://", "ssh://", "git://"} {
 		if strings.HasPrefix(rawURL, scheme) {
 			return true

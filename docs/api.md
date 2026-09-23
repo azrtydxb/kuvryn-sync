@@ -30,16 +30,17 @@ spec:
 
 ### Spec fields
 
-| Field                                | Description                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                               |
-| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.        |
-| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                              |
-| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`. |
-| `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |
-| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.           |
-| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                 |
-| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                      |
+| Field                                | Description                                                                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                |
+| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.         |
+| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                               |
+| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`.  |
+| `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                                |
+| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.            |
+| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                  |
+| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                       |
+| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`. |
 
 ### Status fields
 

@@ -6,6 +6,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/getsops/sops/v3 v3.13.3
+	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/google/cel-go v0.26.0
 	github.com/onsi/ginkgo/v2 v2.28.1
@@ -108,7 +109,6 @@ require (
 	github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.9.0 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect

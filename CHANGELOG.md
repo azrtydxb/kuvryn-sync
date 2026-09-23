@@ -17,6 +17,9 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- `Repository.spec.imageUpdate` commits ImagePolicy selections back to Git
+  wherever Flux-compatible `{"$imagepolicy": "ns:name"}` markers appear,
+  retrying when the branch moves and reporting `ImagesUpdated`.
 - New `ImagePolicy` API: scans an OCI registry (with pull credentials from a
   Secret labelled `solder.io/registry-credentials: "true"`) and selects an
   image by semver range, tag pattern, or a fixed tag's digest, recording

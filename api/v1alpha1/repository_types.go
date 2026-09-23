@@ -48,6 +48,31 @@ type RepositorySpec struct {
 	// through Solder's webhook receiver at /hooks/<namespace>/<name>.
 	// +optional
 	Webhook *RepositoryWebhook `json:"webhook,omitempty"`
+	// imageUpdate commits the images selected by ImagePolicies in this
+	// namespace back to the repository, wherever a file carries a marker such
+	// as `# {"$imagepolicy": "<namespace>:<policy>"}`.
+	// +optional
+	ImageUpdate *ImageUpdateSpec `json:"imageUpdate,omitempty"`
+}
+
+// ImageUpdateSpec configures image write-back commits.
+type ImageUpdateSpec struct {
+	// secretRef names a Secret, labelled solder.io/git-credentials=true, with
+	// credentials allowed to push (same keys as spec.git.auth).
+	SecretRef SecretReference `json:"secretRef"`
+	// branch receives the commits; it defaults to spec.git.revision.
+	// +optional
+	Branch string `json:"branch,omitempty"`
+	// path limits which repository-relative directory is scanned for markers.
+	// +optional
+	Path string `json:"path,omitempty"`
+	// authorName and authorEmail sign the commits.
+	// +kubebuilder:default:="Solder"
+	// +optional
+	AuthorName string `json:"authorName,omitempty"`
+	// +kubebuilder:default:="solder@localhost"
+	// +optional
+	AuthorEmail string `json:"authorEmail,omitempty"`
 }
 
 // RepositoryWebhook configures push webhooks for a Repository.

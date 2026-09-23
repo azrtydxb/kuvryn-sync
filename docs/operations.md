@@ -49,6 +49,52 @@ be approved again. The applied Revision keeps the record in
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated.
 
+## Image automation
+
+An `ImagePolicy` scans a registry and selects the image to run; the
+Repository commits that choice back to Git, so every image bump is a normal,
+reviewable commit that flows through planning and, if configured, manual
+approval.
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: ImagePolicy
+metadata:
+  name: api
+  namespace: payments
+spec:
+  image: ghcr.io/acme/api
+  secretRef:
+    name: ghcr-pull # dockerconfigjson, labelled solder.io/registry-credentials: "true"
+  interval: 5m
+  policy:
+    semver:
+      range: ">=1.0.0 <2.0.0" # or tagPattern: {regex, order}, or digest: {tag: main}
+---
+# On the Repository in the same namespace:
+spec:
+  imageUpdate:
+    secretRef:
+      name: platform-push # labelled solder.io/git-credentials: "true", allowed to push
+    branch: main # defaults to spec.git.revision
+    path: apps
+```
+
+Mark image references in YAML with Flux-compatible setter comments; Solder
+replaces the value with the selected `image:tag@digest`, or only the tag or
+name with the `:tag` and `:name` forms:
+
+```yaml
+image: ghcr.io/acme/api:1.0.0 # {"$imagepolicy": "payments:api"}
+tag: 1.0.0 # {"$imagepolicy": "payments:api:tag"}
+```
+
+Markers may only name ImagePolicies in the Repository's namespace. Solder
+commits only when something changed, retries when the branch moved during
+the push, and reports the result in the Repository's `ImagesUpdated`
+condition. Registry requests are rate-limited per registry host and counted in
+`solder_image_scans_total`.
+
 ## Push webhooks
 
 Instead of waiting for `pollInterval`, Repositories can be fetched as soon as

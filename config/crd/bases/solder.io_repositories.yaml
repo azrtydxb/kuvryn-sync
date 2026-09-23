@@ -103,6 +103,42 @@ spec:
                   required:
                     - url
                   type: object
+                imageUpdate:
+                  description: |-
+                    imageUpdate commits the images selected by ImagePolicies in this
+                    namespace back to the repository, wherever a file carries a marker such
+                    as `# {"$imagepolicy": "<namespace>:<policy>"}`.
+                  properties:
+                    authorEmail:
+                      default: solder@localhost
+                      type: string
+                    authorName:
+                      default: Solder
+                      description: authorName and authorEmail sign the commits.
+                      type: string
+                    branch:
+                      description: branch receives the commits; it defaults to spec.git.revision.
+                      type: string
+                    path:
+                      description:
+                        path limits which repository-relative directory is
+                        scanned for markers.
+                      type: string
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret, labelled solder.io/git-credentials=true, with
+                        credentials allowed to push (same keys as spec.git.auth).
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
                 pollInterval:
                   description:
                     pollInterval controls source polling when no external
