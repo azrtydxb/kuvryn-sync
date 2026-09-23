@@ -41,12 +41,20 @@ type MutationPatch struct {
 	Patch    string `json:"patch"`
 }
 
-// BuildSyncPatch validates exact approval and returns a public CRD merge patch.
-func BuildSyncPatch(app corev1alpha1.Application, plannedRevision, approvedRevision string) (MutationPatch, error) {
+// BuildSyncPatch validates exact approval and returns a public CRD merge
+// patch that approves the plan with the given digest. The digest must be the
+// one shown to the approver, so a plan that changed since is not approved.
+func BuildSyncPatch(app corev1alpha1.Application, plannedRevision, approvedRevision, planDigest string) (MutationPatch, error) {
 	if err := syncpolicy.CheckApproval(plannedRevision, syncpolicy.Approval{Revision: approvedRevision}); err != nil {
 		return MutationPatch{}, err
 	}
-	patch := map[string]any{"metadata": map[string]any{"annotations": map[string]string{"solder.io/approved-revision": approvedRevision}}}
+	if planDigest == "" {
+		return MutationPatch{}, fmt.Errorf("an approval needs the plan digest that was reviewed")
+	}
+	patch := map[string]any{"metadata": map[string]any{"annotations": map[string]string{
+		corev1alpha1.ApprovedRevisionAnnotation: approvedRevision,
+		corev1alpha1.ApproveDigestAnnotation:    planDigest,
+	}}}
 	b, err := yaml.Marshal(patch)
 	if err != nil {
 		return MutationPatch{}, err

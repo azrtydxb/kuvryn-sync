@@ -11,6 +11,7 @@ import (
 	"github.com/azrtydxb/solder/internal/planoutput"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -252,20 +253,41 @@ func runSync(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err != nil {
 		return err
 	}
+	return approve(ctx, c, *namespace, fs.Arg(0), *revision, stdout)
+}
+
+// approve approves the plan of the named Revision as it is now: it sends the
+// plan digest shown to the approver with the approval, so the admission
+// webhook rejects it if the plan changed in the meantime.
+func approve(ctx context.Context, c client.Client, namespace, application, revisionName string, stdout io.Writer) error {
 	app := &corev1alpha1.Application{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: fs.Arg(0)}, app); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
 		return err
 	}
-	ann := app.GetAnnotations()
-	if ann == nil {
-		ann = map[string]string{}
-	}
-	ann["solder.io/approved-revision"] = *revision
-	app.SetAnnotations(ann)
-	if err := c.Update(ctx, app); err != nil {
+	rev := &corev1alpha1.Revision{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: revisionName}, rev); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "approved %s for %s\n", *revision, app.Name)
+	if rev.Spec.ApplicationRef.Name != app.Name {
+		return fmt.Errorf("revision %s belongs to application %q, not %q", rev.Name, rev.Spec.ApplicationRef.Name, app.Name)
+	}
+	digest := rev.Status.Plan.Digest
+	if digest == "" {
+		return fmt.Errorf("revision %s has no plan to approve yet", rev.Name)
+	}
+	_, _ = fmt.Fprintf(stdout, "approving %s for %s with plan digest %s\n", rev.Name, app.Name, digest)
+	patch, err := BuildSyncPatch(*app, rev.Name, rev.Name, digest)
+	if err != nil {
+		return err
+	}
+	body, err := yaml.YAMLToJSON([]byte(patch.Patch))
+	if err != nil {
+		return err
+	}
+	if err := c.Patch(ctx, app, client.RawPatch(types.MergePatchType, body)); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "approved %s for %s\n", rev.Name, app.Name)
 	return nil
 }
 

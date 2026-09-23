@@ -34,17 +34,22 @@ import (
 // SetupApplicationWebhookWithManager registers the webhook for Application in the manager.
 func SetupApplicationWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &corev1alpha1.Application{}).
-		WithDefaulter(&ApplicationCustomDefaulter{Reader: mgr.GetClient(), Now: time.Now}).
+		WithDefaulter(&ApplicationCustomDefaulter{Reader: mgr.GetAPIReader(), Now: time.Now}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-solder-io-v1alpha1-application,mutating=true,failurePolicy=fail,sideEffects=None,groups=solder.io,resources=applications,verbs=create;update,versions=v1alpha1,name=mapplication-v1alpha1.kb.io,admissionReviewVersions=v1
 
-// ApplicationCustomDefaulter records manual approvals. When the approved
-// Revision changes, it stamps the authenticated requester, the time, and the
-// Revision's current plan digest; on every other change it restores those
-// annotations, so they cannot be forged or edited.
+// ApplicationCustomDefaulter records manual approvals. An approval is
+// requested by changing the approved Revision, or by setting
+// ApproveDigestAnnotation to the plan digest the approver reviewed, which
+// also re-approves the same Revision after its plan changed. It stamps the
+// authenticated requester, the time, and the Revision's current plan digest;
+// on every other change it restores those annotations, so they cannot be
+// forged or edited.
 type ApplicationCustomDefaulter struct {
+	// Reader must not be cached: the recorded digest has to be the plan that
+	// is current now, not one a stale cache still holds.
 	Reader client.Reader
 	Now    func() time.Time
 }
@@ -71,8 +76,14 @@ func (d *ApplicationCustomDefaulter) Default(ctx context.Context, obj *corev1alp
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
+	// The request is consumed here and never stored, so a later
+	// read-modify-write cannot replay it as a fresh approval.
+	requested, hasRequest := annotations[corev1alpha1.ApproveDigestAnnotation]
+	delete(annotations, corev1alpha1.ApproveDigestAnnotation)
+	obj.SetAnnotations(annotations)
+
 	approved := annotations[corev1alpha1.ApprovedRevisionAnnotation]
-	if approved == old.GetAnnotations()[corev1alpha1.ApprovedRevisionAnnotation] {
+	if !hasRequest && approved == old.GetAnnotations()[corev1alpha1.ApprovedRevisionAnnotation] {
 		for _, key := range approvalRecord {
 			if value, ok := old.GetAnnotations()[key]; ok {
 				annotations[key] = value
@@ -80,27 +91,33 @@ func (d *ApplicationCustomDefaulter) Default(ctx context.Context, obj *corev1alp
 				delete(annotations, key)
 			}
 		}
-		obj.SetAnnotations(annotations)
 		return nil
 	}
 	for _, key := range approvalRecord {
 		delete(annotations, key)
 	}
-	if approved != "" {
-		if req.UserInfo.Username == "" {
-			return apierrors.NewForbidden(schema.GroupResource{Group: corev1alpha1.GroupVersion.Group, Resource: "applications"}, obj.Name, fmt.Errorf("an approval must come from an authenticated user"))
+	if approved == "" {
+		if hasRequest {
+			return apierrors.NewBadRequest(fmt.Sprintf("%s requires %s", corev1alpha1.ApproveDigestAnnotation, corev1alpha1.ApprovedRevisionAnnotation))
 		}
-		revision := &corev1alpha1.Revision{}
-		if err := d.Reader.Get(ctx, client.ObjectKey{Namespace: obj.Namespace, Name: approved}, revision); err != nil {
-			return apierrors.NewBadRequest(fmt.Sprintf("cannot approve Revision %q: %v", approved, err))
-		}
-		if revision.Spec.ApplicationRef.Name != obj.Name || revision.Status.Plan.Digest == "" {
-			return apierrors.NewBadRequest(fmt.Sprintf("Revision %q has no plan for Application %q to approve", approved, obj.Name))
-		}
-		annotations[corev1alpha1.ApprovedByAnnotation] = req.UserInfo.Username
-		annotations[corev1alpha1.ApprovedAtAnnotation] = d.Now().UTC().Format(time.RFC3339)
-		annotations[corev1alpha1.ApprovedDigestAnnotation] = revision.Status.Plan.Digest
+		return nil
 	}
-	obj.SetAnnotations(annotations)
+	if req.UserInfo.Username == "" {
+		return apierrors.NewForbidden(schema.GroupResource{Group: corev1alpha1.GroupVersion.Group, Resource: "applications"}, obj.Name, fmt.Errorf("an approval must come from an authenticated user"))
+	}
+	revision := &corev1alpha1.Revision{}
+	if err := d.Reader.Get(ctx, client.ObjectKey{Namespace: obj.Namespace, Name: approved}, revision); err != nil {
+		return apierrors.NewBadRequest(fmt.Sprintf("cannot approve Revision %q: %v", approved, err))
+	}
+	current := revision.Status.Plan.Digest
+	if revision.Spec.ApplicationRef.Name != obj.Name || current == "" {
+		return apierrors.NewBadRequest(fmt.Sprintf("Revision %q has no plan for Application %q to approve", approved, obj.Name))
+	}
+	if hasRequest && requested != current {
+		return apierrors.NewBadRequest(fmt.Sprintf("the plan of Revision %q changed since it was reviewed (reviewed digest %q, current digest %q); review the plan again and re-approve", approved, requested, current))
+	}
+	annotations[corev1alpha1.ApprovedByAnnotation] = req.UserInfo.Username
+	annotations[corev1alpha1.ApprovedAtAnnotation] = d.Now().UTC().Format(time.RFC3339)
+	annotations[corev1alpha1.ApprovedDigestAnnotation] = current
 	return nil
 }

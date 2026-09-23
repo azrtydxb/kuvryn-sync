@@ -21,12 +21,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Manual approval annotations on an Application. Users set only
-// ApprovedRevisionAnnotation; the admission webhook records the rest from the
+// Manual approval annotations on an Application. Users set
+// ApprovedRevisionAnnotation and, to approve a specific plan,
+// ApproveDigestAnnotation; the admission webhook records the rest from the
 // authenticated request and restores them on every other change.
 const (
 	// ApprovedRevisionAnnotation names the Revision being approved.
 	ApprovedRevisionAnnotation = "solder.io/approved-revision"
+	// ApproveDigestAnnotation requests an approval of the plan digest the
+	// approver reviewed. The admission webhook rejects it when the Revision's
+	// plan has since changed, and never stores it.
+	ApproveDigestAnnotation = "solder.io/approve-digest"
 	// ApprovedByAnnotation is the authenticated user who approved.
 	ApprovedByAnnotation = "solder.io/approved-by"
 	// ApprovedAtAnnotation is when the approval was admitted, in RFC 3339.

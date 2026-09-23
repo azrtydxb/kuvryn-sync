@@ -133,6 +133,85 @@ var _ = Describe("Application approval webhook", Ordered, func() {
 			Expect(got).NotTo(HaveKey(k))
 		}
 	})
+
+	setPlanDigest := func(name, digest string) {
+		revision := &corev1alpha1.Revision{}
+		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, revision)).To(Succeed())
+		revision.Status.Plan.Digest = digest
+		Expect(k8sClient.Status().Update(ctx, revision)).To(Succeed())
+	}
+
+	It("re-stamps a stale approval when the same Revision is approved again with the digest reviewed", func() {
+		Expect(annotate(alice, map[string]string{
+			corev1alpha1.ApprovedRevisionAnnotation: "approval-app-planned",
+			corev1alpha1.ApproveDigestAnnotation:    "digest-reviewed",
+		})).To(Succeed())
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-reviewed"))
+
+		setPlanDigest("approval-app-planned", "digest-changed")
+		Expect(annotate(alice, map[string]string{
+			corev1alpha1.ApprovedRevisionAnnotation: "approval-app-planned",
+			corev1alpha1.ApproveDigestAnnotation:    "digest-changed",
+		})).To(Succeed())
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-changed"))
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.ApprovedByAnnotation, "alice@example.com"))
+		Expect(got).NotTo(HaveKey(corev1alpha1.ApproveDigestAnnotation))
+	})
+
+	It("rejects an approval of a plan that is no longer current", func() {
+		err := annotate(alice, map[string]string{
+			corev1alpha1.ApprovedRevisionAnnotation: "approval-app-planned",
+			corev1alpha1.ApproveDigestAnnotation:    "digest-reviewed",
+		})
+		Expect(apierrors.IsBadRequest(err)).To(BeTrue(), "err = %v", err)
+		Expect(err.Error()).To(ContainSubstring("digest-changed"))
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-changed"))
+	})
+
+	It("never turns an unrelated update into a fresh approval", func() {
+		before := annotations()
+		setPlanDigest("approval-app-planned", "digest-later")
+		Expect(annotate(alice, map[string]string{"example.com/note": "unrelated"})).To(Succeed())
+		after := annotations()
+		Expect(after).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-changed"))
+		Expect(after[corev1alpha1.ApprovedAtAnnotation]).To(Equal(before[corev1alpha1.ApprovedAtAnnotation]))
+	})
+
+	It("never stores the approval request, even on create", func() {
+		const created = "approval-app-created"
+		revision := &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Name: created + "-planned", Namespace: "default"},
+			Spec: corev1alpha1.RevisionSpec{
+				ApplicationRef: corev1alpha1.LocalObjectReference{Name: created},
+				Source: corev1alpha1.RevisionSource{
+					RepositoryRef: corev1alpha1.LocalObjectReference{Name: "platform"},
+					Revision:      "abc123",
+					Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, revision)).To(Succeed())
+		setPlanDigest(revision.Name, "digest-created")
+		app := &corev1alpha1.Application{
+			ObjectMeta: metav1.ObjectMeta{Name: created, Namespace: "default", Annotations: map[string]string{
+				corev1alpha1.ApprovedRevisionAnnotation: revision.Name,
+				corev1alpha1.ApproveDigestAnnotation:    "digest-created",
+			}},
+			Spec: corev1alpha1.ApplicationSpec{
+				Source: corev1alpha1.ApplicationSource{
+					RepositoryRef: corev1alpha1.LocalObjectReference{Name: "platform"},
+					Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+				},
+			},
+		}
+		Expect(alice.Create(ctx, app)).To(Succeed())
+		stored := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(app), stored)).To(Succeed())
+		Expect(stored.GetAnnotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-created"))
+		Expect(stored.GetAnnotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedByAnnotation, "alice@example.com"))
+		Expect(stored.GetAnnotations()).NotTo(HaveKey(corev1alpha1.ApproveDigestAnnotation))
+	})
 })
 
 var _ = Describe("Application approval webhook without an authenticated user", func() {

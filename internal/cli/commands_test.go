@@ -23,10 +23,10 @@ func TestRenderCoreReadCommands(t *testing.T) {
 
 func TestMutationPatchesAreSafeAndExact(t *testing.T) {
 	app := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}
-	if _, err := BuildSyncPatch(app, "rev-a", "rev-b"); err == nil {
+	if _, err := BuildSyncPatch(app, "rev-a", "rev-b", "digest-a"); err == nil {
 		t.Fatal("stale approval accepted")
 	}
-	patch, err := BuildSyncPatch(app, "rev-a", "rev-a")
+	patch, err := BuildSyncPatch(app, "rev-a", "rev-a", "digest-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRenderHistoryJSONExportsApprovalsAndRedacts(t *testing.T) {
 }
 
 func TestSyncPatchCarriesOnlyTheApprovedRevision(t *testing.T) {
-	patch, err := BuildSyncPatch(corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}, "rev-a", "rev-a")
+	patch, err := BuildSyncPatch(corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}, "rev-a", "rev-a", "digest-a")
 	if err != nil {
 		t.Fatal(err)
 	}
