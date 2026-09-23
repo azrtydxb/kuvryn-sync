@@ -118,3 +118,31 @@ func TestSlackBodyCarriesApproveCommand(t *testing.T) {
 		t.Fatalf("slack text = %q", slack["text"])
 	}
 }
+
+func TestDeliveryErrorsNeverContainTheSinkURL(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	sink := server.URL + "/services/T000/B000/slack-secret-token"
+	server.Close()
+	d := NewDispatcher(nil, 1)
+	for name, target := range map[string]string{"unreachable": sink, "unparseable": "https://hooks.example.com/slack-secret-token\x7f"} {
+		err := d.send(context.Background(), Delivery{Target: Target{Type: corev1alpha1.NotificationSinkSlack, URL: target}, Message: approvalMessage()})
+		if err == nil || strings.Contains(err.Error(), "slack-secret-token") {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	var followed atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { followed.Store(true) }))
+	defer target.Close()
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirector.Close()
+
+	err := NewDispatcher(nil, 1).send(context.Background(), Delivery{Target: Target{Type: corev1alpha1.NotificationSinkWebhook, URL: redirector.URL}, Message: approvalMessage()})
+	if err == nil || followed.Load() {
+		t.Fatalf("redirect was followed: err = %v, followed = %v", err, followed.Load())
+	}
+}

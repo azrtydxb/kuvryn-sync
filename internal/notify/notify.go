@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -60,23 +62,33 @@ type Delivery struct {
 	OnFailure func(error)
 }
 
+const (
+	workers  = 2
+	attempts = 3
+)
+
 // Dispatcher queues deliveries in memory and sends them from background
 // workers. Deliveries are best effort: a full queue drops new ones, and
 // queued ones are lost on restart.
 type Dispatcher struct {
-	client   *http.Client
-	queue    chan Delivery
-	workers  int
-	attempts int
-	backoff  time.Duration
+	client  *http.Client
+	queue   chan Delivery
+	backoff time.Duration
 }
 
-// NewDispatcher returns a Dispatcher with a queue of the given size.
+// NewDispatcher returns a Dispatcher with a queue of the given size. The
+// default client does not follow redirects, so a sink cannot redirect a
+// delivery past the https-only check on its URL.
 func NewDispatcher(client *http.Client, queueSize int) *Dispatcher {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
-	return &Dispatcher{client: client, queue: make(chan Delivery, queueSize), workers: 2, attempts: 3, backoff: time.Second}
+	return &Dispatcher{client: client, queue: make(chan Delivery, queueSize), backoff: time.Second}
 }
 
 // Enqueue schedules a delivery without blocking and reports whether it was queued.
@@ -92,7 +104,7 @@ func (d *Dispatcher) Enqueue(delivery Delivery) bool {
 
 // Start runs the delivery workers until ctx is done; it is a manager.Runnable.
 func (d *Dispatcher) Start(ctx context.Context) error {
-	for range d.workers {
+	for range workers {
 		go func() {
 			for {
 				select {
@@ -110,7 +122,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 func (d *Dispatcher) deliver(ctx context.Context, delivery Delivery) {
 	var err error
-	for attempt := range d.attempts {
+	for attempt := range attempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -136,7 +148,7 @@ func (d *Dispatcher) send(ctx context.Context, delivery Delivery) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, delivery.Target.URL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return withoutURL(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if delivery.Target.Type == corev1alpha1.NotificationSinkWebhook {
@@ -145,7 +157,7 @@ func (d *Dispatcher) send(ctx context.Context, delivery Delivery) error {
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return withoutURL(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
@@ -153,6 +165,16 @@ func (d *Dispatcher) send(ctx context.Context, delivery Delivery) error {
 		return fmt.Errorf("sink responded %s", resp.Status)
 	}
 	return nil
+}
+
+// withoutURL drops the sink URL from err. A Slack webhook URL is itself the
+// credential, and delivery errors end up in Events.
+func withoutURL(err error) error {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		return fmt.Errorf("deliver notification: %w", uerr.Err)
+	}
+	return err
 }
 
 // Sign returns the signature header value for body.
