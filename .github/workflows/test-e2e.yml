@@ -75,6 +75,10 @@ jobs:
             exit 1
           }
           make setup-test-e2e manifests generate
+          # Inside a pod, kubectl falls back to the pod's service-account
+          # namespace (arc-runners) when the context names none; the suite
+          # expects default.
+          kubectl config set-context --current --namespace=default
           kind load docker-image "$IMG" --name solder-test-e2e
 
       - name: Running Test e2e
