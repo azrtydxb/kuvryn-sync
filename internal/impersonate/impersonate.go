@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apiserver/pkg/authentication/serviceaccount"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Username returns the Kubernetes user name of a service account.
 func Username(namespace, serviceAccount string) string {
-	return fmt.Sprintf("system:serviceaccount:%s:%s", namespace, serviceAccount)
+	return serviceaccount.MakeUsername(namespace, serviceAccount)
 }
 
 // Clients builds and caches one uncached client per impersonated service account.
