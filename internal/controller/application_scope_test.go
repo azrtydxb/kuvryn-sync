@@ -151,6 +151,23 @@ var _ = Describe("Application destination namespace", func() {
 		Expect(app.Status.ManagedKinds).To(Equal([]corev1alpha1.ManagedKind{{APIVersion: "v1", Kind: "ConfigMap"}}))
 	})
 
+	It("plans no changes on the reconcile after an apply", func() {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		app.Spec.Sync.Automatic = true
+		Expect(k8sClient.Update(ctx, app)).To(Succeed())
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(listApplicationRevisions(ctx, appName).Items[0].Status.Plan.Summary.Create).To(Equal(int32(1)))
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		plan := listApplicationRevisions(ctx, appName).Items[0].Status.Plan
+		Expect(plan.Summary.Update).To(BeZero(), "Solder's own management metadata was planned as drift: %v", plan.Resources)
+		Expect(plan.Summary.Unchanged).To(Equal(int32(1)))
+	})
+
 	It("fails with a retryable validation error for kinds the cluster does not know", func() {
 		unknown := unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "unknown.example.com/v1",

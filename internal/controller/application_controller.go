@@ -263,6 +263,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 
+	// Plan against objects carrying the metadata the applier will add, so it
+	// is not reported as drift. Copies keep the renderer's output untouched.
+	marked := make([]unstructured.Unstructured, len(rendered))
+	for i := range rendered {
+		marked[i] = *rendered[i].DeepCopy()
+		applier.MarkManaged(&marked[i], application.Name, application.Namespace, revision.Name)
+	}
+	rendered = marked
 	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, rendered)
 	if err != nil {
 		failure := accessFailure(err, "PlanFailure", "Live state could not be read", true)

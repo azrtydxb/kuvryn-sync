@@ -46,7 +46,7 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	result := Result{}
 	for i := range desired {
 		obj := desired[i].DeepCopy()
-		markManaged(obj, application, a.ApplicationNamespace, revision)
+		MarkManaged(obj, application, a.ApplicationNamespace, revision)
 		if err := a.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(manager)); err != nil {
 			return result, err
 		}
@@ -55,7 +55,10 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	return result, nil
 }
 
-func markManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {
+// MarkManaged adds the labels and annotation Solder applies with every
+// object. Planning marks desired objects the same way, so this metadata is
+// never mistaken for drift.
+func MarkManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {
 	labels := obj.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}

@@ -17,6 +17,9 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Fixed: the labels and annotation Solder stamps on applied objects were
+  planned as drift on the next reconcile, so every Application re-applied
+  forever and manual approvals went stale immediately after applying.
 - Manual approvals are attributable and bound to the plan: a mutating
   admission webhook records the authenticated approver, time, and plan digest
   whenever `solder.io/approved-revision` changes, and reverts hand-edited
