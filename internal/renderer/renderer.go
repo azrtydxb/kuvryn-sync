@@ -83,9 +83,17 @@ func Within(root, path string) (bool, error) {
 	return rel != ".." && !strings.HasPrefix(rel, "../"), nil
 }
 
-// Contained returns an error if any symlink under dir resolves outside root,
-// so renderers never read files beyond the checked-out workspace.
+// Contained returns an error if dir, or any symlink under it, resolves outside
+// root, so renderers never read files beyond the checked-out workspace. dir
+// itself is checked because WalkDir follows symlinks in dir's own path.
 func Contained(root, dir string) error {
+	inside, err := Within(root, dir)
+	if err != nil {
+		return fmt.Errorf("resolve render path %s: %w", Relative(root, dir), err)
+	}
+	if !inside {
+		return fmt.Errorf("render path %s points outside the workspace", Relative(root, dir))
+	}
 	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
