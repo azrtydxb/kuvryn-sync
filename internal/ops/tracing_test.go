@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -15,7 +16,7 @@ func TestSetupTracingStaysOffWithoutAnEndpoint(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
 	before := otel.GetTracerProvider()
-	shutdown, err := SetupTracing(context.Background())
+	shutdown, err := SetupTracing(context.Background(), logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,7 @@ func TestSetupTracingExportsWhenAnEndpointIsSet(t *testing.T) {
 	t.Cleanup(func() { otel.SetTracerProvider(before) })
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")
 	t.Setenv("OTEL_SDK_DISABLED", "")
-	shutdown, err := SetupTracing(context.Background())
+	shutdown, err := SetupTracing(context.Background(), logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,4 +66,35 @@ func TestSpanErrorsAreRedacted(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestSetupTracingNamesTheServiceSolder(t *testing.T) {
+	before := otel.GetTracerProvider()
+	t.Cleanup(func() { otel.SetTracerProvider(before) })
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+	t.Setenv("OTEL_SERVICE_NAME", "")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	shutdown, err := SetupTracing(context.Background(), logr.Discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
+	recorder := tracetest.NewSpanRecorder()
+	otel.GetTracerProvider().(*sdktrace.TracerProvider).RegisterSpanProcessor(recorder)
+	_, finish := NewOTelTracer("test").Start(context.Background(), "reconcile")
+	finish(nil)
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("recorded %d spans, want 1", len(spans))
+	}
+	for _, attr := range spans[0].Resource().Attributes() {
+		if attr.Key == "service.name" {
+			if attr.Value.AsString() != "solder" {
+				t.Fatalf("service.name = %q, want solder", attr.Value.AsString())
+			}
+			return
+		}
+	}
+	t.Fatal("span resource has no service.name")
 }

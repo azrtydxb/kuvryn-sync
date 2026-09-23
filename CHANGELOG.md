@@ -10,8 +10,8 @@
   instance over the same directory, so two fetches of one repository could
   write the same clone at once. They now share one cache and its locks.
 - Tracing works: with `OTEL_EXPORTER_OTLP_ENDPOINT` set, the manager exports a
-  span per Application reconcile over OTLP gRPC, honouring the standard `OTEL_*`
-  variables. Before, nothing installed a tracer provider, so the documented
+  span per Application reconcile over OTLP gRPC, configured by the exporter's
+  `OTEL_*` variables. Before, nothing installed a tracer provider, so the documented
   tracing produced nothing. Span errors are redacted like status messages. The
   Helm chart gains `extraEnv` to pass the variables.
 

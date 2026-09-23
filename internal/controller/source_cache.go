@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"cmp"
 	"context"
 	"time"
 
@@ -29,26 +28,24 @@ import (
 )
 
 const (
-	defaultCachePruneInterval = time.Hour
-	// defaultCacheGracePeriod covers renders still reading a checkout that
-	// was resolved moments ago but is not yet recorded on a Revision.
-	defaultCacheGracePeriod = time.Hour
+	cachePruneInterval = time.Hour
+	// cacheGracePeriod covers renders still reading a checkout that was
+	// resolved moments ago but is not yet recorded on a Revision.
+	cacheGracePeriod = time.Hour
 )
 
 // NewSourceCache returns the Git cache the Repository and Application
 // controllers share, so one lock guards each cached repository.
-func NewSourceCache(dir string) *gitcache.Cache {
-	return gitcache.NewCache(cacheRoot(dir))
+func NewSourceCache() *gitcache.Cache {
+	return gitcache.NewCache(cacheRoot(""))
 }
 
 // SourceCachePruner periodically removes Git checkouts that no Revision or
 // Repository refers to any more. Each replica has its own cache on local
 // disk, so every replica prunes, leader or not.
 type SourceCachePruner struct {
-	Client      client.Reader
-	Cache       *gitcache.Cache
-	Interval    time.Duration
-	GracePeriod time.Duration
+	Client client.Reader
+	Cache  *gitcache.Cache
 }
 
 // NeedLeaderElection is false: the cache is per replica.
@@ -56,7 +53,7 @@ func (p *SourceCachePruner) NeedLeaderElection() bool { return false }
 
 // Start prunes every interval until ctx is done.
 func (p *SourceCachePruner) Start(ctx context.Context) error {
-	ticker := time.NewTicker(cmp.Or(p.Interval, defaultCachePruneInterval))
+	ticker := time.NewTicker(cachePruneInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -76,7 +73,7 @@ func (p *SourceCachePruner) prune(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	removed, err := p.Cache.Prune(keep, time.Now().Add(-cmp.Or(p.GracePeriod, defaultCacheGracePeriod)))
+	removed, err := p.Cache.Prune(keep, time.Now().Add(-cacheGracePeriod))
 	if len(removed) > 0 {
 		logf.FromContext(ctx).Info("Pruned Git source cache", "removed", len(removed))
 	}

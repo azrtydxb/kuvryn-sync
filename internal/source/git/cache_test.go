@@ -150,6 +150,15 @@ func TestPruneKeepsOnlyCheckoutsStillInUse(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Other users of the cache root, such as Helm's chart cache, are not
+	// repositories and must survive.
+	charts := filepath.Join(cache.Root, "charts", "archive.tgz")
+	if err := os.MkdirAll(filepath.Dir(charts), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(charts, []byte("chart"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	age(t, cache.Root)
 
 	removed, err := cache.Prune(map[string][]string{kept: {second}}, time.Now().Add(-time.Hour))
@@ -168,6 +177,9 @@ func TestPruneKeepsOnlyCheckoutsStillInUse(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(keptDir, "worktrees", second, checkoutMarker)); err != nil {
 		t.Fatalf("checkout still in use was removed: %v", err)
+	}
+	if _, err := os.Stat(charts); err != nil {
+		t.Fatalf("prune removed a directory that is not a repository clone: %v", err)
 	}
 
 	// A pruned commit is simply checked out again.

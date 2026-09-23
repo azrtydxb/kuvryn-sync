@@ -26,6 +26,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -95,19 +96,23 @@ func (c *Cache) Prune(keep map[string][]string, olderThan time.Time) ([]string, 
 		return nil, classified(source.FailureReasonSourceFailure, "Could not inspect source cache", err)
 	}
 	removed := []string{}
+	var errs []error
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		// Only repository clones, named by the hash of their URL, are this
+		// cache's; other directories under the root (Helm charts) are not.
+		if !entry.IsDir() || !cacheKey.MatchString(entry.Name()) {
 			continue
 		}
 		dir := filepath.Join(c.Root, entry.Name())
 		paths, err := c.pruneRepository(dir, kept[dir], olderThan)
 		removed = append(removed, paths...)
-		if err != nil {
-			return removed, err
-		}
+		errs = append(errs, err)
 	}
-	return removed, nil
+	return removed, errors.Join(errs...)
 }
+
+// cacheKey matches the directory name cacheDir gives a repository.
+var cacheKey = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // pruneRepository removes one cached repository, or its unneeded checkouts
 // when commits is non-nil, holding the lock Resolve takes for it.
@@ -156,9 +161,9 @@ func unusedSince(path string, t time.Time) bool {
 }
 
 // markUsed records that Resolve used path, for Prune.
-func markUsed(path string) {
+func markUsed(path string) error {
 	now := time.Now()
-	_ = os.Chtimes(path, now, now)
+	return os.Chtimes(path, now, now)
 }
 
 // Resolve fetches the repository and resolves the requested ref to a commit SHA.
@@ -201,8 +206,10 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
-	markUsed(cacheDir)
-	markUsed(worktree)
+	// A checkout Prune cannot see as used could be removed mid-render.
+	if err := errors.Join(markUsed(cacheDir), markUsed(worktree)); err != nil {
+		return source.ResolvedSource{}, classified(source.FailureReasonSourceFailure, "Could not mark source cache as used", err)
+	}
 	return source.ResolvedSource{Revision: commit, CacheDir: worktree}, nil
 }
 

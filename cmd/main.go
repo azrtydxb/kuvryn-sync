@@ -219,7 +219,7 @@ func main() {
 	}
 
 	// One cache serves both controllers, so one lock guards each repository.
-	sourceCache := controller.NewSourceCache("")
+	sourceCache := controller.NewSourceCache()
 	if err := mgr.Add(&controller.SourceCachePruner{Client: mgr.GetClient(), Cache: sourceCache}); err != nil {
 		setupLog.Error(err, "Failed to add source cache pruner")
 		os.Exit(1)
@@ -301,7 +301,7 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-	shutdownTracing, err := ops.SetupTracing(ctx)
+	shutdownTracing, err := ops.SetupTracing(ctx, ctrl.Log.WithName("tracing"))
 	if err != nil {
 		setupLog.Error(err, "Failed to set up tracing")
 		os.Exit(1)

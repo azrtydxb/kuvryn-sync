@@ -411,11 +411,13 @@ plans, sync results, and health. Expose metrics using the generated service and
 your cluster's monitoring stack.
 
 Tracing is off by default. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) on the manager and Solder exports a span
-per Application reconcile over OTLP gRPC. The other standard `OTEL_*` variables
-apply, such as `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_INSECURE`, and
-`OTEL_SERVICE_NAME` (default `solder`); `OTEL_SDK_DISABLED=true` turns it off
-again. With Helm, pass them through `extraEnv`:
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) on the manager and Solder exports an
+`Application/Reconcile` span for every Application reconcile over OTLP gRPC;
+HTTP/protobuf export is not supported. The OTLP gRPC exporter's variables apply,
+such as `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_INSECURE`, as do
+`OTEL_SERVICE_NAME` (default `solder`) and `OTEL_RESOURCE_ATTRIBUTES`;
+`OTEL_SDK_DISABLED=true` turns tracing off again. Export failures are logged by
+the manager. With Helm, pass the variables through `extraEnv`:
 
 ```yaml
 extraEnv:
@@ -423,7 +425,8 @@ extraEnv:
     value: http://otel-collector.observability:4317
 ```
 
-Spans carry the reconcile name and its error, redacted like status messages.
+A span records the reconcile's error, redacted like status messages, and does
+not name the Application.
 
 ## Repository-driven Application discovery
 
