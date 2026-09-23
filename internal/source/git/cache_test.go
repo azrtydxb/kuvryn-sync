@@ -120,32 +120,88 @@ func TestCacheSerializesConcurrentFetchesAndReusesCache(t *testing.T) {
 	}
 }
 
-func TestGCPreservesActiveCacheAndRemovesStaleDirectories(t *testing.T) {
-	root := t.TempDir()
-	cache := NewCache(root)
-	active := filepath.Join(root, "active")
-	stale := filepath.Join(root, "stale")
-	for _, dir := range []string{active, stale} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
+// age marks every file under root as last used two hours ago.
+func age(t *testing.T, root string) {
+	t.Helper()
 	old := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(stale, old, old); err != nil {
-		t.Fatal(err)
-	}
-	removed, err := cache.GC([]source.ResolvedSource{{CacheDir: active}}, time.Now().Add(-time.Hour))
+	err := filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chtimes(path, old, old)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 1 || removed[0] != stale {
-		t.Fatalf("removed = %#v", removed)
+}
+
+func TestPruneKeepsOnlyCheckoutsStillInUse(t *testing.T) {
+	ctx := context.Background()
+	kept, first := createGitRepository(t)
+	repo, err := gogit.PlainOpen(filepath.Dir(kept))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(active); err != nil {
-		t.Fatalf("active cache removed: %v", err)
+	second := commitFiles(t, repo, filepath.Dir(kept), map[string]string{"app.yaml": "kind: Secret\n"}, nil).String()
+	gone, _ := createGitRepository(t)
+	cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+	for _, resolve := range []source.GitRepository{{URL: kept, Revision: first}, {URL: kept, Revision: second}, {URL: gone, Revision: "main"}} {
+		if _, err := cache.Resolve(ctx, resolve); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale cache still exists or unexpected error: %v", err)
+	age(t, cache.Root)
+
+	removed, err := cache.Prune(map[string][]string{kept: {second}}, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptDir := cache.cacheDir(kept)
+	want := []string{filepath.Join(keptDir, "worktrees", first), cache.cacheDir(gone)}
+	if len(removed) != len(want) {
+		t.Fatalf("removed = %v, want %v", removed, want)
+	}
+	for _, path := range want {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s was not removed: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(keptDir, "worktrees", second, checkoutMarker)); err != nil {
+		t.Fatalf("checkout still in use was removed: %v", err)
+	}
+
+	// A pruned commit is simply checked out again.
+	again, err := cache.Resolve(ctx, source.GitRepository{URL: kept, Revision: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(again.CacheDir, "app.yaml")); err != nil {
+		t.Fatalf("pruned commit was not checked out again: %v", err)
+	}
+}
+
+func TestPruneLeavesRecentlyUsedCheckouts(t *testing.T) {
+	repoDir, commit := createGitRepository(t)
+	cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+	resolved, err := cache.Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: commit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	age(t, cache.Root)
+	// Resolving again marks the repository and the checkout as used.
+	if _, err := cache.Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: commit}); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := cache.Prune(nil, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("removed a repository in use within the grace period: %v", removed)
+	}
+	if _, err := os.Stat(resolved.CacheDir); err != nil {
+		t.Fatal(err)
 	}
 }
 

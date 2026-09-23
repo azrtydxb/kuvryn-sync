@@ -71,13 +71,20 @@ func NewCache(root string) *Cache {
 	return &Cache{Root: root, locks: map[string]*sync.Mutex{}}
 }
 
-// Resolve fetches the repository and resolves the requested ref to a commit SHA.
-// GC removes stale cache directories while preserving active resolved source directories.
-func (c *Cache) GC(active []source.ResolvedSource, olderThan time.Time) ([]string, error) {
-	keep := map[string]struct{}{}
-	for _, resolved := range active {
-		if resolved.CacheDir != "" {
-			keep[resolved.CacheDir] = struct{}{}
+// Prune removes what no one needs from the cache. keep maps each repository
+// URL still in use to the commits whose checkouts must stay. Other checkouts,
+// and every repository not in keep, are removed once they have not been used
+// since olderThan; Resolve marks a repository and checkout as used, and the
+// grace period covers renders still reading a checkout Resolve just returned.
+func (c *Cache) Prune(keep map[string][]string, olderThan time.Time) ([]string, error) {
+	kept := map[string]map[string]bool{}
+	for url, commits := range keep {
+		dir := c.cacheDir(url)
+		if kept[dir] == nil {
+			kept[dir] = map[string]bool{}
+		}
+		for _, commit := range commits {
+			kept[dir][commit] = true
 		}
 	}
 	entries, err := os.ReadDir(c.Root)
@@ -85,31 +92,76 @@ func (c *Cache) GC(active []source.ResolvedSource, olderThan time.Time) ([]strin
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, classified(source.FailureReasonSourceFailure, "Could not inspect source cache for GC", err)
+		return nil, classified(source.FailureReasonSourceFailure, "Could not inspect source cache", err)
 	}
 	removed := []string{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(c.Root, entry.Name())
-		if _, ok := keep[path]; ok {
-			continue
-		}
-		info, err := entry.Info()
+		dir := filepath.Join(c.Root, entry.Name())
+		paths, err := c.pruneRepository(dir, kept[dir], olderThan)
+		removed = append(removed, paths...)
 		if err != nil {
-			return removed, classified(source.FailureReasonSourceFailure, "Could not inspect source cache entry", err)
-		}
-		if olderThan.IsZero() || info.ModTime().Before(olderThan) {
-			if err := os.RemoveAll(path); err != nil {
-				return removed, classified(source.FailureReasonSourceFailure, "Could not remove stale source cache", err)
-			}
-			removed = append(removed, path)
+			return removed, err
 		}
 	}
 	return removed, nil
 }
 
+// pruneRepository removes one cached repository, or its unneeded checkouts
+// when commits is non-nil, holding the lock Resolve takes for it.
+func (c *Cache) pruneRepository(dir string, commits map[string]bool, olderThan time.Time) ([]string, error) {
+	lock := c.lockFor(dir)
+	lock.Lock()
+	defer lock.Unlock()
+	if commits == nil {
+		if !unusedSince(dir, olderThan) {
+			return nil, nil
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return nil, classified(source.FailureReasonSourceFailure, "Could not remove unused source cache", err)
+		}
+		return []string{dir}, nil
+	}
+	worktrees := filepath.Join(dir, "worktrees")
+	entries, err := os.ReadDir(worktrees)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, classified(source.FailureReasonSourceFailure, "Could not inspect source worktrees", err)
+	}
+	removed := []string{}
+	for _, entry := range entries {
+		path := filepath.Join(worktrees, entry.Name())
+		// Staging directories left by an interrupted checkout are named
+		// <commit>-<random> and are never kept.
+		if commits[entry.Name()] || !unusedSince(path, olderThan) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return removed, classified(source.FailureReasonSourceFailure, "Could not remove unused source worktree", err)
+		}
+		removed = append(removed, path)
+	}
+	return removed, nil
+}
+
+// unusedSince reports whether path was last used before t. A path that
+// cannot be inspected is left alone.
+func unusedSince(path string, t time.Time) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.ModTime().Before(t)
+}
+
+// markUsed records that Resolve used path, for Prune.
+func markUsed(path string) {
+	now := time.Now()
+	_ = os.Chtimes(path, now, now)
+}
+
+// Resolve fetches the repository and resolves the requested ref to a commit SHA.
 func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (source.ResolvedSource, error) {
 	if strings.TrimSpace(repository.URL) == "" {
 		return source.ResolvedSource{}, classified(source.FailureReasonValidationFailure, "Git repository URL is required", nil)
@@ -149,6 +201,8 @@ func (c *Cache) Resolve(ctx context.Context, repository source.GitRepository) (s
 	if err != nil {
 		return source.ResolvedSource{}, err
 	}
+	markUsed(cacheDir)
+	markUsed(worktree)
 	return source.ResolvedSource{Revision: commit, CacheDir: worktree}, nil
 }
 

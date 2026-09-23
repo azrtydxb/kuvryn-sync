@@ -218,10 +218,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// One cache serves both controllers, so one lock guards each repository.
+	sourceCache := controller.NewSourceCache("")
+	if err := mgr.Add(&controller.SourceCachePruner{Client: mgr.GetClient(), Cache: sourceCache}); err != nil {
+		setupLog.Error(err, "Failed to add source cache pruner")
+		os.Exit(1)
+	}
 	if err := (&controller.RepositoryReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		ImageUpdater: &imageupdate.Updater{},
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		SourceResolver: sourceCache,
+		ImageUpdater:   &imageupdate.Updater{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "repository")
 		os.Exit(1)
@@ -248,6 +255,7 @@ func main() {
 		DefaultServiceAccount: defaultServiceAccount,
 		DriftResyncInterval:   driftResyncInterval,
 		Notifier:              notifier,
+		SourceResolver:        sourceCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "application")
 		os.Exit(1)

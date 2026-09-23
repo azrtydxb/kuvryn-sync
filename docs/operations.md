@@ -394,6 +394,16 @@ leaderElection: true
 Use at least two replicas for controller availability, while remembering that
 only the elected leader reconciles at any moment.
 
+## Source cache
+
+Each replica keeps a bare clone of every Repository and a checkout of every
+commit it renders, under `/tmp/solder-source-cache` (an `emptyDir` in the
+chart). Every hour it removes checkouts that no Revision or Repository still
+refers to, and clones of Repositories that no longer exist, once they have gone
+unused for an hour. Checkouts for Revisions kept by history retention stay, so
+the cache grows with `spec.history` and the number of Repositories, not with
+every commit ever rendered. Size the volume for that.
+
 ## Metrics and tracing
 
 Solder registers Prometheus collectors with bounded labels for reconciliation,
