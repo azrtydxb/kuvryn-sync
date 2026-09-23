@@ -258,7 +258,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	// Helm test hooks are never deployed, so they are not desired state.
+	// A hook value Solder does not know is refused rather than guessed at.
+	if err := ordering.ValidateHooks(rendered); err != nil {
+		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered hook annotation is invalid"), Retryable: false}
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+	}
+	// Test, delete and rollback hooks are never deployed, so they are not
+	// desired state.
 	rendered = slices.DeleteFunc(rendered, func(obj unstructured.Unstructured) bool {
 		return ordering.Hook(obj) == ordering.StageSkip
 	})

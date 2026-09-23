@@ -1,6 +1,7 @@
 package ordering
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,7 +63,9 @@ const (
 	StagePreSync  = "PreSync"
 	StageSync     = "Sync"
 	StagePostSync = "PostSync"
-	// StageSkip marks Helm test hooks, which a deployment never applies.
+	// StageSkip marks hooks a deployment never applies: Helm test, delete and
+	// rollback hooks, Argo CD Skip, SyncFail and delete hooks, and
+	// solder.io/hook: skip.
 	StageSkip = "Skip"
 )
 
@@ -74,34 +77,110 @@ type Group struct {
 	Objects []unstructured.Unstructured
 }
 
+// Hook annotations Solder honours, in order of precedence.
+const (
+	SolderHookAnnotation = "solder.io/hook"
+	ArgoHookAnnotation   = "argocd.argoproj.io/hook"
+	HelmHookAnnotation   = "helm.sh/hook"
+)
+
 // Hook reports the stage of a hook object, honouring Solder's annotation and
-// the Helm and Argo CD equivalents, or "" for ordinary objects. Helm test
-// hooks report StageSkip.
+// the Helm and Argo CD equivalents, or "" for ordinary objects. Hooks a
+// deployment never runs report StageSkip, and so does a Solder or Argo CD hook
+// value Solder does not know; ValidateHooks refuses those before any apply.
 func Hook(obj unstructured.Unstructured) string {
-	annotations := obj.GetAnnotations()
-	switch strings.ToLower(annotations["solder.io/hook"]) {
-	case "pre-sync":
-		return StagePreSync
-	case "post-sync":
-		return StagePostSync
+	stage, err := hookStage(obj.GetAnnotations())
+	if err != nil {
+		return StageSkip
 	}
-	switch annotations["argocd.argoproj.io/hook"] {
-	case "PreSync":
-		return StagePreSync
-	case "PostSync":
-		return StagePostSync
-	}
-	for _, event := range strings.Split(annotations["helm.sh/hook"], ",") {
-		switch strings.TrimSpace(event) {
-		case "pre-install", "pre-upgrade":
-			return StagePreSync
-		case "post-install", "post-upgrade":
-			return StagePostSync
-		case "test", "test-success", "test-failure":
-			return StageSkip
+	return stage
+}
+
+// ValidateHooks refuses objects whose solder.io/hook or argocd.argoproj.io/hook
+// value is unknown, rather than guessing when to apply them.
+func ValidateHooks(objects []unstructured.Unstructured) error {
+	for _, obj := range objects {
+		if _, err := hookStage(obj.GetAnnotations()); err != nil {
+			return fmt.Errorf("rendered resource %s/%s %s: %w", obj.GetAPIVersion(), obj.GetKind(), obj.GetName(), err)
 		}
 	}
-	return ""
+	return nil
+}
+
+func hookStage(annotations map[string]string) (string, error) {
+	if value, ok := annotations[SolderHookAnnotation]; ok {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "pre-sync":
+			return StagePreSync, nil
+		case "post-sync":
+			return StagePostSync, nil
+		case "skip":
+			return StageSkip, nil
+		}
+		return "", fmt.Errorf("unknown %s value %q: use pre-sync, post-sync, or skip", SolderHookAnnotation, value)
+	}
+	if value, ok := annotations[ArgoHookAnnotation]; ok {
+		return argoHookStage(value)
+	}
+	return helmHookStage(annotations[HelmHookAnnotation]), nil
+}
+
+// argoHookStage maps Argo CD hook types. Sync hooks run with ordinary objects;
+// Skip, SyncFail and delete hooks never run during a deployment.
+func argoHookStage(value string) (string, error) {
+	stage, skip := "", false
+	for _, event := range strings.Split(value, ",") {
+		switch strings.TrimSpace(event) {
+		case "PreSync":
+			stage = firstStage(stage, StagePreSync)
+		case "PostSync":
+			stage = firstStage(stage, StagePostSync)
+		case "Sync":
+			stage = firstStage(stage, StageSync)
+		case "Skip":
+			return StageSkip, nil
+		case "SyncFail", "PreDelete", "PostDelete":
+			skip = true
+		default:
+			return "", fmt.Errorf("unknown %s value %q", ArgoHookAnnotation, value)
+		}
+	}
+	switch {
+	case stage == StageSync:
+		return "", nil
+	case stage != "":
+		return stage, nil
+	case skip:
+		return StageSkip, nil
+	}
+	return "", nil
+}
+
+// helmHookStage maps Helm hook events. As in Helm, an object carrying the hook
+// annotation is never an ordinary resource: without an install or upgrade
+// event it never runs.
+func helmHookStage(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	stage := StageSkip
+	for _, event := range strings.Split(value, ",") {
+		switch strings.ToLower(strings.TrimSpace(event)) {
+		case "pre-install", "pre-upgrade":
+			stage = firstStage(stage, StagePreSync)
+		case "post-install", "post-upgrade":
+			stage = firstStage(stage, StagePostSync)
+		}
+	}
+	return stage
+}
+
+// firstStage keeps the first run stage found; StageSkip and "" are none.
+func firstStage(current, next string) string {
+	if current == "" || current == StageSkip {
+		return next
+	}
+	return current
 }
 
 // Wave reads the sync wave from Solder's or Argo CD's annotation; 0 when unset
@@ -118,7 +197,7 @@ func Wave(obj unstructured.Unstructured) int {
 }
 
 // Groups splits objects into pre-sync hooks, then one group per sync wave in
-// ascending order, then post-sync hooks, dropping Helm test hooks. Each group
+// ascending order, then post-sync hooks, dropping hooks that never run. Each group
 // is in apply order.
 func Groups(objects []unstructured.Unstructured) []Group {
 	var pre, post []unstructured.Unstructured

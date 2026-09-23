@@ -185,6 +185,18 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(replaced.GetUID()).NotTo(Equal(old.GetUID()), "the next Revision reused the previous hook instead of running it again")
 	})
 
+	It("refuses an unknown solder.io/hook value instead of applying it", func() {
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-install")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		failure := latestRevision().Status.Failure
+		Expect(failure).NotTo(BeNil())
+		Expect(failure.Reason).To(Equal("ValidationFailure"))
+		Expect(failure.Message).To(And(ContainSubstring("Widget migrate"), ContainSubstring("pre-install")))
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, widgetKey, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "example.com/v1", "kind": "Widget"}}))).To(BeTrue())
+	})
+
 	It("fails the Revision naming a failed hook", func() {
 		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
