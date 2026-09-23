@@ -12,3 +12,27 @@ Entry shape (unindented in real entries):
     - Class: mechanical | judgment | taste
     - Missed by: linter | rubric | controller | test | ci
     - Adaptation: <the concrete change that catches this class from now on>
+
+## 2026-09-23 Copilot review of PR #3 — render path through a symlink escaped containment
+
+- Class: mechanical
+- Missed by: rubric
+- Adaptation: REVIEW.md now requires containment checks to cover the starting path itself; `renderer.Contained` checks `dir` and `TestContainedRefusesARenderPathThroughAnEscapingLink` pins it.
+
+## 2026-09-23 Copilot review of PR #3 — system:anonymous accepted as an approver
+
+- Class: judgment
+- Missed by: rubric
+- Adaptation: REVIEW.md now lists anonymous and unauthenticated identities as unauthenticated; the webhook test covers `system:anonymous` and the `system:unauthenticated` group.
+
+## 2026-09-23 Copilot review of PR #3 — chart Services selected every release's pods
+
+- Class: mechanical
+- Missed by: test
+- Adaptation: `TestHelmChartServicesSelectTheirOwnRelease` fails when a chart Service does not select `app.kubernetes.io/instance`, and REVIEW.md asks for per-release selectors.
+
+## 2026-09-23 Copilot review of PR #3 — fork pull requests would run on the lab's self-hosted runners
+
+- Class: judgment
+- Missed by: rubric
+- Adaptation: REVIEW.md now forbids running fork pull requests on self-hosted runners; the workflows send fork PRs to GitHub-hosted runners.
