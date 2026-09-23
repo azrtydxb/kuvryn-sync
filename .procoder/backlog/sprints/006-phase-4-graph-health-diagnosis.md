@@ -55,3 +55,7 @@ carried: 0
 <!-- What we change next sprint because of it. -->
 
 <!-- One adaptation from this sprint worth keeping. -->
+
+## Superseded by the 0.2.0 cleanup
+
+The `internal/graph`, `internal/diagnosis`, and `internal/drift` packages were removed because nothing used them; see the notes on stories 032, 033, and 036–040 for where each behaviour lives now or that it never shipped.
