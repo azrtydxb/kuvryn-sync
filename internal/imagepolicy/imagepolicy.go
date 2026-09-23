@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -87,8 +88,9 @@ func Credentials(dockerConfigJSON []byte, image string) (auth.Credential, error)
 		return auth.EmptyCredential, fmt.Errorf("parse registry credentials: %w", err)
 	}
 	host := strings.SplitN(image, "/", 2)[0]
+	want := registryHost(host)
 	for registry, entry := range config.Auths {
-		if strings.TrimPrefix(strings.TrimPrefix(registry, "https://"), "http://") != host {
+		if registryHost(registry) != want {
 			continue
 		}
 		if entry.Auth != "" {
@@ -102,6 +104,24 @@ func Credentials(dockerConfigJSON []byte, image string) (auth.Credential, error)
 		return auth.Credential{Username: entry.Username, Password: entry.Password}, nil
 	}
 	return auth.EmptyCredential, fmt.Errorf("registry credentials have no entry for %s", host)
+}
+
+// registryHost reduces a Docker config key or image host, such as ghcr.io/,
+// https://index.docker.io/v1/, or localhost:5000, to a comparable host.
+func registryHost(key string) string {
+	if !strings.Contains(key, "://") {
+		key = "https://" + key
+	}
+	parsed, err := url.Parse(key)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Host)
+	switch host {
+	case "index.docker.io", "registry-1.docker.io":
+		return "docker.io"
+	}
+	return host
 }
 
 func (r *Registry) repository(ctx context.Context, image string, cred auth.Credential) (*remote.Repository, error) {

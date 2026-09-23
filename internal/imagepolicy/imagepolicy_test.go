@@ -81,3 +81,30 @@ func TestRegistryRateLimitsPerHost(t *testing.T) {
 		t.Fatal("a second repository on the same registry bypassed the host's rate limit")
 	}
 }
+
+func TestCredentialsMatchDockerConfigKeys(t *testing.T) {
+	entry := `{"username":"robot","password":"pw"}`
+	cases := map[string]struct {
+		key, image string
+		match      bool
+	}{
+		"trailing slash":        {"ghcr.io/", "ghcr.io/acme/api", true},
+		"scheme and path":       {"https://ghcr.io/v2/", "ghcr.io/acme/api", true},
+		"legacy docker hub key": {"https://index.docker.io/v1/", "docker.io/library/nginx", true},
+		"docker hub by index":   {"docker.io", "index.docker.io/library/nginx", true},
+		"port":                  {"localhost:5000", "localhost:5000/acme/api", true},
+		"other port":            {"localhost:5001", "localhost:5000/acme/api", false},
+		"suffix host":           {"ghcr.io.evil.example", "ghcr.io/acme/api", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cred, err := Credentials([]byte(`{"auths":{"`+tc.key+`":`+entry+`}}`), tc.image)
+			if tc.match && (err != nil || cred.Username != "robot") {
+				t.Fatalf("key %q did not match %s: %v", tc.key, tc.image, err)
+			}
+			if !tc.match && err == nil {
+				t.Fatalf("key %q matched %s", tc.key, tc.image)
+			}
+		})
+	}
+}
