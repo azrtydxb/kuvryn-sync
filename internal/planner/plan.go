@@ -251,15 +251,14 @@ func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanF
 }
 
 // ownership maps field paths, in the planner's flattened notation, to the
-// field manager that owns them.
+// field manager that owns them. List items, which managedFields identify by
+// key (k:), value (v:), or index (i:), are resolved against the live object.
 type ownership struct {
 	fields map[string]string
-	// lists are owned element by element; any path inside counts as owned.
-	lists map[string]string
 }
 
 func fieldOwners(live unstructured.Unstructured) ownership {
-	o := ownership{fields: map[string]string{}, lists: map[string]string{}}
+	o := ownership{fields: map[string]string{}}
 	for _, managed := range live.GetManagedFields() {
 		if managed.Manager == "" || managed.FieldsV1 == nil {
 			continue
@@ -268,43 +267,86 @@ func fieldOwners(live unstructured.Unstructured) ownership {
 		if err := json.Unmarshal(managed.FieldsV1.Raw, &tree); err != nil {
 			continue
 		}
-		o.walk(tree, "", managed.Manager)
+		o.walk(tree, "", live.Object, managed.Manager)
 	}
 	return o
 }
 
-func (o ownership) walk(node map[string]any, prefix, manager string) {
+func (o ownership) walk(node map[string]any, prefix string, liveValue any, manager string) {
 	for key, value := range node {
-		name, isField := strings.CutPrefix(key, "f:")
-		if !isField {
-			if key != "." {
-				o.lists[prefix] = manager
-			}
+		if key == "." {
 			continue
 		}
+		child, _ := value.(map[string]any)
+		path, childLive, ok := step(prefix, key, liveValue)
+		if !ok {
+			// The live object no longer has this entry; nothing to own.
+			continue
+		}
+		if len(child) == 0 || (len(child) == 1 && child["."] != nil) {
+			o.fields[path] = manager
+			continue
+		}
+		o.walk(child, path, childLive, manager)
+	}
+}
+
+// step resolves one managedFields key under prefix to a flattened path and
+// the matching live value.
+func step(prefix, key string, liveValue any) (string, any, bool) {
+	if name, ok := strings.CutPrefix(key, "f:"); ok {
 		path := name
 		if prefix != "" {
 			path = prefix + "." + name
 		}
-		child, _ := value.(map[string]any)
-		if len(child) == 0 {
-			o.fields[path] = manager
-			continue
-		}
-		o.walk(child, path, manager)
+		liveMap, _ := liveValue.(map[string]any)
+		return path, liveMap[name], true
 	}
+	items, _ := liveValue.([]any)
+	match := func(i int) (string, any, bool) { return fmt.Sprintf("%s[%d]", prefix, i), items[i], true }
+	switch {
+	case strings.HasPrefix(key, "k:"):
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(key[2:]), &fields); err != nil {
+			return "", nil, false
+		}
+		for i, item := range items {
+			entry, _ := item.(map[string]any)
+			if entry != nil && matchesKey(entry, fields) {
+				return match(i)
+			}
+		}
+	case strings.HasPrefix(key, "v:"):
+		var want any
+		if err := json.Unmarshal([]byte(key[2:]), &want); err != nil {
+			return "", nil, false
+		}
+		for i, item := range items {
+			if fmt.Sprint(item) == fmt.Sprint(want) {
+				return match(i)
+			}
+		}
+	case strings.HasPrefix(key, "i:"):
+		var index int
+		if _, err := fmt.Sscanf(key[2:], "%d", &index); err == nil && index >= 0 && index < len(items) {
+			return match(index)
+		}
+	}
+	return "", nil, false
+}
+
+func matchesKey(entry, fields map[string]any) bool {
+	for name, want := range fields {
+		if fmt.Sprint(entry[name]) != fmt.Sprint(want) {
+			return false
+		}
+	}
+	return true
 }
 
 func (o ownership) owner(path string) (string, bool) {
-	if manager, ok := o.fields[path]; ok {
-		return manager, true
-	}
-	for list, manager := range o.lists {
-		if strings.HasPrefix(path, list+"[") || strings.HasPrefix(path, list+".") {
-			return manager, true
-		}
-	}
-	return "", false
+	manager, ok := o.fields[path]
+	return manager, ok
 }
 
 // RevisionPlan converts a plan to the bounded API status representation.

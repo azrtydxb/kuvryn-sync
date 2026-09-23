@@ -210,3 +210,37 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 		t.Fatalf("conflicts = %#v", conflicts)
 	}
 }
+
+func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
+	deployment := func(image string, extra map[string]any) unstructured.Unstructured {
+		container := map[string]any{"name": "api", "image": image}
+		for k, v := range extra {
+			container[k] = v
+		}
+		return unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "apps/v1", "kind": "Deployment",
+			"metadata": map[string]any{"name": "api", "namespace": "payments"},
+			"spec":     map[string]any{"template": map[string]any{"spec": map[string]any{"containers": []any{container}}}},
+		}}
+	}
+	live := deployment("nginx:1", map[string]any{"imagePullPolicy": "Always", "terminationMessagePath": "/dev/termination-log"})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder",
+		`{"f:spec":{"f:template":{"f:spec":{"f:containers":{"k:{\"name\":\"api\"}":{".":{},"f:image":{},"f:name":{}}}}}}}`)})
+
+	unchanged, err := Build([]unstructured.Unstructured{deployment("nginx:1", nil)}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Summary.Unchanged != 1 {
+		t.Fatalf("server-defaulted container fields were planned as changes: %#v", unchanged.RevisionPlan(10))
+	}
+
+	changed, err := Build([]unstructured.Unstructured{deployment("nginx:2", nil)}, []unstructured.Unstructured{live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := changed.RevisionPlan(10).Resources[0].Changes
+	if len(fields) != 1 || fields[0].Path != "spec.template.spec.containers[0].image" || fields[0].After != "nginx:2" {
+		t.Fatalf("image change = %#v", fields)
+	}
+}
