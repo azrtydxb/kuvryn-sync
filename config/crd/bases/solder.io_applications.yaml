@@ -212,17 +212,94 @@ spec:
                         helm:
                           description: helm configures Helm rendering when type is helm.
                           properties:
+                            chart:
+                              description: |-
+                                chart pulls a pinned chart from a Helm (https) or OCI (oci://)
+                                repository instead of rendering source.path as a chart.
+                              properties:
+                                name:
+                                  description: name is the chart name.
+                                  minLength: 1
+                                  type: string
+                                repository:
+                                  description:
+                                    repository is an https chart repository
+                                    URL or an oci:// registry path.
+                                  pattern: ^(https|oci)://
+                                  type: string
+                                secretRef:
+                                  description: |-
+                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    with `username` and `password` for the repository.
+                                  properties:
+                                    name:
+                                      description: name is the Secret name.
+                                      minLength: 1
+                                      type: string
+                                  required:
+                                    - name
+                                  type: object
+                                version:
+                                  description:
+                                    version is the exact chart version to
+                                    pull.
+                                  minLength: 1
+                                  type: string
+                              required:
+                                - name
+                                - repository
+                                - version
+                              type: object
                             releaseName:
                               description:
                                 releaseName is the Helm release name used
                                 for template rendering.
                               type: string
+                            values:
+                              description:
+                                values are merged last, over every other
+                                source.
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
                             valuesFiles:
                               description:
                                 valuesFiles are repository-relative values
                                 files.
                               items:
                                 type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            valuesFrom:
+                              description: |-
+                                valuesFrom merges values from ConfigMaps and Secrets in the Application
+                                namespace, read as the Application's service account, after valuesFiles.
+                              items:
+                                description:
+                                  HelmValuesReference names values stored
+                                  in a ConfigMap or Secret.
+                                properties:
+                                  key:
+                                    description:
+                                      key holds a YAML values document; it
+                                      defaults to values.yaml.
+                                    type: string
+                                  kind:
+                                    description: kind is ConfigMap or Secret.
+                                    enum:
+                                      - ConfigMap
+                                      - Secret
+                                    type: string
+                                  name:
+                                    description:
+                                      name is the object name in the Application
+                                      namespace.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                  - kind
+                                  - name
+                                type: object
+                              maxItems: 16
                               type: array
                               x-kubernetes-list-type: atomic
                           type: object

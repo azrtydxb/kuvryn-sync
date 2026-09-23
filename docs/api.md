@@ -144,14 +144,17 @@ spec:
 
 ### Source and render fields
 
-| Field                                 | Description                                                  |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `spec.source.repositoryRef.name`      | Repository in the same namespace.                            |
-| `spec.source.revision`                | Branch, tag, or commit. Defaults to the Repository revision. |
-| `spec.source.path`                    | Repository-relative desired-state path.                      |
-| `spec.source.render.type`             | `yaml`, `kustomize`, or `helm`.                              |
-| `spec.source.render.helm.releaseName` | Helm release name for template rendering.                    |
-| `spec.source.render.helm.valuesFiles` | Repository-relative Helm values files.                       |
+| Field                                  | Description                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec.source.repositoryRef.name`       | Repository in the same namespace.                                                                                                                                                                                                                                                   |
+| `spec.source.revision`                 | Branch, tag, or commit. Defaults to the Repository revision.                                                                                                                                                                                                                        |
+| `spec.source.path`                     | Repository-relative desired-state path.                                                                                                                                                                                                                                             |
+| `spec.source.render.type`              | `yaml`, `kustomize`, or `helm`.                                                                                                                                                                                                                                                     |
+| `spec.source.render.helm.releaseName`  | Helm release name for template rendering.                                                                                                                                                                                                                                           |
+| `spec.source.render.helm.valuesFiles`  | Repository-relative Helm values files.                                                                                                                                                                                                                                              |
+| `spec.source.render.helm.chart`        | Pull `name` at exact `version` from an `https://` Helm repository or `oci://` registry (`repository`), with optional `secretRef` (`username`/`password`, labelled `solder.io/registry-credentials: "true"`). The archive digest is recorded in the Revision's `status.chartDigest`. |
+| `spec.source.render.helm.valuesFrom[]` | `kind` (`ConfigMap` or `Secret`), `name`, and `key` (default `values.yaml`) in the Application namespace, read as the Application's service account. Values from Secrets are masked in plans.                                                                                       |
+| `spec.source.render.helm.values`       | Inline values, merged last.                                                                                                                                                                                                                                                         |
 
 ### Policy fields
 

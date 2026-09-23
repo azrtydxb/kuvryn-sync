@@ -16,7 +16,10 @@ limitations under the License.
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // Manual approval annotations on an Application. Users set only
 // ApprovedRevisionAnnotation; the admission webhook records the rest from the
@@ -155,6 +158,52 @@ type HelmRenderSpec struct {
 	// +listType=atomic
 	// +optional
 	ValuesFiles []string `json:"valuesFiles,omitempty"`
+	// chart pulls a pinned chart from a Helm (https) or OCI (oci://)
+	// repository instead of rendering source.path as a chart.
+	// +optional
+	Chart *HelmChartSource `json:"chart,omitempty"`
+	// valuesFrom merges values from ConfigMaps and Secrets in the Application
+	// namespace, read as the Application's service account, after valuesFiles.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	ValuesFrom []HelmValuesReference `json:"valuesFrom,omitempty"`
+	// values are merged last, over every other source.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:Type=object
+	// +optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+}
+
+// HelmChartSource identifies a chart in a chart repository.
+type HelmChartSource struct {
+	// repository is an https chart repository URL or an oci:// registry path.
+	// +kubebuilder:validation:Pattern=`^(https|oci)://`
+	Repository string `json:"repository"`
+	// name is the chart name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// version is the exact chart version to pull.
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version"`
+	// secretRef names a Secret, labelled solder.io/registry-credentials=true,
+	// with `username` and `password` for the repository.
+	// +optional
+	SecretRef *SecretReference `json:"secretRef,omitempty"`
+}
+
+// HelmValuesReference names values stored in a ConfigMap or Secret.
+type HelmValuesReference struct {
+	// kind is ConfigMap or Secret.
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	Kind string `json:"kind"`
+	// name is the object name in the Application namespace.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// key holds a YAML values document; it defaults to values.yaml.
+	// +optional
+	Key string `json:"key,omitempty"`
 }
 
 // ApplicationDestination constrains where desired objects are applied.

@@ -7,6 +7,9 @@ import (
 
 const marker = "REDACTED"
 
+// Placeholder is the text that replaces a redacted value.
+const Placeholder = marker
+
 var assignments = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(password|token|secret|credential|private[-_]?key|client[-_]?secret)(\s*[:=]\s*)[^\s,;]+`),
 	regexp.MustCompile(`(?i)(Authorization:\s*Bearer\s+)[^\s,;]+`),

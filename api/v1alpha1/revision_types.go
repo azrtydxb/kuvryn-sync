@@ -118,6 +118,10 @@ type RevisionStatus struct {
 	// through manual approval.
 	// +optional
 	Approval *RevisionApproval `json:"approval,omitempty"`
+	// chartDigest is the sha256 of the Helm chart archive pulled from a chart
+	// repository for this Revision.
+	// +optional
+	ChartDigest string `json:"chartDigest,omitempty"`
 	// conditions represent the current state of the Revision resource.
 	// +listType=map
 	// +listMapKey=type

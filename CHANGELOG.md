@@ -17,6 +17,11 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Helm Applications can pull a pinned chart from an `https://` Helm
+  repository or `oci://` registry (`render.helm.chart`), recording the
+  archive digest on the Revision, and merge `valuesFrom` ConfigMaps/Secrets
+  (read as the Application's service account) and inline `values`. Values
+  from Secrets are masked in plans and render errors.
 - ImagePolicies with `spec.webhook` scan immediately when the registry or CI
   calls `/hooks/imagepolicies/<namespace>/<name>` on the receiver (Bearer
   token, GitHub signature, or GitLab token).

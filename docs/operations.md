@@ -132,6 +132,39 @@ Unknown Repositories get 404, bad signatures 401, bodies over 1 MB 413, and
 more than ten requests per second per Repository 429, all counted in
 `solder_webhook_receiver_requests_total`. Polling continues as a fallback.
 
+## Helm charts from repositories
+
+Helm Applications can render a chart from a chart repository instead of Git:
+
+```yaml
+spec:
+  source:
+    repositoryRef:
+      name: platform # still used for valuesFiles
+    path: envs/prod
+    render:
+      type: helm
+      helm:
+        chart:
+          repository: oci://ghcr.io/acme/charts # or an https:// Helm repository
+          name: api
+          version: 1.4.2
+        valuesFiles: [values.yaml] # relative to path, in Git
+        valuesFrom:
+          - kind: Secret
+            name: api-values
+        values:
+          replicaCount: 3
+```
+
+Values merge in this order, later winning: the chart's defaults,
+`valuesFiles`, each `valuesFrom` entry in order, then `values`. Charts are
+cached by repository, name, and version, and the pulled archive's sha256 is
+recorded on the Revision. Solder never uses Helm's local repository
+configuration, cached credentials, or plugins. Charts pulled from a
+repository carry their dependencies; charts rendered from Git must vendor
+theirs into `charts/`.
+
 ## SOPS-encrypted Secrets
 
 Commit Secrets encrypted with [SOPS](https://getsops.io) using age keys, and

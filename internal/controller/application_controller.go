@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/applier"
@@ -104,6 +105,9 @@ type ApplicationReconciler struct {
 	DriftResyncInterval time.Duration
 	// Notifier delivers lifecycle notifications; nil disables them.
 	Notifier *notify.Dispatcher
+	// ChartCAFile trusts an additional CA for chart repositories; only tests
+	// set it today.
+	ChartCAFile string
 
 	watches *driftWatches
 }
@@ -250,7 +254,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	rendered, failure := r.renderDesired(ctx, application, resolved)
+	rendered, helmInputs, failure := r.renderDesired(ctx, tenant, application, resolved)
 	if failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
@@ -308,6 +312,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	revision.Status.Plan = plan.RevisionPlan(r.planLimit())
+	redactPlanValues(&revision.Status.Plan, helmInputs.secretValues)
+	revision.Status.ChartDigest = helmInputs.chartDigest
 	digest, err := planDigest(revision.Spec.DesiredStateHash, plan)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be fingerprinted"), Retryable: false}
@@ -499,25 +505,183 @@ func (r *ApplicationReconciler) renderer(renderType corev1alpha1.RenderType) (re
 	}
 }
 
-func (r *ApplicationReconciler) renderDesired(ctx context.Context, application *corev1alpha1.Application, resolved source.ResolvedSource) ([]unstructured.Unstructured, *corev1alpha1.RevisionFailure) {
+// helmInputs are what rendering resolved from outside the Git checkout.
+type helmInputs struct {
+	chartDigest string
+	// secretValues are Helm values read from Secrets; they are masked in
+	// plans and render errors.
+	secretValues []string
+}
+
+func (r *ApplicationReconciler) renderDesired(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, resolved source.ResolvedSource) ([]unstructured.Unstructured, helmInputs, *corev1alpha1.RevisionFailure) {
+	var inputs helmInputs
 	desiredRenderer, err := r.renderer(application.Spec.Source.Render.Type)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Desired state renderer is not available"), Retryable: false}
-		return nil, &failure
+		return nil, inputs, &failure
 	}
 	input := rendererInput(application, resolved.CacheDir)
 	decryptor, err := r.decryptor(ctx, application)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "DecryptionFailure", Message: safeMessage(err, "Decryption keys could not be loaded"), Retryable: true}
-		return nil, &failure
+		return nil, inputs, &failure
 	}
 	input.Decrypt = decryptor.File
+	if helm := application.Spec.Source.Render.Helm; helm != nil && application.Spec.Source.Render.Type == corev1alpha1.RenderTypeHelm {
+		if input.Values, inputs.secretValues, err = helmValues(ctx, tenant, application.Namespace, helm); err != nil {
+			failure := accessFailure(err, "RenderFailure", "Helm values could not be read", true)
+			return nil, inputs, &failure
+		}
+		if helm.Chart != nil {
+			if input.ChartPath, inputs.chartDigest, err = r.pullChart(ctx, application.Namespace, helm.Chart); err != nil {
+				failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Helm chart could not be pulled"), Retryable: true}
+				return nil, inputs, &failure
+			}
+		}
+	}
 	objects, err := desiredRenderer.Render(ctx, input)
 	if err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Desired state render failed"), Retryable: true}
-		return nil, &failure
+		message := redactValues(safeMessage(err, "Desired state render failed"), inputs.secretValues)
+		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: message, Retryable: true}
+		return nil, inputs, &failure
 	}
-	return objects, nil
+	return objects, inputs, nil
+}
+
+// pullChart downloads the Application's pinned chart with labelled
+// registry credentials.
+func (r *ApplicationReconciler) pullChart(ctx context.Context, namespace string, chart *corev1alpha1.HelmChartSource) (string, string, error) {
+	src := helmrenderer.ChartSource{Repository: chart.Repository, Name: chart.Name, Version: chart.Version, CAFile: r.ChartCAFile}
+	if chart.SecretRef != nil {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: chart.SecretRef.Name}, secret); err != nil {
+			return "", "", fmt.Errorf("chart repository Secret %s: %w", chart.SecretRef.Name, err)
+		}
+		if secret.Labels[RegistryCredentialsLabel] != "true" {
+			return "", "", fmt.Errorf("chart repository Secret %s is not labelled %s=true", chart.SecretRef.Name, RegistryCredentialsLabel)
+		}
+		src.Username, src.Password = string(secret.Data["username"]), string(secret.Data["password"])
+	}
+	root := r.CacheDir
+	if root == "" {
+		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
+	}
+	return helmrenderer.Pull(filepath.Join(root, "charts"), src)
+}
+
+// helmValues merges valuesFrom, in order, then inline values, reading
+// ConfigMaps and Secrets as the Application's service account. It also
+// returns every string value that came from a Secret.
+func helmValues(ctx context.Context, tenant client.Client, namespace string, helm *corev1alpha1.HelmRenderSpec) (map[string]any, []string, error) {
+	values := map[string]any{}
+	secretValues := []string{}
+	for _, ref := range helm.ValuesFrom {
+		key := ref.Key
+		if key == "" {
+			key = "values.yaml"
+		}
+		var raw []byte
+		switch ref.Kind {
+		case "Secret":
+			secret := &corev1.Secret{}
+			if err := tenant.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, secret); err != nil {
+				return nil, nil, err
+			}
+			raw = secret.Data[key]
+		default:
+			configMap := &corev1.ConfigMap{}
+			if err := tenant.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, configMap); err != nil {
+				return nil, nil, err
+			}
+			raw = []byte(configMap.Data[key])
+		}
+		if raw == nil {
+			return nil, nil, fmt.Errorf("%s %s has no key %s", ref.Kind, ref.Name, key)
+		}
+		parsed := map[string]any{}
+		if err := sigsyaml.Unmarshal(raw, &parsed); err != nil {
+			return nil, nil, fmt.Errorf("%s %s key %s: %w", ref.Kind, ref.Name, key, err)
+		}
+		if ref.Kind == "Secret" {
+			secretValues = append(secretValues, leafValues(parsed)...)
+		}
+		values = mergeValues(values, parsed)
+	}
+	if helm.Values != nil && len(helm.Values.Raw) > 0 {
+		inline := map[string]any{}
+		if err := json.Unmarshal(helm.Values.Raw, &inline); err != nil {
+			return nil, nil, fmt.Errorf("inline Helm values: %w", err)
+		}
+		values = mergeValues(values, inline)
+	}
+	return values, secretValues, nil
+}
+
+// mergeValues deep-merges b over a, like Helm merges values files.
+func mergeValues(a, b map[string]any) map[string]any {
+	out := make(map[string]any, len(a))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		if bm, ok := v.(map[string]any); ok {
+			if am, ok := out[k].(map[string]any); ok {
+				out[k] = mergeValues(am, bm)
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func leafValues(value any) []string {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make([]string, 0, len(typed))
+		for _, v := range typed {
+			out = append(out, leafValues(v)...)
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, v := range typed {
+			out = append(out, leafValues(v)...)
+		}
+		return out
+	case nil, bool:
+		return nil
+	default:
+		return []string{fmt.Sprint(typed)}
+	}
+}
+
+// redactValues masks secret values in text: values of four or more
+// characters wherever they appear, shorter ones only as the whole text.
+func redactValues(text string, secrets []string) string {
+	for _, secret := range secrets {
+		if len(secret) >= 4 {
+			text = strings.ReplaceAll(text, secret, redact.Placeholder)
+		} else if text == secret {
+			text = redact.Placeholder
+		}
+	}
+	return text
+}
+
+func redactPlanValues(plan *corev1alpha1.RevisionPlan, secrets []string) {
+	if len(secrets) == 0 {
+		return
+	}
+	for i := range plan.Resources {
+		for j := range plan.Resources[i].Changes {
+			change := &plan.Resources[i].Changes[j]
+			before, after := redactValues(change.Before, secrets), redactValues(change.After, secrets)
+			if before != change.Before || after != change.After {
+				change.Before, change.After, change.Redacted = before, after, true
+			}
+		}
+	}
 }
 
 func rendererInput(application *corev1alpha1.Application, workspace string) renderer.Input {

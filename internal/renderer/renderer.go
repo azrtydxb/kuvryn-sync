@@ -34,6 +34,12 @@ type Input struct {
 	ValuesFiles []string
 	// Namespace is the release namespace for renderers that template it.
 	Namespace string
+	// ChartPath, when set, is a chart archive or directory pulled from a chart
+	// repository; Helm renders it instead of Path, with ValuesFiles still
+	// relative to Path.
+	ChartPath string
+	// Values are merged over every other values source.
+	Values map[string]any
 	// Decrypt, when set, is applied to every file a renderer reads from the
 	// workspace; it returns SOPS-encrypted files decrypted and others as is.
 	Decrypt func(path string, data []byte) ([]byte, error)

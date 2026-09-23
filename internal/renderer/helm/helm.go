@@ -32,14 +32,23 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 	if err != nil {
 		return nil, err
 	}
-	if err := renderer.Contained(input.Workspace, dir); err != nil {
-		return nil, err
+	// A chart pulled from a repository reads nothing from Git unless values
+	// files are given, so source.path need not exist then.
+	if input.ChartPath == "" || len(input.ValuesFiles) > 0 {
+		if err := renderer.Contained(input.Workspace, dir); err != nil {
+			return nil, err
+		}
 	}
 	values, err := loadValues(input.Workspace, dir, input.ValuesFiles)
 	if err != nil {
 		return nil, err
 	}
-	chrt, err := chartloader.Load(dir)
+	values = valuesloader.MergeMaps(values, input.Values)
+	chartPath := dir
+	if input.ChartPath != "" {
+		chartPath = input.ChartPath
+	}
+	chrt, err := chartloader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("load Helm chart: %w", err)
 	}
