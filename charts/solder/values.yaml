@@ -6,6 +6,11 @@ image:
 replicaCount: 2
 leaderElection: true
 
+# Service account (in each Application's namespace) that Solder impersonates
+# when an Application sets no spec.serviceAccountName. Leave empty to refuse
+# such Applications.
+defaultServiceAccount: ""
+
 resources:
   requests:
     cpu: 50m

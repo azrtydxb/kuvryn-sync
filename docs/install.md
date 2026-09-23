@@ -70,7 +70,11 @@ Repository and reference it with `spec.git.auth.secretRef.name`.
 kubectl create secret generic platform-git \
   --from-literal=username=git \
   --from-literal=password="$GITHUB_TOKEN"
+kubectl label secret platform-git solder.io/git-credentials=true
 ```
+
+Solder only uses Secrets carrying the `solder.io/git-credentials=true` label,
+so a Repository cannot send an unrelated Secret to an arbitrary Git server.
 
 ```yaml
 apiVersion: solder.io/v1alpha1

@@ -9,8 +9,8 @@ import (
 )
 
 func TestRenderCoreReadCommands(t *testing.T) {
-	apps := RenderApplications([]corev1alpha1.Application{{ObjectMeta: metav1.ObjectMeta{Name: "payments"}, Status: corev1alpha1.ApplicationStatus{Sync: corev1alpha1.ApplicationSyncStatus{State: corev1alpha1.SyncStateSynced}, Health: corev1alpha1.ApplicationHealthStatus{State: corev1alpha1.HealthStateHealthy}, DesiredRevision: "abc", DeployedRevision: "abc"}}})
-	if !strings.Contains(apps, "payments") || !strings.Contains(apps, "Synced") || !strings.Contains(apps, "Healthy") {
+	apps := RenderApplications([]corev1alpha1.Application{{ObjectMeta: metav1.ObjectMeta{Name: "payments"}, Status: corev1alpha1.ApplicationStatus{Sync: corev1alpha1.ApplicationSyncStatus{State: corev1alpha1.SyncStateSynced}, Health: corev1alpha1.ApplicationHealthStatus{State: corev1alpha1.HealthStateHealthy}, DesiredRevision: "abc", DeployedRevision: "abc", ServiceAccountName: "payments-deployer"}}})
+	if !strings.Contains(apps, "payments") || !strings.Contains(apps, "Synced") || !strings.Contains(apps, "Healthy") || !strings.Contains(apps, "payments-deployer") || !strings.Contains(apps, "SERVICEACCOUNT") {
 		t.Fatalf("bad app output: %s", apps)
 	}
 	repos := RenderRepositories([]corev1alpha1.Repository{{ObjectMeta: metav1.ObjectMeta{Name: "platform"}, Spec: corev1alpha1.RepositorySpec{Type: corev1alpha1.RepositoryTypeGit}, Status: corev1alpha1.RepositoryStatus{State: corev1alpha1.RepositoryStateReady, ObservedRevision: "abc"}}})

@@ -29,14 +29,14 @@ spec:
 
 ### Spec fields
 
-| Field                          | Description                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------- |
-| `spec.type`                    | Source adapter. `v1alpha1` supports `git`.                                  |
-| `spec.git.url`                 | Git remote URL. HTTPS and SSH are supported by the source adapter.          |
-| `spec.git.revision`            | Default branch, tag, or exact commit for Applications that omit a revision. |
-| `spec.git.auth.secretRef.name` | Secret in the Repository namespace for private Git credentials.             |
-| `spec.applicationConfigPaths`  | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.  |
-| `spec.pollInterval`            | Polling interval when no external wake-up signal exists.                    |
+| Field                          | Description                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `spec.type`                    | Source adapter. `v1alpha1` supports `git`.                                                                               |
+| `spec.git.url`                 | Git remote URL. HTTPS and SSH are supported by the source adapter.                                                       |
+| `spec.git.revision`            | Default branch, tag, or exact commit for Applications that omit a revision.                                              |
+| `spec.git.auth.secretRef.name` | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`. |
+| `spec.applicationConfigPaths`  | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |
+| `spec.pollInterval`            | Polling interval when no external wake-up signal exists.                                                                 |
 
 ### Status fields
 
@@ -105,6 +105,7 @@ metadata:
   name: payments
   namespace: default
 spec:
+  serviceAccountName: payments-deployer
   source:
     repositoryRef:
       name: platform
@@ -147,6 +148,7 @@ spec:
 
 | Field                                     | Description                                                     |
 | ----------------------------------------- | --------------------------------------------------------------- |
+| `spec.serviceAccountName`                 | Service account Solder impersonates for this Application.       |
 | `spec.destination.namespace`              | Default namespace for namespaced desired resources.             |
 | `spec.sync.automatic`                     | Apply approved plans automatically.                             |
 | `spec.sync.prune`                         | Delete previously managed resources removed from desired state. |
@@ -163,15 +165,16 @@ spec:
 
 ### Status fields
 
-| Field                     | Description                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `status.state`            | High-level health state.                                                                               |
-| `status.desiredRevision`  | Source revision Git asks Solder to run.                                                                |
-| `status.deployedRevision` | Source revision currently deployed after rollback handling.                                            |
-| `status.sync.state`       | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
-| `status.health.state`     | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
-| `status.resources`        | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
-| `status.conditions`       | Kubernetes Conditions for reconciliation.                                                              |
+| Field                       | Description                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `status.state`              | High-level health state.                                                                               |
+| `status.desiredRevision`    | Source revision Git asks Solder to run.                                                                |
+| `status.deployedRevision`   | Source revision currently deployed after rollback handling.                                            |
+| `status.serviceAccountName` | Service account Solder last impersonated for this Application.                                         |
+| `status.sync.state`         | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
+| `status.health.state`       | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
+| `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
+| `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
 
 ## Revision
 

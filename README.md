@@ -79,6 +79,7 @@ applications:
   - metadata:
       name: payments
     spec:
+      serviceAccountName: payments-deployer
       source:
         path: apps/payments
         render:

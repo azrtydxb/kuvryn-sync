@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/renderer"
 	"github.com/azrtydxb/solder/internal/source"
 )
@@ -317,6 +318,8 @@ func newApplicationReconciler(objects []unstructured.Unstructured, capture *capt
 		Renderers: func(renderType corev1alpha1.RenderType) (renderer.Renderer, error) {
 			return capture, nil
 		},
+		Impersonation:         impersonate.New(cfg, client.Options{Scheme: k8sClient.Scheme()}),
+		DefaultServiceAccount: testServiceAccount,
 	}
 }
 

@@ -31,7 +31,8 @@ Check:
 
 - Git URL is reachable from the cluster;
 - branch, tag, or commit exists;
-- referenced Secret exists in the same namespace;
+- referenced Secret exists in the same namespace and is labelled
+  `solder.io/git-credentials: "true"`;
 - credentials are valid and allowed to read the repository;
 - every configured `spec.applicationConfigPaths` entry is repository-relative,
   unique, stays inside the repository, and is named `.solder.yaml`;
@@ -74,6 +75,25 @@ kubectl get events -n <namespace> --sort-by=.lastTimestamp
 Inspect the managed workload resources named in Revision plan or failure status.
 Health timeouts are controlled by `spec.health.timeout` and failure behavior by
 `spec.strategy.failurePolicy`.
+
+## ServiceAccountRequired or Forbidden
+
+`ServiceAccountRequired` means the Application sets no `spec.serviceAccountName`
+and the manager has no `--default-service-account`. Set one of them.
+
+`Forbidden` means the Application's service account may not read, apply, or
+delete a resource. The failure message names the verb and resource. Check what
+the account may do:
+
+```sh
+kubectl auth can-i --list -n <destination-namespace> \
+  --as system:serviceaccount:<application-namespace>:<service-account>
+```
+
+Grant the missing permission, then push a new commit or switch the Application
+to a service account that has it; retry limits otherwise keep the failed
+Revision blocked. A `PruneInventoryIncomplete` Warning Event names kinds the
+account may not list, whose managed objects Solder cannot prune.
 
 ## Server-Side Apply conflict
 

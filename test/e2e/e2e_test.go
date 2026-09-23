@@ -421,6 +421,26 @@ kind: Namespace
 metadata:
   name: solder-e2e
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solder-e2e-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: solder-e2e-deployer
+  namespace: solder-e2e
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: solder-e2e-deployer
+    namespace: default
+---
 apiVersion: solder.io/v1alpha1
 kind: Repository
 metadata:
@@ -437,6 +457,7 @@ kind: Application
 metadata:
   name: solder-e2e-product
 spec:
+  serviceAccountName: solder-e2e-deployer
   source:
     repositoryRef:
       name: solder-e2e-product-repo

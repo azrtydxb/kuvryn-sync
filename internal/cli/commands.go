@@ -12,9 +12,9 @@ import (
 // RenderApplications renders core Application read output from CRD objects.
 func RenderApplications(apps []corev1alpha1.Application) string {
 	var b bytes.Buffer
-	_, _ = fmt.Fprintln(&b, "NAME\tSYNC\tHEALTH\tDESIRED\tDEPLOYED")
+	_, _ = fmt.Fprintln(&b, "NAME\tSYNC\tHEALTH\tDESIRED\tDEPLOYED\tSERVICEACCOUNT")
 	for _, app := range apps {
-		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", app.Name, app.Status.Sync.State, app.Status.Health.State, app.Status.DesiredRevision, app.Status.DeployedRevision)
+		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", app.Name, app.Status.Sync.State, app.Status.Health.State, app.Status.DesiredRevision, app.Status.DeployedRevision, app.Status.ServiceAccountName)
 	}
 	return b.String()
 }

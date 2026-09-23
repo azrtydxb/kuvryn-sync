@@ -45,6 +45,14 @@ type ApplicationSpec struct {
 	// suspend stops Solder from mutating managed resources while retaining status.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
+	// serviceAccountName is the service account in the Application namespace
+	// that Solder impersonates to read, apply, and prune managed resources.
+	// When empty, the controller's default service account is used; when
+	// neither is set, Solder refuses to touch managed resources.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // ApplicationSource selects the desired state to render.
@@ -147,6 +155,10 @@ type ApplicationStatus struct {
 	// deployedRevision is the source revision currently deployed after rollback.
 	// +optional
 	DeployedRevision string `json:"deployedRevision,omitempty"`
+	// serviceAccountName is the service account Solder last impersonated for
+	// this Application.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// sync reports desired/live convergence independent from health.
 	// +optional
 	Sync ApplicationSyncStatus `json:"sync,omitempty"`

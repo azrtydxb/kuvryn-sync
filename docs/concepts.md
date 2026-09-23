@@ -32,6 +32,7 @@ operators can see which Git config file owns them.
 An `Application` describes a deployable unit:
 
 - source Repository, revision, path, and renderer;
+- the service account Solder acts as when it reads, applies, and prunes;
 - destination namespace constraints;
 - sync policy for automatic apply, pruning, self-heal, and conflict handling;
 - health observation timeout;

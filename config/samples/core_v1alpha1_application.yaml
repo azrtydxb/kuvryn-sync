@@ -4,6 +4,7 @@ metadata:
   name: payments
   namespace: default
 spec:
+  serviceAccountName: payments-deployer
   source:
     repositoryRef:
       name: platform

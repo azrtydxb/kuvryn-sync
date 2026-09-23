@@ -57,7 +57,9 @@ spec:
   pollInterval: 60s
 ```
 
-For a private repository, create a Secret and reference it from the Repository.
+For a private repository, create a Secret labelled
+`solder.io/git-credentials: "true"` and reference it from the Repository.
+Solder refuses unlabelled Secrets.
 Secret values are consumed by the controller and must not be copied into
 Application specs or annotations.
 
@@ -67,6 +69,8 @@ kind: Secret
 metadata:
   name: platform-git
   namespace: default
+  labels:
+    solder.io/git-credentials: "true"
 type: Opaque
 stringData:
   username: git
@@ -95,7 +99,46 @@ kubectl get repo platform
 kubectl describe repo platform
 ```
 
-## 3. Declare Applications in Git
+## 3. Grant Solder a service account to deploy with
+
+Solder applies each Application as a service account, so it can only change
+what that account is allowed to change. Create the destination namespace, then
+a service account bound to the `admin` role there:
+
+```sh
+kubectl create namespace payments
+```
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: payments-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: payments-deployer
+  namespace: payments
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: payments-deployer
+    namespace: default
+```
+
+Set `serviceAccountName: payments-deployer` on each Application. Alternatively,
+install Solder with `--set defaultServiceAccount=<name>`; Solder then uses the
+service account of that name in each Application's namespace. Applications
+without a service account are refused. The `admin` role cannot create
+Namespace objects, so rendered Namespaces fail as `Forbidden` unless you grant
+more.
+
+## 4. Declare Applications in Git
 
 Add `.solder.yaml` at the root of the repository. The Repository controller
 reads this file after resolving Git and creates or updates the listed
@@ -116,6 +159,7 @@ applications:
   - metadata:
       name: payments
     spec:
+      serviceAccountName: payments-deployer
       source:
         path: apps/payments
         render:
@@ -157,7 +201,7 @@ Renderer choices:
 - `kustomize`: run Kustomize build against `path`.
 - `helm`: render a Helm chart from `path` and optional values files.
 
-## 4. Observe reconciliation
+## 5. Observe reconciliation
 
 ```sh
 kubectl get applications.solder.io,revisions.solder.io
@@ -173,14 +217,14 @@ A healthy automatic sync usually ends with:
 - Application `.status.health.state: Healthy`
 - Revision `.status.phase: Healthy`
 
-## 5. Try an update
+## 6. Try an update
 
 Push a change to the Git path, then wait for polling or force a reconcile by
 editing the Repository/Application metadata. Solder resolves the new Git commit,
 creates or updates a Revision, computes a plan, applies with SSA, observes
 health, and updates status.
 
-## 6. Roll back
+## 7. Roll back
 
 Roll back to the latest healthy Revision:
 

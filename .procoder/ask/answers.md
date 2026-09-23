@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 07:02 UTC. procoder reads this
+Written 2026-09-23 07:13 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -15,6 +15,12 @@ Answer: (2026-09-23) Validating admission webhook records the authenticated user
 Key: Formatting of controller-gen output
 
 Answer: (2026-09-23) Prettier-format generated YAML after every `make manifests`.
+
+## (no longer asked)
+
+Key: Git credential Secret exfiltration via Repository
+
+Answer: (2026-09-23) Opt-in label: Solder only reads Secrets labelled `solder.io/git-credentials: "true"`.
 
 ## (no longer asked)
 

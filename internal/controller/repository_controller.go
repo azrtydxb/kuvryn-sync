@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -137,6 +138,9 @@ func (r *RepositoryReconciler) resolver() source.Resolver {
 	return r.SourceResolver
 }
 
+// GitCredentialsLabel marks a Secret that Solder may use as Git credentials.
+const GitCredentialsLabel = "solder.io/git-credentials"
+
 func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repository *corev1alpha1.Repository) (source.Credentials, error) {
 	if repository.Spec.Git == nil || repository.Spec.Git.Auth == nil || repository.Spec.Git.Auth.SecretRef == nil {
 		return source.Credentials{}, nil
@@ -148,6 +152,11 @@ func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repositor
 			return source.Credentials{}, &source.Error{Reason: source.FailureReasonAuthenticationFailure, Message: "Git authentication Secret was not found", Err: err}
 		}
 		return source.Credentials{}, err
+	}
+	// Whoever writes a Repository chooses both the Git URL and the Secret, so
+	// only Secrets explicitly marked as Git credentials may be sent anywhere.
+	if secret.Labels[GitCredentialsLabel] != "true" {
+		return source.Credentials{}, &source.Error{Reason: source.FailureReasonAuthenticationFailure, Message: fmt.Sprintf("Git authentication Secret is not labelled %s=true", GitCredentialsLabel)}
 	}
 	credentials := source.Credentials{
 		Username:   secretString(secret, "username"),

@@ -70,7 +70,7 @@ var _ = Describe("Repository Controller", func() {
 
 	It("resolves a Git source and records readiness without exposing credentials", func() {
 		Expect(k8sClient.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "platform-git", Namespace: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "platform-git", Namespace: "default", Labels: map[string]string{GitCredentialsLabel: "true"}},
 			Data: map[string][]byte{
 				"username": []byte("git-user"),
 				"token":    []byte("super-secret-token"),
@@ -293,6 +293,37 @@ var _ = Describe("Repository Controller", func() {
 		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 		Expect(updated.Status.State).To(Equal(corev1alpha1.RepositoryStateFailed))
 		Expect(updated.Status.Conditions[0].Reason).To(Equal(string(source.FailureReasonValidationFailure)))
+	})
+
+	It("refuses to send an unlabelled Secret as Git credentials", func() {
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "platform-git", Namespace: "default"},
+			Data:       map[string][]byte{"password": []byte("database-password")},
+		})).To(Succeed())
+		resource := &corev1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+			Spec: corev1alpha1.RepositorySpec{
+				Type: corev1alpha1.RepositoryTypeGit,
+				Git: &corev1alpha1.GitRepositorySpec{
+					URL:      "https://attacker.example/x.git",
+					Revision: "main",
+					Auth:     &corev1alpha1.GitAuthSpec{SecretRef: &corev1alpha1.SecretReference{Name: "platform-git"}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+		resolver := &recordingSourceResolver{}
+		controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1alpha1.Repository{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		Expect(updated.Status.State).To(Equal(corev1alpha1.RepositoryStateFailed))
+		Expect(updated.Status.Conditions[0].Reason).To(Equal(string(source.FailureReasonAuthenticationFailure)))
+		Expect(updated.Status.Conditions[0].Message).To(ContainSubstring(GitCredentialsLabel))
+		Expect(resolver.repository.Auth.Password).To(BeEmpty(), "unlabelled Secret was sent to the Git remote")
 	})
 
 	It("reports missing auth Secrets as authentication failures", func() {

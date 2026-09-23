@@ -49,6 +49,7 @@ import (
 	"github.com/azrtydxb/solder/internal/applier"
 	"github.com/azrtydxb/solder/internal/health"
 	"github.com/azrtydxb/solder/internal/history"
+	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/live"
 	"github.com/azrtydxb/solder/internal/ops"
 	"github.com/azrtydxb/solder/internal/ordering"
@@ -88,6 +89,11 @@ type ApplicationReconciler struct {
 	Recorder       record.EventRecorder
 	Tracer         ops.Tracer
 	Metrics        ops.ApplicationMetrics
+
+	// Impersonation builds clients that act as an Application's service account.
+	Impersonation *impersonate.Clients
+	// DefaultServiceAccount is impersonated when an Application names none.
+	DefaultServiceAccount string
 }
 
 // +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
@@ -97,6 +103,7 @@ type ApplicationReconciler struct {
 // +kubebuilder:rbac:groups=solder.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
 // +kubebuilder:rbac:groups="",resources=configmaps;services;secrets;persistentvolumeclaims;serviceaccounts;namespaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch;create;update;patch;delete
@@ -144,6 +151,16 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if application.Status.Sync.State == "" {
 			application.Status.Sync.State = corev1alpha1.SyncStateUnknown
 		}
+		return ctrl.Result{}, r.Status().Update(ctx, application)
+	}
+
+	tenant, err := r.tenantClient(application)
+	if err != nil {
+		reason := "ServiceAccountFailure"
+		if errors.Is(err, errServiceAccountRequired) {
+			reason = "ServiceAccountRequired"
+		}
+		r.markApplicationFailure(application, reason, safeMessage(err, "Application service account could not be used"))
 		return ctrl.Result{}, r.Status().Update(ctx, application)
 	}
 
@@ -231,9 +248,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 
-	liveResult, err := (live.Reader{Client: r.Client}).Read(ctx, rendered)
+	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, rendered)
 	if err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Live state could not be read"), Retryable: true}
+		failure := accessFailure(err, "PlanFailure", "Live state could not be read", true)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	liveObjects := make([]unstructured.Unstructured, 0, len(liveResult.Found))
@@ -242,11 +259,12 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	managedStale := []unstructured.Unstructured{}
 	if application.Spec.Sync.Prune {
-		managed, err := r.listManagedObjects(ctx, application)
+		managed, skipped, err := listManagedObjects(ctx, tenant, application)
 		if err != nil {
-			failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Managed resources could not be inventoried"), Retryable: true}
+			failure := accessFailure(err, "PlanFailure", "Managed resources could not be inventoried", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
+		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
 		managedStale = staleManagedObjects(rendered, liveObjects, managed)
 		liveObjects = append(liveObjects, managedStale...)
 	}
@@ -292,7 +310,53 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Planned Application", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
 		return ctrl.Result{}, nil
 	}
-	return r.applyAndObserve(ctx, application, revision, rendered, managedStale)
+	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale)
+}
+
+var errServiceAccountRequired = errors.New("application has no serviceAccountName and the controller has no default service account")
+
+// tenantClient returns a client acting as the Application's effective service
+// account, refusing when no service account is configured.
+func (r *ApplicationReconciler) tenantClient(application *corev1alpha1.Application) (client.Client, error) {
+	application.Status.ServiceAccountName = ""
+	name := effectiveServiceAccount(application, r.DefaultServiceAccount)
+	if name == "" {
+		return nil, errServiceAccountRequired
+	}
+	if r.Impersonation == nil {
+		return nil, fmt.Errorf("service account impersonation is not configured")
+	}
+	tenant, err := r.Impersonation.For(application.Namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	application.Status.ServiceAccountName = name
+	return tenant, nil
+}
+
+func effectiveServiceAccount(application *corev1alpha1.Application, defaultServiceAccount string) string {
+	if application.Spec.ServiceAccountName != "" {
+		return application.Spec.ServiceAccountName
+	}
+	return defaultServiceAccount
+}
+
+// warnSkippedKinds records kinds the service account may not list, whose
+// managed objects Solder therefore cannot find or delete.
+func (r *ApplicationReconciler) warnSkippedKinds(application *corev1alpha1.Application, reason string, kinds []string) {
+	if len(kinds) == 0 {
+		return
+	}
+	r.event(application, corev1.EventTypeWarning, reason, fmt.Sprintf("Service account may not list %s; managed objects of these kinds are not deleted", strings.Join(kinds, ", ")))
+}
+
+// accessFailure reports RBAC denials of the Application service account as a
+// non-retryable Forbidden failure and everything else with the given reason.
+func accessFailure(err error, reason, fallback string, retryable bool) corev1alpha1.RevisionFailure {
+	if apierrors.IsForbidden(err) {
+		return corev1alpha1.RevisionFailure{Reason: "Forbidden", Message: safeMessage(err, "Application service account is not allowed to manage a resource"), Retryable: false}
+	}
+	return corev1alpha1.RevisionFailure{Reason: reason, Message: safeMessage(err, fallback), Retryable: retryable}
 }
 
 func (r *ApplicationReconciler) resolver() source.Resolver {
@@ -348,7 +412,7 @@ func rendererInput(application *corev1alpha1.Application, workspace string) rend
 }
 
 func (r *ApplicationReconciler) ensureRevision(ctx context.Context, application *corev1alpha1.Application, revision string) (*corev1alpha1.Revision, error) {
-	name, desiredHash, err := revisionIdentity(application, revision)
+	name, desiredHash, err := revisionIdentity(application, revision, effectiveServiceAccount(application, r.DefaultServiceAccount))
 	if err != nil {
 		return nil, err
 	}
@@ -407,19 +471,24 @@ func desiredStateHash(objects []unstructured.Unstructured) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func revisionIdentity(application *corev1alpha1.Application, revision string) (string, string, error) {
+// revisionIdentity includes the service account because who applies is part
+// of a deployment attempt: switching to an account with the right permissions
+// must start a fresh Revision instead of reusing one blocked by retry limits.
+func revisionIdentity(application *corev1alpha1.Application, revision, serviceAccount string) (string, string, error) {
 	raw, err := json.Marshal(struct {
-		Application string                            `json:"application"`
-		Repository  corev1alpha1.LocalObjectReference `json:"repository"`
-		Revision    string                            `json:"revision"`
-		Path        string                            `json:"path"`
-		Render      corev1alpha1.RenderSpec           `json:"render"`
+		Application    string                            `json:"application"`
+		Repository     corev1alpha1.LocalObjectReference `json:"repository"`
+		Revision       string                            `json:"revision"`
+		Path           string                            `json:"path"`
+		Render         corev1alpha1.RenderSpec           `json:"render"`
+		ServiceAccount string                            `json:"serviceAccount"`
 	}{
-		Application: application.Name,
-		Repository:  application.Spec.Source.RepositoryRef,
-		Revision:    revision,
-		Path:        application.Spec.Source.Path,
-		Render:      application.Spec.Source.Render,
+		Application:    application.Name,
+		Repository:     application.Spec.Source.RepositoryRef,
+		Revision:       revision,
+		Path:           application.Spec.Source.Path,
+		Render:         application.Spec.Source.Render,
+		ServiceAccount: serviceAccount,
 	})
 	if err != nil {
 		return "", "", err
@@ -482,14 +551,26 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 		return nil
 	}
 	if application.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources {
-		managed, err := r.listManagedObjects(ctx, application)
+		tenant, err := r.tenantClient(application)
+		if err != nil {
+			// Without a service account Solder may not delete anything, so the
+			// managed resources are orphaned rather than blocking deletion forever.
+			r.event(application, corev1.EventTypeWarning, "ManagedResourcesOrphaned", safeMessage(err, "Application service account could not be used"))
+			controllerutil.RemoveFinalizer(application, applicationFinalizer)
+			return r.Update(ctx, application)
+		}
+		managed, skipped, err := listManagedObjects(ctx, tenant, application)
 		if err != nil {
 			return err
 		}
+		r.warnSkippedKinds(application, "ManagedResourcesOrphaned", skipped)
 		plan := prune.Plan(managed, prune.Policy{Application: application.Name, AllowHighRisk: true})
 		for _, obj := range ordering.Prune(plan.Eligible) {
 			candidate := obj.DeepCopy()
-			if err := r.Delete(ctx, candidate); client.IgnoreNotFound(err) != nil {
+			if err := tenant.Delete(ctx, candidate); client.IgnoreNotFound(err) != nil {
+				if apierrors.IsForbidden(err) {
+					r.event(application, corev1.EventTypeWarning, "Forbidden", safeMessage(err, "Application service account may not delete a managed resource"))
+				}
 				return err
 			}
 		}
@@ -498,7 +579,10 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 	return r.Update(ctx, application)
 }
 
-func (r *ApplicationReconciler) listManagedObjects(ctx context.Context, application *corev1alpha1.Application) ([]unstructured.Unstructured, error) {
+// listManagedObjects inventories objects labelled as managed by application.
+// Kinds the service account may not list are returned as skipped, since their
+// objects can neither be found nor pruned.
+func listManagedObjects(ctx context.Context, reader client.Reader, application *corev1alpha1.Application) ([]unstructured.Unstructured, []string, error) {
 	gvks := []schema.GroupVersionKind{
 		{Group: "", Version: "v1", Kind: "ConfigMap"},
 		{Group: "", Version: "v1", Kind: "Secret"},
@@ -508,6 +592,7 @@ func (r *ApplicationReconciler) listManagedObjects(ctx context.Context, applicat
 		{Group: "apps", Version: "v1", Kind: "DaemonSet"},
 	}
 	out := []unstructured.Unstructured{}
+	skipped := []string{}
 	for _, gvk := range gvks {
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"})
@@ -515,8 +600,12 @@ func (r *ApplicationReconciler) listManagedObjects(ctx context.Context, applicat
 		if namespace == "" {
 			namespace = application.Namespace
 		}
-		if err := r.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: application.Name}); err != nil {
-			return nil, err
+		if err := reader.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: application.Name}); err != nil {
+			if apierrors.IsForbidden(err) {
+				skipped = append(skipped, gvk.Kind)
+				continue
+			}
+			return nil, nil, err
 		}
 		for _, item := range list.Items {
 			ownerNamespace := item.GetLabels()[applier.ApplicationNamespaceLabelKey]
@@ -525,7 +614,7 @@ func (r *ApplicationReconciler) listManagedObjects(ctx context.Context, applicat
 			}
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructured) []unstructured.Unstructured {
@@ -551,7 +640,7 @@ func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructur
 	return stale
 }
 
-func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured) (ctrl.Result, error) {
+func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured) (ctrl.Result, error) {
 	status.StartApplying(revision, application, metav1.Now())
 	if err := syncpolicy.EnsureMutationAllowed(*application, revision.Status.Phase); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ApplyBlocked", Message: safeMessage(err, "Application is not allowed to apply"), Retryable: false}
@@ -562,9 +651,9 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, application
 	}
 	r.event(application, corev1.EventTypeNormal, "DeploymentStarted", "Application deployment started")
 	ordered := ordering.Apply(desired)
-	_, err := (applier.Applier{Client: r.Client, ApplicationNamespace: application.Namespace}).Apply(ctx, application.Name, revision.Name, ordered, syncpolicy.EffectiveConflictPolicy(application.Spec.Sync))
+	_, err := (applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}).Apply(ctx, application.Name, revision.Name, ordered, syncpolicy.EffectiveConflictPolicy(application.Spec.Sync))
 	if err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "ApplyFailure", Message: safeMessage(err, "Desired state apply failed"), Retryable: true}
+		failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	prunePlan := prune.Plan(pruneCandidates, prune.Policy{Application: application.Name})
@@ -574,14 +663,14 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, application
 	}
 	for _, obj := range ordering.Prune(prunePlan.Eligible) {
 		candidate := obj.DeepCopy()
-		if err := r.Delete(ctx, candidate); client.IgnoreNotFound(err) != nil {
-			failure := corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(err, "Managed resource prune failed"), Retryable: true}
+		if err := tenant.Delete(ctx, candidate); client.IgnoreNotFound(err) != nil {
+			failure := accessFailure(err, "PruneFailure", "Managed resource prune failed", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 	}
-	liveResult, err := (live.Reader{Client: r.Client}).Read(ctx, desired)
+	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, desired)
 	if err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "Applied resources could not be read"), Retryable: true}
+		failure := accessFailure(err, "HealthFailure", "Applied resources could not be read", true)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	liveObjects := make([]unstructured.Unstructured, 0, len(liveResult.Found))

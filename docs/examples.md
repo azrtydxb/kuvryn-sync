@@ -12,6 +12,7 @@ applications:
   - metadata:
       name: payments
     spec:
+      serviceAccountName: payments-deployer
       source:
         path: apps/payments/overlays/prod
         render:
@@ -26,6 +27,7 @@ applications:
   - metadata:
       name: search
     spec:
+      serviceAccountName: search-deployer
       source:
         path: apps/search
         render:
@@ -71,6 +73,7 @@ kind: Application
 metadata:
   name: config
 spec:
+  serviceAccountName: config-deployer
   source:
     repositoryRef:
       name: platform
@@ -92,6 +95,7 @@ kind: Application
 metadata:
   name: payments
 spec:
+  serviceAccountName: payments-deployer
   source:
     repositoryRef:
       name: platform
@@ -115,6 +119,7 @@ kind: Application
 metadata:
   name: store
 spec:
+  serviceAccountName: store-deployer
   source:
     repositoryRef:
       name: platform
