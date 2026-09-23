@@ -340,7 +340,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan = plan.RevisionPlan(r.planLimit())
 	redactPlanValues(&revision.Status.Plan, helmInputs.secretValues)
 	revision.Status.ChartDigest = helmInputs.chartDigest
-	digest, err := planDigest(revision.Spec.DesiredStateHash, plan)
+	digest, err := planDigest(revision.Spec.DesiredStateHash, plan, helmInputs.secretValues)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be fingerprinted"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -448,9 +448,14 @@ func manualApproval(application *corev1alpha1.Application, revision *corev1alpha
 }
 
 // planDigest fingerprints what an approval covers: the rendered desired state
-// and the complete, redacted change plan against live state.
-func planDigest(desiredStateHash string, plan planner.Plan) (string, error) {
-	raw, err := json.Marshal(plan.RevisionPlan(0))
+// and the complete, redacted change plan against live state. Secret-sourced
+// Helm values are masked before hashing, so they never feed the digest in
+// clear; a change to them still changes the digest through desiredStateHash,
+// which covers the rendered objects they end up in.
+func planDigest(desiredStateHash string, plan planner.Plan, secretValues []string) (string, error) {
+	full := plan.RevisionPlan(0)
+	redactPlanValues(&full, secretValues)
+	raw, err := json.Marshal(full)
 	if err != nil {
 		return "", err
 	}
