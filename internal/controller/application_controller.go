@@ -311,6 +311,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
+	markConflictPolicy(&plan, syncpolicy.EffectiveConflictPolicy(application.Spec.Sync))
 	revision.Status.Plan = plan.RevisionPlan(r.planLimit())
 	redactPlanValues(&revision.Status.Plan, helmInputs.secretValues)
 	revision.Status.ChartDigest = helmInputs.chartDigest
@@ -782,6 +783,16 @@ func revisionIdentity(application *corev1alpha1.Application, revision, serviceAc
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:])
 	return fmt.Sprintf("%s-%s", application.Name, hash[:12]), hash, nil
+}
+
+// markConflictPolicy records on each conflict how apply will treat it, so an
+// adopting plan shows every field and manager it takes over.
+func markConflictPolicy(plan *planner.Plan, policy corev1alpha1.ConflictPolicy) {
+	for i := range plan.Changes {
+		for j := range plan.Changes[i].Conflicts {
+			plan.Changes[i].Conflicts[j].Policy = policy
+		}
+	}
 }
 
 func conflictFailure(plan planner.Plan) *corev1alpha1.RevisionFailure {

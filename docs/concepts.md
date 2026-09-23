@@ -99,8 +99,10 @@ The reconciliation pipeline is:
 
 ## Apply and prune
 
-Solder applies with Kubernetes Server-Side Apply. Conflict policy currently
-supports `fail`, which blocks ownership conflicts instead of force-taking fields.
+Solder applies with Kubernetes Server-Side Apply. The default conflict policy,
+`fail`, blocks ownership conflicts instead of force-taking fields; `adopt`
+takes ownership of conflicting fields and lists each one, with its previous
+manager, in the plan.
 
 When pruning is enabled, Solder deletes previously managed resources that are no
 longer present in desired state. It finds them by label across every kind in

@@ -532,6 +532,7 @@ spec:
                                     that will be used by apply.
                                   enum:
                                     - fail
+                                    - adopt
                                   type: string
                               required:
                                 - manager

@@ -17,6 +17,9 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- `spec.sync.conflictPolicy: adopt` takes ownership of fields another field
+  manager holds (Server-Side Apply force), listing every field and previous
+  manager in the plan; `fail` remains the default.
 - Helm Applications can pull a pinned chart from an `https://` Helm
   repository or `oci://` registry (`render.helm.chart`), recording the
   archive digest on the Revision, and merge `valuesFrom` ConfigMaps/Secrets

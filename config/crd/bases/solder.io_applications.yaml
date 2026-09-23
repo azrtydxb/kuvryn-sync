@@ -391,6 +391,7 @@ spec:
                       description: conflictPolicy controls SSA ownership conflict behavior.
                       enum:
                         - fail
+                        - adopt
                       type: string
                     prune:
                       description:

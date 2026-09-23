@@ -106,8 +106,9 @@ kubectl get <kind> <name> -n <namespace> -o yaml --show-managed-fields
 ```
 
 Resolve ownership intentionally: update the external manager, move the field out
-of Solder's desired state, or recreate the resource under a clear owner. Solder
-will not force-take ownership in `v1alpha1`.
+of Solder's desired state, recreate the resource under a clear owner, or, when
+Solder should take over (for example while migrating), set
+`spec.sync.conflictPolicy: adopt` and review the takeover in the plan.
 
 ## Helm or Kustomize render failure
 

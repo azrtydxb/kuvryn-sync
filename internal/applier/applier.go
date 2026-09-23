@@ -36,9 +36,10 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	if policy == "" {
 		policy = corev1alpha1.ConflictPolicyFail
 	}
-	if policy != corev1alpha1.ConflictPolicyFail {
+	if policy != corev1alpha1.ConflictPolicyFail && policy != corev1alpha1.ConflictPolicyAdopt {
 		return Result{}, fmt.Errorf("unsupported conflict policy %q", policy)
 	}
+
 	manager := a.FieldManager
 	if manager == "" {
 		manager = FieldManager
@@ -47,7 +48,11 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	for i := range desired {
 		obj := desired[i].DeepCopy()
 		MarkManaged(obj, application, a.ApplicationNamespace, revision)
-		if err := a.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(manager)); err != nil {
+		options := []client.PatchOption{client.FieldOwner(manager)}
+		if policy == corev1alpha1.ConflictPolicyAdopt {
+			options = append(options, client.ForceOwnership)
+		}
+		if err := a.Client.Patch(ctx, obj, client.Apply, options...); err != nil {
 			return result, err
 		}
 		result.Applied++

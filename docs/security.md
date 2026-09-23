@@ -20,9 +20,11 @@ surfaces while still giving operators useful plans, events, and diagnostics.
 
 ## Server-Side Apply ownership
 
-Solder mutates live objects with Server-Side Apply. The default and only current
-conflict policy is `fail`, which prevents Solder from silently taking fields
-owned by another manager.
+Solder mutates live objects with Server-Side Apply. The default conflict policy
+is `fail`, which prevents Solder from taking fields owned by another manager.
+`conflictPolicy: adopt` takes them over deliberately, for migrations: the plan
+lists every field and its previous manager, and manual approval, when
+enabled, applies to the takeover like any other change.
 
 ## RBAC and service account impersonation
 

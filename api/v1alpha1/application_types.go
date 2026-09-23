@@ -225,7 +225,7 @@ type SyncPolicy struct {
 	// +optional
 	SelfHeal bool `json:"selfHeal,omitempty"`
 	// conflictPolicy controls SSA ownership conflict behavior.
-	// +kubebuilder:validation:Enum=fail
+	// +kubebuilder:validation:Enum=fail;adopt
 	// +kubebuilder:default:=fail
 	// +optional
 	ConflictPolicy ConflictPolicy `json:"conflictPolicy,omitempty"`
