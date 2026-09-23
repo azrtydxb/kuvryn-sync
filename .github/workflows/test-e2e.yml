@@ -1,7 +1,6 @@
 name: E2E Tests
 
-# push covers main (and release tags); pull_request covers every other
-# branch. An unfiltered push trigger ran each PR commit twice (#1).
+# push covers main; pull_request covers every other branch. An unfiltered push trigger ran each PR commit twice (#1).
 on:
   push:
     branches: [main]
