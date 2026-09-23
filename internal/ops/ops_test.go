@@ -26,25 +26,6 @@ func TestLifecycleEventAndMetricLabelsAreBounded(t *testing.T) {
 	}
 }
 
-func TestObserveApplicationReconcile(t *testing.T) {
-	metrics := &recordingMetrics{}
-	app := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: "payments"}}
-	ObserveApplicationReconcile(metrics, app, corev1alpha1.RevisionPhaseApplying, nil)
-	if len(metrics.labels) == 0 || metrics.failed {
-		t.Fatalf("metrics not recorded: %#v failed=%t", metrics.labels, metrics.failed)
-	}
-}
-
-type recordingMetrics struct {
-	labels map[string]string
-	failed bool
-}
-
-func (r *recordingMetrics) ObserveApplication(labels map[string]string, failed bool) {
-	r.labels = labels
-	r.failed = failed
-}
-
 func TestNoopTracerAndRateLimiter(t *testing.T) {
 	ctx, finish := NoopTracer().Start(context.Background(), "operation")
 	finish(nil)

@@ -36,19 +36,6 @@ func MetricLabels(app corev1alpha1.Application, phase corev1alpha1.RevisionPhase
 	}
 }
 
-// ApplicationMetrics records bounded Application reconcile observations.
-type ApplicationMetrics interface {
-	ObserveApplication(labels map[string]string, failed bool)
-}
-
-// ObserveApplicationReconcile records one reconcile using bounded labels.
-func ObserveApplicationReconcile(metrics ApplicationMetrics, app corev1alpha1.Application, phase corev1alpha1.RevisionPhase, err error) {
-	if metrics == nil {
-		return
-	}
-	metrics.ObserveApplication(MetricLabels(app, phase), err != nil)
-}
-
 // Tracer is an optional tracing seam; nil/noop means tracing disabled.
 type Tracer interface {
 	Start(context.Context, string) (context.Context, func(error))

@@ -30,10 +30,14 @@ func init() {
 	metrics.Registry.MustRegister(ReconcileTotal, ReconcileDurationSeconds, LifecycleEventsTotal)
 }
 
-// ObserveReconcile records one Application reconciliation using bounded labels.
-func ObserveReconcile(app corev1alpha1.Application, phase corev1alpha1.RevisionPhase, result string, duration time.Duration) {
+// ObserveReconcile records one Application reconciliation, which took
+// duration and failed when err is set, using bounded labels.
+func ObserveReconcile(app corev1alpha1.Application, phase corev1alpha1.RevisionPhase, err error, duration time.Duration) {
 	labels := MetricLabels(app, phase)
-	result = safeLabel(result, "unknown")
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
 	ReconcileTotal.WithLabelValues(labels["namespace"], labels["sync"], labels["health"], labels["phase"], result).Inc()
 	ReconcileDurationSeconds.WithLabelValues(labels["namespace"], labels["sync"], labels["health"], labels["phase"], result).Observe(duration.Seconds())
 }
@@ -43,26 +47,4 @@ func ObserveLifecycleEvent(app corev1alpha1.Application, phase corev1alpha1.Revi
 	labels := MetricLabels(app, phase)
 	reason = safeLabel(reason, "unknown")
 	LifecycleEventsTotal.WithLabelValues(labels["namespace"], labels["sync"], labels["health"], labels["phase"], reason).Inc()
-}
-
-type prometheusApplicationMetrics struct {
-	started time.Time
-}
-
-// PrometheusApplicationMetrics returns the default controller-runtime metrics recorder.
-func PrometheusApplicationMetrics() ApplicationMetrics {
-	return prometheusApplicationMetrics{started: time.Now()}
-}
-
-func (m prometheusApplicationMetrics) ObserveApplication(labels map[string]string, failed bool) {
-	result := "success"
-	if failed {
-		result = "error"
-	}
-	phase := corev1alpha1.RevisionPhase(labels["phase"])
-	app := corev1alpha1.Application{}
-	app.Namespace = labels["namespace"]
-	app.Status.Sync.State = corev1alpha1.SyncState(labels["sync"])
-	app.Status.Health.State = corev1alpha1.HealthState(labels["health"])
-	ObserveReconcile(app, phase, result, time.Since(m.started))
 }

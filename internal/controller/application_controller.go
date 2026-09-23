@@ -96,7 +96,6 @@ type ApplicationReconciler struct {
 	PlanLimit      int
 	Recorder       record.EventRecorder
 	Tracer         ops.Tracer
-	Metrics        ops.ApplicationMetrics
 
 	// Impersonation builds clients that act as an Application's service account.
 	Impersonation *impersonate.Clients
@@ -132,6 +131,7 @@ type ApplicationReconciler struct {
 
 // Reconcile resolves, renders, validates, plans, applies approved changes, and observes health.
 func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reconcileErr error) {
+	start := time.Now()
 	if r.Tracer != nil {
 		var finish func(error)
 		ctx, finish = r.Tracer.Start(ctx, "Application/Reconcile")
@@ -139,11 +139,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	metricApp := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: req.Namespace}}
 	metricPhase := corev1alpha1.RevisionPhase("")
-	metrics := r.Metrics
-	if metrics == nil {
-		metrics = ops.PrometheusApplicationMetrics()
-	}
-	defer func() { ops.ObserveApplicationReconcile(metrics, metricApp, metricPhase, reconcileErr) }()
+	defer func() { ops.ObserveReconcile(metricApp, metricPhase, reconcileErr, time.Since(start)) }()
 	log := logf.FromContext(ctx)
 	unwatched := false
 	defer func() {

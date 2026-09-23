@@ -238,10 +238,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.ApplicationReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Tracer:  ops.NewOTelTracer("github.com/azrtydxb/solder/controller"),
-		Metrics: ops.PrometheusApplicationMetrics(),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Tracer: ops.NewOTelTracer("github.com/azrtydxb/solder/controller"),
 		Impersonation: impersonate.New(mgr.GetConfig(), client.Options{
 			Scheme: mgr.GetScheme(),
 			Mapper: mgr.GetRESTMapper(),
