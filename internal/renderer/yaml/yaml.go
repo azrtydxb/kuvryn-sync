@@ -53,18 +53,21 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// Messages reach Application status, so they name the file by its
+		// path in the repository rather than in the cache.
+		rel := renderer.Relative(input.Workspace, file)
 		data, err := os.ReadFile(file)
 		if err != nil {
-			return nil, fmt.Errorf("read YAML manifest %s: %w", file, err)
+			return nil, fmt.Errorf("read YAML manifest %s: %w", rel, err)
 		}
 		if input.Decrypt != nil {
-			if data, err = input.Decrypt(file, data); err != nil {
+			if data, err = input.Decrypt(rel, data); err != nil {
 				return nil, err
 			}
 		}
 		decoded, err := Decode(data)
 		if err != nil {
-			return nil, fmt.Errorf("decode YAML manifest %s: %w", file, err)
+			return nil, fmt.Errorf("decode YAML manifest %s: %w", rel, err)
 		}
 		objects = append(objects, decoded...)
 	}
