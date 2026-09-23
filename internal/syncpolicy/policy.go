@@ -28,13 +28,13 @@ func CheckApproval(plannedRevision string, approval Approval) error {
 // EnsureMutationAllowed centralizes gates that must pass before apply or prune mutates resources.
 func EnsureMutationAllowed(app corev1alpha1.Application, phase corev1alpha1.RevisionPhase) error {
 	if app.Spec.Suspend {
-		return fmt.Errorf("Application %s is suspended", app.Name)
+		return fmt.Errorf("application %s is suspended", app.Name)
 	}
 	switch phase {
 	case corev1alpha1.RevisionPhaseApplying, corev1alpha1.RevisionPhaseRollingBack:
 		return nil
 	default:
-		return fmt.Errorf("Revision phase %q is not allowed to mutate resources", phase)
+		return fmt.Errorf("revision phase %q is not allowed to mutate resources", phase)
 	}
 }
 

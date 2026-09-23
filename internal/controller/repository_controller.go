@@ -27,7 +27,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -47,7 +47,7 @@ const (
 type RepositoryReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 
 	SourceResolver source.Resolver
 	CacheDir       string
@@ -59,6 +59,7 @@ type RepositoryReconciler struct {
 // +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile resolves Git repositories to immutable source revisions and records
 // source readiness without exposing credentials.
@@ -208,13 +209,13 @@ func (r *RepositoryReconciler) event(repository *corev1alpha1.Repository, eventT
 	if r.Recorder == nil {
 		return
 	}
-	r.Recorder.Event(repository, eventType, reason, message)
+	r.Recorder.Eventf(repository, nil, eventType, reason, "Reconcile", "%s", message)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorderFor("repository-controller")
+		r.Recorder = mgr.GetEventRecorder("repository-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Repository{}).

@@ -47,7 +47,7 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	for i := range desired {
 		obj := desired[i].DeepCopy()
 		markManaged(obj, application, a.ApplicationNamespace, revision)
-		if err := a.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(manager)); err != nil {
+		if err := a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), client.FieldOwner(manager)); err != nil {
 			return result, err
 		}
 		result.Applied++

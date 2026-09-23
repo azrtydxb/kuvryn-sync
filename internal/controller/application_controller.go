@@ -37,7 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -85,7 +85,7 @@ type ApplicationReconciler struct {
 	CacheDir       string
 	Renderers      RendererFactory
 	PlanLimit      int
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 	Tracer         ops.Tracer
 	Metrics        ops.ApplicationMetrics
 }
@@ -726,7 +726,7 @@ func (r *ApplicationReconciler) event(application *corev1alpha1.Application, eve
 	if r.Recorder == nil {
 		return
 	}
-	r.Recorder.Event(application, eventType, reason, redact.String(message))
+	r.Recorder.Eventf(application, nil, eventType, reason, "Reconcile", "%s", redact.String(message))
 }
 
 func (r *ApplicationReconciler) planLimit() int {
@@ -815,7 +815,7 @@ func managedObjectToApplication(_ context.Context, obj client.Object) []reconcil
 // SetupWithManager sets up the controller with the Manager.
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorderFor("application-controller")
+		r.Recorder = mgr.GetEventRecorder("application-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Application{}).
