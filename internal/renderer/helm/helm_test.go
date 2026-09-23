@@ -9,6 +9,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/azrtydxb/solder/internal/decrypt"
+	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
 	"github.com/azrtydxb/solder/internal/renderer"
 )
 
@@ -110,6 +112,37 @@ func TestRenderRejectsSymlinkOutOfWorkspace(t *testing.T) {
 	_, err := Renderer{}.Render(context.Background(), renderer.Input{Workspace: workspace, Path: "chart"})
 	if err == nil || !strings.Contains(err.Error(), "outside the workspace") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRenderDecryptsSOPSValuesFiles(t *testing.T) {
+	key := decrypttest.Identity(t)
+	workspace := t.TempDir()
+	write(t, workspace, map[string]string{
+		"chart/Chart.yaml":               "apiVersion: v2\nname: app\nversion: 0.1.0\n",
+		"chart/values.yaml":              "data:\n  password: none\n",
+		"chart/templates/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app\ndata:\n  password: {{ .Values.data.password | quote }}\n",
+		"envs/prod/secrets.yaml":         string(decrypttest.Encrypt(t, key.Recipient().String(), "data:\n  password: hunter2\n")),
+	})
+	input := renderer.Input{Workspace: workspace, Path: "chart", ValuesFiles: []string{"../envs/prod/secrets.yaml"}}
+
+	var none *decrypt.Decryptor
+	input.Decrypt = none.File
+	if _, err := (Renderer{}).Render(context.Background(), input); err == nil || !strings.Contains(err.Error(), "envs/prod/secrets.yaml is SOPS-encrypted") {
+		t.Fatalf("encrypted values without decryption: err = %v", err)
+	}
+
+	decryptor, err := decrypt.New(key.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Decrypt = decryptor.File
+	objects, err := Renderer{}.Render(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 1 || objects[0].Object["data"].(map[string]any)["password"] != "hunter2" {
+		t.Fatalf("values not decrypted: %#v", objects)
 	}
 }
 

@@ -39,7 +39,7 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 			return nil, err
 		}
 	}
-	values, err := loadValues(input.Workspace, dir, input.ValuesFiles)
+	values, err := loadValues(input.Workspace, dir, input.ValuesFiles, input.Decrypt)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +87,8 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 }
 
 // loadValues merges values files, given relative to the chart directory, in
-// order. Every file must lie inside the workspace.
-func loadValues(workspace, dir string, files []string) (map[string]any, error) {
+// order, decrypting SOPS files. Every file must lie inside the workspace.
+func loadValues(workspace, dir string, files []string, decrypt func(string, []byte) ([]byte, error)) (map[string]any, error) {
 	values := map[string]any{}
 	for _, file := range files {
 		if filepath.IsAbs(file) {
@@ -105,6 +105,11 @@ func loadValues(workspace, dir string, files []string) (map[string]any, error) {
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read helm values file %s: %w", file, err)
+		}
+		if decrypt != nil {
+			if raw, err = decrypt(renderer.Relative(workspace, path), raw); err != nil {
+				return nil, err
+			}
 		}
 		loaded, err := valuesloader.LoadValues(bytes.NewReader(raw))
 		if err != nil {

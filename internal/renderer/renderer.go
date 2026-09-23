@@ -95,16 +95,18 @@ func Contained(root, dir string) error {
 		}
 		inside, err := Within(root, path)
 		if err != nil {
-			return fmt.Errorf("resolve symlink %s: %w", relative(root, path), err)
+			return fmt.Errorf("resolve symlink %s: %w", Relative(root, path), err)
 		}
 		if !inside {
-			return fmt.Errorf("symlink %s points outside the workspace", relative(root, path))
+			return fmt.Errorf("symlink %s points outside the workspace", Relative(root, path))
 		}
 		return nil
 	})
 }
 
-func relative(root, path string) string {
+// Relative returns path relative to root, for messages that should not show
+// where the workspace is cached, or path itself when it has no relative form.
+func Relative(root, path string) string {
 	if rel, err := filepath.Rel(root, path); err == nil {
 		return rel
 	}
