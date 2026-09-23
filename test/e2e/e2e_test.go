@@ -245,8 +245,16 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyValidatingWebhookReady, 3*time.Minute, time.Second).Should(Succeed())
 
-			By("waiting additional time for webhook server to stabilize")
-			time.Sleep(5 * time.Second)
+			By("verifying the mutating webhook server is ready")
+			verifyMutatingWebhookReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+					"solder-mutating-webhook-configuration",
+					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "MutatingWebhookConfiguration should exist")
+				g.Expect(output).ShouldNot(BeEmpty(), "Mutating webhook CA bundle not yet injected")
+			}
+			Eventually(verifyMutatingWebhookReady, 3*time.Minute, time.Second).Should(Succeed())
 
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
@@ -448,6 +456,15 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying each group started only after the previous one was Healthy")
+			// Kubernetes timestamps have one-second resolution, so a
+			// not-after check between two objects created in the same second
+			// passes whatever order they were created in. Only the pre-sync
+			// boundary has a gap the fixture forces: the migrate Job sleeps
+			// 5 seconds, so if Solder waits for it, the wave-0 Deployment is
+			// created at least 5 seconds after the Job, while without the wait
+			// both are created in the same pass, within a second. That boundary
+			// is asserted strictly. The fixture forces no gap at the other
+			// boundaries, so they are only checked for gross reordering.
 			field := func(kind, name, path string) time.Time {
 				value := get("get", kind, name, "-n", "solder-e2e-staged", "-o", "jsonpath={"+path+"}")
 				parsed, err := time.Parse(time.RFC3339, value)
@@ -455,11 +472,14 @@ var _ = Describe("Manager", Ordered, func() {
 				return parsed
 			}
 			created := ".metadata.creationTimestamp"
+			migrateCreated := field("job", "solder-e2e-migrate", created)
 			migrated := field("job", "solder-e2e-migrate", ".status.completionTime")
 			deployed := field("deployment", "solder-e2e-api", created)
 			available := field("deployment", "solder-e2e-api", `.status.conditions[?(@.type=="Available")].lastTransitionTime`)
 			wave1 := field("configmap", "solder-e2e-after-api", created)
 			smoke := field("job", "solder-e2e-smoke", created)
+			Expect(deployed.Sub(migrateCreated)).To(BeNumerically(">=", 5*time.Second),
+				"Deployment created %s after the pre-sync hook, which runs for at least 5s", deployed.Sub(migrateCreated))
 			Expect(migrated).NotTo(BeTemporally(">", deployed), "Deployment created before the pre-sync hook finished")
 			Expect(available).NotTo(BeTemporally(">", wave1), "wave 1 applied before wave 0 was available")
 			Expect(wave1).NotTo(BeTemporally(">", smoke), "post-sync hook ran before the last wave was applied")
@@ -492,34 +512,6 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 			}
 			Eventually(verifyCertManager).Should(Succeed())
-		})
-
-		It("should have CA injection for validating webhooks", func() {
-			By("checking CA injection for validating webhooks")
-			verifyCAInjection := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get",
-					"validatingwebhookconfigurations.admissionregistration.k8s.io",
-					"solder-validating-webhook-configuration",
-					"-o", "go-template={{ range .webhooks }}{{ .clientConfig.caBundle }}{{ end }}")
-				vwhOutput, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(len(vwhOutput)).To(BeNumerically(">", 10))
-			}
-			Eventually(verifyCAInjection).Should(Succeed())
-		})
-
-		It("should have CA injection for mutating webhooks", func() {
-			By("checking CA injection for mutating webhooks")
-			verifyCAInjection := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get",
-					"mutatingwebhookconfigurations.admissionregistration.k8s.io",
-					"solder-mutating-webhook-configuration",
-					"-o", "go-template={{ range .webhooks }}{{ .clientConfig.caBundle }}{{ end }}")
-				mwhOutput, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(len(mwhOutput)).To(BeNumerically(">", 10))
-			}
-			Eventually(verifyCAInjection).Should(Succeed())
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
@@ -622,35 +614,40 @@ type tokenRequest struct {
 	} `json:"status"`
 }
 
-const productApplicationManifest = `apiVersion: v1
+// fixtureManifest returns the tenant setup every product test needs, followed
+// by application: the destination Namespace, a deployer ServiceAccount in
+// default bound to the admin ClusterRole in the destination only, and a
+// Repository for the e2e fixture repository.
+func fixtureManifest(destination, deployer, repository, application string) string {
+	return fmt.Sprintf(`apiVersion: v1
 kind: Namespace
 metadata:
-  name: solder-e2e
+  name: %[1]s
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: solder-e2e-deployer
+  name: %[2]s
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: solder-e2e-deployer
-  namespace: solder-e2e
+  name: %[2]s
+  namespace: %[1]s
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: admin
 subjects:
   - kind: ServiceAccount
-    name: solder-e2e-deployer
+    name: %[2]s
     namespace: default
 ---
 apiVersion: solder.io/v1alpha1
 kind: Repository
 metadata:
-  name: solder-e2e-product-repo
+  name: %[3]s
 spec:
   type: git
   git:
@@ -658,7 +655,12 @@ spec:
     revision: main
   pollInterval: 30s
 ---
-apiVersion: solder.io/v1alpha1
+`, destination, deployer, repository) + application
+}
+
+var productApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-product-repo",
+	`apiVersion: solder.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-product
@@ -686,48 +688,14 @@ spec:
     timeout: 2m
   history:
     limit: 5
-`
+`)
 
 // escalationApplicationManifest deploys a Git path containing a ClusterRoleBinding
 // that would grant the Application's own namespace-scoped service account
 // cluster-admin.
-const escalationApplicationManifest = `apiVersion: v1
-kind: Namespace
-metadata:
-  name: solder-e2e
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: solder-e2e-deployer
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: solder-e2e-deployer
-  namespace: solder-e2e
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: admin
-subjects:
-  - kind: ServiceAccount
-    name: solder-e2e-deployer
-    namespace: default
----
-apiVersion: solder.io/v1alpha1
-kind: Repository
-metadata:
-  name: solder-e2e-escalation-repo
-spec:
-  type: git
-  git:
-    url: https://github.com/azrtydxb/solder-e2e-app.git
-    revision: main
-  pollInterval: 30s
----
-apiVersion: solder.io/v1alpha1
+var escalationApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-escalation-repo",
+	`apiVersion: solder.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-escalation
@@ -744,46 +712,12 @@ spec:
   sync:
     automatic: true
     conflictPolicy: fail
-`
+`)
 
 // approvalApplicationManifest deploys the product fixture with manual approval.
-const approvalApplicationManifest = `apiVersion: v1
-kind: Namespace
-metadata:
-  name: solder-e2e
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: solder-e2e-deployer
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: solder-e2e-deployer
-  namespace: solder-e2e
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: admin
-subjects:
-  - kind: ServiceAccount
-    name: solder-e2e-deployer
-    namespace: default
----
-apiVersion: solder.io/v1alpha1
-kind: Repository
-metadata:
-  name: solder-e2e-approval-repo
-spec:
-  type: git
-  git:
-    url: https://github.com/azrtydxb/solder-e2e-app.git
-    revision: main
-  pollInterval: 30s
----
-apiVersion: solder.io/v1alpha1
+var approvalApplicationManifest = fixtureManifest(
+	"solder-e2e", "solder-e2e-deployer", "solder-e2e-approval-repo",
+	`apiVersion: solder.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-approval
@@ -800,47 +734,14 @@ spec:
   sync:
     automatic: false
     conflictPolicy: fail
-`
+`)
 
 // stagedApplicationManifest deploys the fixture's staged/ path: a pre-sync
-// hook Job, a wave-0 Deployment, a wave-1 ConfigMap, and a post-sync hook Job.
-const stagedApplicationManifest = `apiVersion: v1
-kind: Namespace
-metadata:
-  name: solder-e2e-staged
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: solder-e2e-staged-deployer
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: solder-e2e-staged-deployer
-  namespace: solder-e2e-staged
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: admin
-subjects:
-  - kind: ServiceAccount
-    name: solder-e2e-staged-deployer
-    namespace: default
----
-apiVersion: solder.io/v1alpha1
-kind: Repository
-metadata:
-  name: solder-e2e-staged-repo
-spec:
-  type: git
-  git:
-    url: https://github.com/azrtydxb/solder-e2e-app.git
-    revision: main
-  pollInterval: 30s
----
-apiVersion: solder.io/v1alpha1
+// hook Job that sleeps 5 seconds, a wave-0 Deployment, a wave-1 ConfigMap,
+// and a post-sync hook Job.
+var stagedApplicationManifest = fixtureManifest(
+	"solder-e2e-staged", "solder-e2e-staged-deployer", "solder-e2e-staged-repo",
+	`apiVersion: solder.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-staged
@@ -860,4 +761,4 @@ spec:
     conflictPolicy: fail
   health:
     timeout: 5m
-`
+`)
