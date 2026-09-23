@@ -68,6 +68,12 @@ jobs:
       - name: Create the Kind cluster
         run: |
           go mod tidy
+          # --retain keeps a node that fails to boot so its logs can be read.
+          kind create cluster --name solder-test-e2e --retain || {
+            docker info --format 'cgroup {{.CgroupVersion}} driver {{.CgroupDriver}}' || true
+            docker logs solder-test-e2e-control-plane 2>&1 | tail -60 || true
+            exit 1
+          }
           make setup-test-e2e manifests generate
           kind load docker-image "$IMG" --name solder-test-e2e
 
