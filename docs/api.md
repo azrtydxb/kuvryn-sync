@@ -39,6 +39,7 @@ spec:
 | `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |
 | `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.           |
 | `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                 |
+| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                      |
 
 ### Status fields
 

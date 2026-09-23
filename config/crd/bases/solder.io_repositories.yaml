@@ -114,6 +114,26 @@ spec:
                   enum:
                     - git
                   type: string
+                webhook:
+                  description: |-
+                    webhook lets GitHub or GitLab push events trigger an immediate fetch
+                    through Solder's webhook receiver at /hooks/<namespace>/<name>.
+                  properties:
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret in the Repository namespace whose `token` is the
+                        webhook secret configured on GitHub (HMAC) or GitLab (token).
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
               type: object
             status:
               description: status defines the observed source state.

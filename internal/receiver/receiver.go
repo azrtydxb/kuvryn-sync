@@ -1,0 +1,208 @@
+// Package receiver turns GitHub and GitLab push webhooks into immediate
+// Repository fetches.
+package receiver
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/time/rate"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+)
+
+// RequestedAtAnnotation is stamped on a Repository to request a fetch.
+const RequestedAtAnnotation = "solder.io/reconcile-requested-at"
+
+const maxBody = 1 << 20
+
+var requests = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "solder_webhook_receiver_requests_total",
+	Help: "Webhook receiver requests by result.",
+}, []string{"result"})
+
+func init() {
+	metrics.Registry.MustRegister(requests)
+}
+
+// Receiver serves POST /hooks/{namespace}/{name}.
+type Receiver struct {
+	Client client.Client
+	Addr   string
+	// Limit and Burst bound accepted requests per Repository.
+	Limit rate.Limit
+	Burst int
+
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+}
+
+// Start serves until ctx is done; it is a manager.Runnable.
+func (r *Receiver) Start(ctx context.Context) error {
+	server := &http.Server{Addr: r.Addr, Handler: r.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second}
+	errs := make(chan error, 1)
+	go func() { errs <- server.ListenAndServe() }()
+	select {
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdown)
+	case err := <-errs:
+		return err
+	}
+}
+
+// NeedLeaderElection is false: every replica behind the Service must answer,
+// and any of them may request a fetch.
+func (r *Receiver) NeedLeaderElection() bool { return false }
+
+// Handler returns the receiver's HTTP handler.
+func (r *Receiver) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /hooks/{namespace}/{name}", r.receive)
+	return mux
+}
+
+func (r *Receiver) receive(w http.ResponseWriter, req *http.Request) {
+	key := client.ObjectKey{Namespace: req.PathValue("namespace"), Name: req.PathValue("name")}
+	ctx := req.Context()
+	repository := &corev1alpha1.Repository{}
+	if err := r.Client.Get(ctx, key, repository); err != nil || repository.Spec.Webhook == nil || repository.Spec.Git == nil {
+		reply(w, http.StatusNotFound, "not_found")
+		return
+	}
+	// Limiters exist only for real Repositories, so unknown paths cannot grow them.
+	if !r.limiter(key.String()).Allow() {
+		reply(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
+	if err != nil {
+		reply(w, http.StatusRequestEntityTooLarge, "too_large")
+		return
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: key.Namespace, Name: repository.Spec.Webhook.SecretRef.Name}, secret); err != nil || len(secret.Data["token"]) == 0 {
+		reply(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if !authentic(req, body, secret.Data["token"]) {
+		reply(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	switch event := req.Header.Get("X-GitHub-Event") + req.Header.Get("X-Gitlab-Event"); event {
+	case "ping":
+		reply(w, http.StatusOK, "ping")
+		return
+	case "push", "Push Hook", "Tag Push Hook":
+	default:
+		reply(w, http.StatusAccepted, "ignored")
+		return
+	}
+	if !matches(body, repository.Spec.Git.URL) {
+		reply(w, http.StatusBadRequest, "repository_mismatch")
+		return
+	}
+	patch := client.MergeFrom(repository.DeepCopy())
+	annotations := repository.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[RequestedAtAnnotation] = time.Now().UTC().Format(time.RFC3339Nano)
+	repository.SetAnnotations(annotations)
+	if err := r.Client.Patch(ctx, repository, patch); err != nil {
+		reply(w, http.StatusInternalServerError, "error")
+		return
+	}
+	reply(w, http.StatusAccepted, "accepted")
+}
+
+func (r *Receiver) limiter(key string) *rate.Limiter {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.limiters == nil {
+		r.limiters = map[string]*rate.Limiter{}
+	}
+	limiter, ok := r.limiters[key]
+	if !ok {
+		limit, burst := r.Limit, r.Burst
+		if limit == 0 {
+			limit, burst = rate.Every(time.Second), 10
+		}
+		limiter = rate.NewLimiter(limit, burst)
+		r.limiters[key] = limiter
+	}
+	return limiter
+}
+
+// authentic verifies a GitHub HMAC signature or a GitLab token in constant time.
+func authentic(req *http.Request, body, token []byte) bool {
+	if signature := req.Header.Get("X-Hub-Signature-256"); signature != "" {
+		mac := hmac.New(sha256.New, token)
+		mac.Write(body)
+		return hmac.Equal([]byte(signature), []byte("sha256="+hex.EncodeToString(mac.Sum(nil))))
+	}
+	if gitlab := req.Header.Get("X-Gitlab-Token"); gitlab != "" {
+		return subtle.ConstantTimeCompare([]byte(gitlab), token) == 1
+	}
+	return false
+}
+
+// matches reports whether the push payload names the Repository's URL.
+func matches(body []byte, repositoryURL string) bool {
+	var payload struct {
+		Repository struct {
+			CloneURL string `json:"clone_url"`
+			SSHURL   string `json:"ssh_url"`
+			HTMLURL  string `json:"html_url"`
+		} `json:"repository"`
+		Project struct {
+			HTTPURL string `json:"git_http_url"`
+			SSHURL  string `json:"git_ssh_url"`
+			WebURL  string `json:"web_url"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false
+	}
+	want := normalize(repositoryURL)
+	for _, candidate := range []string{payload.Repository.CloneURL, payload.Repository.SSHURL, payload.Repository.HTMLURL, payload.Project.HTTPURL, payload.Project.SSHURL, payload.Project.WebURL} {
+		if candidate != "" && normalize(candidate) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// normalize reduces https, ssh, and scp-style Git URLs to host/path.
+func normalize(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !strings.Contains(raw, "://") && strings.Contains(raw, "@") && strings.Contains(raw, ":") {
+		raw = "ssh://" + strings.Replace(raw, ":", "/", 1)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return strings.ToLower(parsed.Hostname()) + "/" + strings.TrimSuffix(strings.Trim(parsed.Path, "/"), ".git")
+}
+
+func reply(w http.ResponseWriter, status int, result string) {
+	requests.WithLabelValues(result).Inc()
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(result + "\n"))
+}

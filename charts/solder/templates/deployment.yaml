@@ -25,6 +25,9 @@ spec:
             - --metrics-bind-address=:8443
             - --drift-resync-interval={{ .Values.driftResyncInterval }}
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            {{- if .Values.webhookReceiver.enabled }}
+            - --webhook-receiver-bind-address=:9292
+            {{- end }}
             {{- with .Values.defaultServiceAccount }}
             - --default-service-account={{ . }}
             {{- end }}
@@ -35,6 +38,10 @@ spec:
               containerPort: 8081
             - name: webhook-server
               containerPort: 9443
+            {{- if .Values.webhookReceiver.enabled }}
+            - name: receiver
+              containerPort: 9292
+            {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:

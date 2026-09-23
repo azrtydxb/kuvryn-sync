@@ -1,0 +1,15 @@
+{{- if .Values.webhookReceiver.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "solder.fullname" . }}-receiver
+  labels:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "solder.name" . }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9292
+{{- end }}

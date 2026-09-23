@@ -16,6 +16,12 @@ defaultServiceAccount: ""
 # immediate drift detection for it instead.
 driftResyncInterval: 5m
 
+# Receiver for GitHub/GitLab push webhooks at /hooks/<namespace>/<repository>.
+# Expose the Service through your ingress; requests are authenticated per
+# Repository with spec.webhook.secretRef.
+webhookReceiver:
+  enabled: false
+
 resources:
   requests:
     cpu: 50m

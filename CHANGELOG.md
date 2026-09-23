@@ -17,6 +17,10 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Push webhook receiver (`--webhook-receiver-bind-address`, Helm
+  `webhookReceiver.enabled`): signed GitHub pushes and token-authenticated
+  GitLab pushes for a Repository with `spec.webhook` trigger an immediate
+  fetch, with size limits, per-Repository rate limiting, and a metric.
 - SOPS decryption with age keys: `spec.decryption` points at a Secret
   labelled `solder.io/decryption-key: "true"`; the `yaml` and `kustomize`
   renderers decrypt SOPS files in memory with MAC verification, and encrypted

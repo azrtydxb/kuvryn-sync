@@ -48,6 +48,7 @@ import (
 	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
+	"github.com/azrtydxb/solder/internal/receiver"
 	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -79,6 +80,7 @@ func main() {
 	var enableHTTP2 bool
 	var defaultServiceAccount string
 	var driftResyncInterval time.Duration
+	var receiverAddr string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -102,6 +104,8 @@ func main() {
 			"serviceAccountName. When empty, such Applications are refused.")
 	flag.DurationVar(&driftResyncInterval, "drift-resync-interval", 5*time.Minute,
 		"How often Applications managing kinds the controller may not watch are re-checked for drift. 0 disables it.")
+	flag.StringVar(&receiverAddr, "webhook-receiver-bind-address", "",
+		"Address for the GitHub/GitLab push webhook receiver, e.g. :9292. Empty disables it.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -218,6 +222,12 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "repository")
 		os.Exit(1)
+	}
+	if receiverAddr != "" {
+		if err := mgr.Add(&receiver.Receiver{Client: mgr.GetClient(), Addr: receiverAddr}); err != nil {
+			setupLog.Error(err, "Failed to add webhook receiver")
+			os.Exit(1)
+		}
 	}
 	notifier := notify.NewDispatcher(nil, 1000)
 	if err := mgr.Add(notifier); err != nil {

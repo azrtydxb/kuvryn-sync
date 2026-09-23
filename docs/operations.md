@@ -49,6 +49,37 @@ be approved again. The applied Revision keeps the record in
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated.
 
+## Push webhooks
+
+Instead of waiting for `pollInterval`, Repositories can be fetched as soon as
+GitHub or GitLab reports a push. Enable the receiver (`--webhook-receiver-bind-address=:9292`,
+Helm `webhookReceiver.enabled=true`), expose its Service through your ingress,
+and give the Repository a webhook secret:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: platform-webhook
+stringData:
+  token: <random shared secret>
+---
+# On the Repository:
+spec:
+  webhook:
+    secretRef:
+      name: platform-webhook
+```
+
+Point the Git host at `https://<ingress>/hooks/<namespace>/<repository>` with
+the same secret: GitHub signs with it (`X-Hub-Signature-256`), GitLab sends it
+as `X-Gitlab-Token`; both are checked in constant time. A push whose payload
+names the Repository's URL stamps `solder.io/reconcile-requested-at` on the
+Repository, which triggers an immediate fetch; other events are ignored.
+Unknown Repositories get 404, bad signatures 401, bodies over 1 MB 413, and
+more than ten requests per second per Repository 429, all counted in
+`solder_webhook_receiver_requests_total`. Polling continues as a fallback.
+
 ## SOPS-encrypted Secrets
 
 Commit Secrets encrypted with [SOPS](https://getsops.io) using age keys, and

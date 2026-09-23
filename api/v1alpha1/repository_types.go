@@ -44,6 +44,17 @@ type RepositorySpec struct {
 	// pollInterval controls source polling when no external wake-up signal exists.
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
+	// webhook lets GitHub or GitLab push events trigger an immediate fetch
+	// through Solder's webhook receiver at /hooks/<namespace>/<name>.
+	// +optional
+	Webhook *RepositoryWebhook `json:"webhook,omitempty"`
+}
+
+// RepositoryWebhook configures push webhooks for a Repository.
+type RepositoryWebhook struct {
+	// secretRef names a Secret in the Repository namespace whose `token` is the
+	// webhook secret configured on GitHub (HMAC) or GitLab (token).
+	SecretRef SecretReference `json:"secretRef"`
 }
 
 // GitRepositorySpec configures a Git desired-state source.
