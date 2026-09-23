@@ -37,7 +37,7 @@ type Renderer struct{}
 
 // Render decodes all YAML documents under input.Path in deterministic order.
 func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructured.Unstructured, error) {
-	root, err := safePath(input.Workspace, input.Path)
+	root, err := renderer.Dir(input)
 	if err != nil {
 		return nil, err
 	}
@@ -119,23 +119,6 @@ func manifestFiles(root string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
-}
-
-func safePath(workspace, rel string) (string, error) {
-	if workspace == "" {
-		return "", fmt.Errorf("workspace is required")
-	}
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("render path must be relative")
-	}
-	clean := filepath.Clean(rel)
-	if clean == "." {
-		clean = ""
-	}
-	if strings.HasPrefix(clean, "..") {
-		return "", fmt.Errorf("render path must stay inside workspace")
-	}
-	return filepath.Join(workspace, clean), nil
 }
 
 func isYAML(path string) bool {
