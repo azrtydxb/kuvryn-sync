@@ -426,7 +426,7 @@ func resolvesInside(root, path string) (bool, error) {
 
 func inside(root, path string) bool {
 	rel, err := filepath.Rel(root, filepath.Clean(path))
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return err == nil && filepath.IsLocal(rel)
 }
 
 // AuthMethod builds go-git credentials. SSH requires known_hosts so an

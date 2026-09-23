@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -142,15 +143,17 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return result, r.updateStatus(ctx, repository)
 }
 
+// cacheRoot returns dir, or the default source cache under the system
+// temporary directory when dir is empty.
+func cacheRoot(dir string) string {
+	return cmp.Or(dir, filepath.Join(os.TempDir(), defaultSourceCacheDir))
+}
+
 func (r *RepositoryReconciler) resolver() source.Resolver {
 	if r.SourceResolver != nil {
 		return r.SourceResolver
 	}
-	root := r.CacheDir
-	if root == "" {
-		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
-	}
-	r.SourceResolver = gitcache.NewCache(root)
+	r.SourceResolver = gitcache.NewCache(cacheRoot(r.CacheDir))
 	return r.SourceResolver
 }
 
@@ -180,7 +183,7 @@ func (r *RepositoryReconciler) credentialsFromSecret(ctx context.Context, namesp
 		return source.Credentials{}, &source.Error{Reason: source.FailureReasonAuthenticationFailure, Message: fmt.Sprintf("Git authentication Secret is not labelled %s=true", GitCredentialsLabel)}
 	}
 	credentials := source.Credentials{
-		Username:   secretString(secret, "username"),
+		Username:   string(secret.Data["username"]),
 		Password:   firstSecretString(secret, "password", "basic-password"),
 		Token:      firstSecretString(secret, "token", "accessToken", "access_token"),
 		SSHKey:     firstSecretString(secret, "sshPrivateKey", "ssh-privatekey", "identity"),
@@ -192,17 +195,9 @@ func (r *RepositoryReconciler) credentialsFromSecret(ctx context.Context, namesp
 	return credentials, nil
 }
 
-func secretString(secret *corev1.Secret, key string) string {
-	value, ok := secret.Data[key]
-	if !ok {
-		return ""
-	}
-	return string(value)
-}
-
 func firstSecretString(secret *corev1.Secret, keys ...string) string {
 	for _, key := range keys {
-		if value := secretString(secret, key); value != "" {
+		if value := string(secret.Data[key]); value != "" {
 			return value
 		}
 	}

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -59,11 +58,11 @@ func Dir(input Input) (string, error) {
 	if filepath.IsAbs(input.Path) {
 		return "", fmt.Errorf("render path must be relative")
 	}
-	clean := filepath.Clean(input.Path)
-	if clean == ".." || strings.HasPrefix(clean, "../") {
+	// An empty path renders the workspace root.
+	if input.Path != "" && !filepath.IsLocal(input.Path) {
 		return "", fmt.Errorf("render path must stay inside workspace")
 	}
-	return filepath.Join(input.Workspace, clean), nil
+	return filepath.Join(input.Workspace, input.Path), nil
 }
 
 // Within reports whether path, with symlinks resolved, lies inside root.
@@ -80,7 +79,7 @@ func Within(root, path string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	return rel != ".." && !strings.HasPrefix(rel, "../"), nil
+	return filepath.IsLocal(rel), nil
 }
 
 // Contained returns an error if dir, or any symlink under it, resolves outside

@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -565,11 +564,7 @@ func (r *ApplicationReconciler) resolver() source.Resolver {
 	if r.SourceResolver != nil {
 		return r.SourceResolver
 	}
-	root := r.CacheDir
-	if root == "" {
-		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
-	}
-	r.SourceResolver = gitcache.NewCache(root)
+	r.SourceResolver = gitcache.NewCache(cacheRoot(r.CacheDir))
 	return r.SourceResolver
 }
 
@@ -646,11 +641,7 @@ func (r *ApplicationReconciler) pullChart(ctx context.Context, namespace string,
 		}
 		src.Username, src.Password = string(secret.Data["username"]), string(secret.Data["password"])
 	}
-	root := r.CacheDir
-	if root == "" {
-		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
-	}
-	return helmrenderer.Pull(filepath.Join(root, "charts"), namespace, src)
+	return helmrenderer.Pull(filepath.Join(cacheRoot(r.CacheDir), "charts"), namespace, src)
 }
 
 // helmValues merges valuesFrom, in order, then inline values, reading
@@ -1265,12 +1256,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	rollbackMissing := false
 	if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback && application.GetAnnotations()["solder.io/rollback-revision"] == "" {
 		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
-			annotations := application.GetAnnotations()
-			if annotations == nil {
-				annotations = map[string]string{}
-			}
-			annotations["solder.io/rollback-revision"] = target.Spec.Source.Revision
-			application.SetAnnotations(annotations)
+			metav1.SetMetaDataAnnotation(&application.ObjectMeta, "solder.io/rollback-revision", target.Spec.Source.Revision)
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.Update(ctx, application); err != nil {
