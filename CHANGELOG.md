@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Tracing works: with `OTEL_EXPORTER_OTLP_ENDPOINT` set, the manager exports a
+  span per Application reconcile over OTLP gRPC, honouring the standard `OTEL_*`
+  variables. Before, nothing installed a tracer provider, so the documented
+  tracing produced nothing. Span errors are redacted like status messages. The
+  Helm chart gains `extraEnv` to pass the variables.
+
 ## 0.2.0
 
 _Each Application now applies as its own service account, and Solder reaches

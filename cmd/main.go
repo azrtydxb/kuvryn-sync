@@ -292,9 +292,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+	shutdownTracing, err := ops.SetupTracing(ctx)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up tracing")
+		os.Exit(1)
+	}
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "Failed to run manager")
+	runErr := mgr.Start(ctx)
+	// The manager's context is done by now; give the exporter its own
+	// deadline to flush the last spans.
+	flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := shutdownTracing(flushCtx); err != nil {
+		setupLog.Error(err, "Failed to flush traces")
+	}
+	if runErr != nil {
+		setupLog.Error(runErr, "Failed to run manager")
 		os.Exit(1)
 	}
 }

@@ -139,6 +139,7 @@ as a forward sync.
 ## Events, metrics, and tracing
 
 Solder emits Kubernetes Events for lifecycle transitions, registers Prometheus
-collectors with bounded labels, and has an optional OpenTelemetry tracing seam.
+collectors with bounded labels, and exports OpenTelemetry traces over OTLP when
+an endpoint is configured.
 Public integrations should prefer CRDs, Conditions, Events, and metrics over
 controller internals.

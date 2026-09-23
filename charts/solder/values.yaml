@@ -27,6 +27,13 @@ driftResyncInterval: 5m
 webhookReceiver:
   enabled: false
 
+# Extra environment variables for the manager container, for example the
+# OpenTelemetry exporter settings that turn on tracing:
+#   extraEnv:
+#     - name: OTEL_EXPORTER_OTLP_ENDPOINT
+#       value: http://otel-collector.observability:4317
+extraEnv: []
+
 resources:
   requests:
     cpu: 50m

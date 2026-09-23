@@ -400,8 +400,20 @@ Solder registers Prometheus collectors with bounded labels for reconciliation,
 plans, sync results, and health. Expose metrics using the generated service and
 your cluster's monitoring stack.
 
-An optional OpenTelemetry tracing seam exists for environments that configure a
-tracer provider. Tracing must not include Secret values.
+Tracing is off by default. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) on the manager and Solder exports a span
+per Application reconcile over OTLP gRPC. The other standard `OTEL_*` variables
+apply, such as `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_INSECURE`, and
+`OTEL_SERVICE_NAME` (default `solder`); `OTEL_SDK_DISABLED=true` turns it off
+again. With Helm, pass them through `extraEnv`:
+
+```yaml
+extraEnv:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://otel-collector.observability:4317
+```
+
+Spans carry the reconcile name and its error, redacted like status messages.
 
 ## Repository-driven Application discovery
 
