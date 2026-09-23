@@ -180,6 +180,7 @@ spec:
 | `status.serviceAccountName` | Service account Solder last impersonated for this Application.                                         |
 | `status.sync.state`         | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
 | `status.health.state`       | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
+| `status.managedKinds`       | Kinds Solder last applied; used to prune and watch managed objects of any kind.                        |
 | `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
 | `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
 

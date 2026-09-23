@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 07:36 UTC. procoder reads this
+Written 2026-09-23 07:57 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -45,6 +45,12 @@ Answer: (2026-09-23) kstatus plus user-defined CEL health rules.
 Key: How Solder learns about new image builds
 
 Answer: (2026-09-23) Built-in image automation: scan registries, pick by policy, commit the new reference back to Git.
+
+## (no longer asked)
+
+Key: How drift on non-built-in kinds is detected
+
+Answer: (2026-09-23) Opt-in watches: watch a kind only when the controller has list/watch on it (SelfSubjectAccessReview); otherwise re-check drift on a periodic resync interval.
 
 ## (no longer asked)
 

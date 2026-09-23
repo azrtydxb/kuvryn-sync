@@ -23,6 +23,7 @@ spec:
             - --leader-elect={{ .Values.leaderElection }}
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8443
+            - --drift-resync-interval={{ .Values.driftResyncInterval }}
             {{- with .Values.defaultServiceAccount }}
             - --default-service-account={{ . }}
             {{- end }}

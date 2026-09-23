@@ -42,6 +42,41 @@ kubectl -n solder-system rollout status deployment/solder-controller-manager
 kubectl -n solder-system logs deployment/solder-controller-manager -c manager
 ```
 
+## Drift detection for other kinds
+
+Solder watches a managed kind for drift only if its controller service account
+may `list` and `watch` it; it checks this with a SelfSubjectAccessReview when it
+first applies the kind and again every resync interval. To get immediate drift
+detection for, say, cert-manager Certificates, grant the controller read access
+to them:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: solder-watch-certificates
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: solder-watch-certificates
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: solder-watch-certificates
+subjects:
+  - kind: ServiceAccount
+    name: solder-controller-manager
+    namespace: solder-system
+```
+
+Without the grant, Applications managing that kind are re-checked every
+`--drift-resync-interval` (default 5m); `0` disables the resync.
+
 ## High availability
 
 Leader election is available through `--leader-elect` and enabled by the chart

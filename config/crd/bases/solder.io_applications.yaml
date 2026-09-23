@@ -329,6 +329,29 @@ spec:
                         - Suspended
                       type: string
                   type: object
+                managedKinds:
+                  description: |-
+                    managedKinds lists the kinds Solder last applied for this Application.
+                    Pruning and drift watches use it to find managed objects of any kind,
+                    including after a controller restart.
+                  items:
+                    description:
+                      ManagedKind identifies a kind of object Solder manages
+                      for an Application.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the group/version of the kind.
+                        type: string
+                      kind:
+                        description: kind is the object kind.
+                        type: string
+                    required:
+                      - apiVersion
+                      - kind
+                    type: object
+                  maxItems: 256
+                  type: array
+                  x-kubernetes-list-type: atomic
                 observedGeneration:
                   description:
                     observedGeneration is the latest metadata.generation

@@ -23,6 +23,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -75,6 +76,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var defaultServiceAccount string
+	var driftResyncInterval time.Duration
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -96,6 +98,8 @@ func main() {
 	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
 		"Service account in the Application namespace that Solder impersonates when an Application sets no "+
 			"serviceAccountName. When empty, such Applications are refused.")
+	flag.DurationVar(&driftResyncInterval, "drift-resync-interval", 5*time.Minute,
+		"How often Applications managing kinds the controller may not watch are re-checked for drift. 0 disables it.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -223,6 +227,7 @@ func main() {
 			Mapper: mgr.GetRESTMapper(),
 		}),
 		DefaultServiceAccount: defaultServiceAccount,
+		DriftResyncInterval:   driftResyncInterval,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "application")
 		os.Exit(1)

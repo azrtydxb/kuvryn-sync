@@ -18,7 +18,8 @@ type Result struct {
 	Message  string                   `json:"message,omitempty"`
 }
 
-// Evaluate returns health for MVP Kubernetes resource kinds.
+// Evaluate returns health for a live Kubernetes object: built-in workload
+// kinds use dedicated rules and every other kind follows kstatus conventions.
 func Evaluate(obj unstructured.Unstructured) (Result, error) {
 	id, err := resource.FromObject(obj)
 	if err != nil {
@@ -47,12 +48,65 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 		default:
 			return progressing(result, "PodPending", "pod is not running"), nil
 		}
-	case "Service", "ConfigMap", "Secret", "PersistentVolumeClaim":
-		return result, nil
+	case "Job":
+		conditions := statusConditions(obj)
+		if condition, ok := conditions["Failed"]; ok && condition.status == "True" {
+			return Result{Resource: id, State: corev1alpha1.HealthStateDegraded, Reason: "JobFailed", Message: condition.message}, nil
+		}
+		if condition, ok := conditions["Complete"]; ok && condition.status == "True" {
+			return result, nil
+		}
+		return progressing(result, "JobRunning", "job has not completed"), nil
 	default:
-		return Result{Resource: id, State: corev1alpha1.HealthStateUnknown, Reason: "UnsupportedKind", Message: "no built-in evaluator for kind"}, nil
+		return generic(result, obj), nil
 	}
 	return result, nil
+}
+
+// generic applies kstatus conventions: an unobserved generation or a
+// Reconciling condition is in progress, a Stalled condition is degraded, a
+// Ready condition decides otherwise, and an object without status is healthy.
+func generic(result Result, obj unstructured.Unstructured) Result {
+	if observed, found, _ := unstructured.NestedInt64(obj.Object, "status", "observedGeneration"); found && observed < obj.GetGeneration() {
+		return progressing(result, "GenerationPending", "controller has not observed latest generation")
+	}
+	conditions := statusConditions(obj)
+	if condition, ok := conditions["Stalled"]; ok && condition.status == "True" {
+		result.State = corev1alpha1.HealthStateDegraded
+		result.Reason = "Stalled"
+		result.Message = condition.message
+		return result
+	}
+	if condition, ok := conditions["Reconciling"]; ok && condition.status == "True" {
+		return progressing(result, "Reconciling", condition.message)
+	}
+	if condition, ok := conditions["Ready"]; ok && condition.status != "True" {
+		return progressing(result, "NotReady", condition.message)
+	}
+	return result
+}
+
+type condition struct {
+	status  string
+	message string
+}
+
+func statusConditions(obj unstructured.Unstructured) map[string]condition {
+	out := map[string]condition{}
+	raw, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	for _, item := range raw {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := entry["type"].(string)
+		status, _ := entry["status"].(string)
+		message, _ := entry["message"].(string)
+		if kind != "" {
+			out[kind] = condition{status: status, message: message}
+		}
+	}
+	return out
 }
 
 // Summary counts health states.

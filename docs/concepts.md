@@ -64,6 +64,17 @@ Solder keeps convergence and operational health separate:
 An Application can be out of sync but healthy, synced but degraded, or planning
 while still serving traffic from the previous healthy Revision.
 
+Deployments, StatefulSets, DaemonSets, Pods, and Jobs have dedicated health
+rules. Every other kind follows the kstatus conventions most controllers use:
+
+- `status.observedGeneration` behind `metadata.generation` is Progressing;
+- a `Stalled=True` condition is Degraded;
+- a `Reconciling=True` condition, or a `Ready` condition that is not `True`, is
+  Progressing;
+- anything else, including an object with no status, is Healthy.
+
+A rollout waits only for Progressing resources, until `spec.health.timeout`.
+
 ## Render, normalize, validate, plan
 
 The reconciliation pipeline is:
@@ -83,13 +94,22 @@ Solder applies with Kubernetes Server-Side Apply. Conflict policy currently
 supports `fail`, which blocks ownership conflicts instead of force-taking fields.
 
 When pruning is enabled, Solder deletes previously managed resources that are no
-longer present in desired state. Destructive changes are represented in the plan
-before mutation.
+longer present in desired state. It finds them by label across every kind in
+the Application's `status.managedKinds` inventory, so objects of any kind are
+pruned, including after a controller restart. Destructive changes are
+represented in the plan before mutation.
 
 ## Drift and self-heal
 
 Solder can detect live drift by comparing normalized live state to desired state.
 When `selfHeal` is enabled, drift is corrected through the same plan/apply path.
+
+Solder notices drift immediately for kinds it watches: ConfigMaps, Secrets,
+Services, Deployments, StatefulSets, and DaemonSets, plus any managed kind the
+controller has been granted `list` and `watch` on. Watches are metadata-only.
+Applications that manage other kinds are re-checked every
+`--drift-resync-interval` (Helm value `driftResyncInterval`, default 5m). See
+[Operations](operations.md#drift-detection-for-other-kinds) to grant watches.
 
 ## Rollback
 

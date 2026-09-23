@@ -168,6 +168,13 @@ type ApplicationStatus struct {
 	// resources summarizes managed resource health.
 	// +optional
 	Resources ResourceHealthSummary `json:"resources,omitempty"`
+	// managedKinds lists the kinds Solder last applied for this Application.
+	// Pruning and drift watches use it to find managed objects of any kind,
+	// including after a controller restart.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=256
+	// +optional
+	ManagedKinds []ManagedKind `json:"managedKinds,omitempty"`
 	// observedGeneration is the latest metadata.generation processed.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -190,6 +197,14 @@ type ApplicationHealthStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Progressing;Healthy;Degraded;Suspended
 	// +optional
 	State HealthState `json:"state,omitempty"`
+}
+
+// ManagedKind identifies a kind of object Solder manages for an Application.
+type ManagedKind struct {
+	// apiVersion is the group/version of the kind.
+	APIVersion string `json:"apiVersion"`
+	// kind is the object kind.
+	Kind string `json:"kind"`
 }
 
 // ResourceHealthSummary is a bounded count of managed resource health.

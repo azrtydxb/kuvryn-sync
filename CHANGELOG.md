@@ -17,6 +17,18 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Health for kinds without a dedicated rule follows kstatus conventions
+  (`observedGeneration`, `Stalled`, `Reconciling`, `Ready`); objects without a
+  status are Healthy. Jobs are Healthy when complete and Degraded when failed.
+  Previously every other kind was `Unknown` and held the rollout until
+  `health.timeout` triggered a failure or rollback; `Unknown` no longer holds a
+  rollout.
+- `status.managedKinds` records the kinds an Application manages. Pruning now
+  covers objects of any kind, not just ConfigMaps, Secrets, Services,
+  Deployments, StatefulSets, and DaemonSets.
+- Drift on any managed kind is detected: immediately through a metadata-only
+  watch when the controller may list/watch the kind, otherwise every
+  `--drift-resync-interval` (Helm value `driftResyncInterval`, default 5m).
 - Fixed: once retry limits were reached, every reconcile replaced the
   Revision's failure with `RetryBlocked`, hiding the real cause. The Revision
   now keeps its original failure and the Application's Ready condition reports

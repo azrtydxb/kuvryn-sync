@@ -11,6 +11,11 @@ leaderElection: true
 # such Applications.
 defaultServiceAccount: ""
 
+# How often Applications that manage kinds the controller may not watch are
+# re-checked for drift. Grant the controller list/watch on a kind to get
+# immediate drift detection for it instead.
+driftResyncInterval: 5m
+
 resources:
   requests:
     cpu: 50m

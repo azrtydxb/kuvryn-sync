@@ -94,6 +94,11 @@ type ApplicationReconciler struct {
 	Impersonation *impersonate.Clients
 	// DefaultServiceAccount is impersonated when an Application names none.
 	DefaultServiceAccount string
+	// DriftResyncInterval re-checks Applications that manage kinds the
+	// controller may not watch. Zero disables the resync.
+	DriftResyncInterval time.Duration
+
+	watches *driftWatches
 }
 
 // +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
@@ -124,6 +129,12 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	defer func() { ops.ObserveApplicationReconcile(metrics, metricApp, metricPhase, reconcileErr) }()
 	log := logf.FromContext(ctx)
+	unwatched := false
+	defer func() {
+		if reconcileErr == nil && unwatched && result.RequeueAfter == 0 && r.DriftResyncInterval > 0 {
+			result.RequeueAfter = r.DriftResyncInterval
+		}
+	}()
 
 	application := &corev1alpha1.Application{}
 	if err := r.Get(ctx, req.NamespacedName, application); err != nil {
@@ -244,6 +255,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	}
+	unwatched = !r.ensureWatches(ctx, unionKinds(objectKinds(rendered), inventoryKinds(application)))
 	if err := validate.Desired(rendered, validate.Options{DestinationNamespace: application.Spec.Destination.Namespace}); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered desired state is invalid"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -260,7 +272,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	managedStale := []unstructured.Unstructured{}
 	if application.Spec.Sync.Prune {
-		managed, skipped, err := listManagedObjects(ctx, tenant, application)
+		managed, skipped, err := listManagedObjects(ctx, tenant, application, objectKinds(rendered))
 		if err != nil {
 			failure := accessFailure(err, "PlanFailure", "Managed resources could not be inventoried", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -282,6 +294,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
+		application.Status.ManagedKinds = managedKinds(objectKinds(rendered))
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced"); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -340,6 +353,16 @@ func effectiveServiceAccount(application *corev1alpha1.Application, defaultServi
 		return application.Spec.ServiceAccountName
 	}
 	return defaultServiceAccount
+}
+
+// ensureWatches starts drift watches for kinds the controller may watch and
+// reports whether every kind is watched. Without a running manager (unit
+// tests) nothing is watched.
+func (r *ApplicationReconciler) ensureWatches(ctx context.Context, kinds []schema.GroupVersionKind) bool {
+	if r.watches == nil {
+		return false
+	}
+	return r.watches.ensure(ctx, kinds)
 }
 
 // warnSkippedKinds records kinds the service account may not list, whose
@@ -573,7 +596,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 			controllerutil.RemoveFinalizer(application, applicationFinalizer)
 			return r.Update(ctx, application)
 		}
-		managed, skipped, err := listManagedObjects(ctx, tenant, application)
+		managed, skipped, err := listManagedObjects(ctx, tenant, application, nil)
 		if err != nil {
 			return err
 		}
@@ -596,14 +619,12 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 // listManagedObjects inventories objects labelled as managed by application.
 // Kinds the service account may not list are returned as skipped, since their
 // objects can neither be found nor pruned.
-func listManagedObjects(ctx context.Context, reader client.Reader, application *corev1alpha1.Application) ([]unstructured.Unstructured, []string, error) {
-	gvks := []schema.GroupVersionKind{
-		{Group: "", Version: "v1", Kind: "ConfigMap"},
-		{Group: "", Version: "v1", Kind: "Secret"},
-		{Group: "", Version: "v1", Kind: "Service"},
-		{Group: "apps", Version: "v1", Kind: "Deployment"},
-		{Group: "apps", Version: "v1", Kind: "StatefulSet"},
-		{Group: "apps", Version: "v1", Kind: "DaemonSet"},
+func listManagedObjects(ctx context.Context, reader client.Reader, application *corev1alpha1.Application, desiredKinds []schema.GroupVersionKind) ([]unstructured.Unstructured, []string, error) {
+	gvks := unionKinds(inventoryKinds(application), desiredKinds)
+	if len(application.Status.ManagedKinds) == 0 {
+		// Applications last synced before the inventory existed may still own
+		// objects of the kinds earlier releases always inventoried.
+		gvks = unionKinds(gvks, staticWatchKinds)
 	}
 	out := []unstructured.Unstructured{}
 	skipped := []string{}
@@ -615,6 +636,10 @@ func listManagedObjects(ctx context.Context, reader client.Reader, application *
 			namespace = application.Namespace
 		}
 		if err := reader.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: application.Name}); err != nil {
+			if apimeta.IsNoMatchError(err) {
+				// The kind no longer exists, and neither do its objects.
+				continue
+			}
 			if apierrors.IsForbidden(err) {
 				skipped = append(skipped, gvk.Kind)
 				continue
@@ -682,6 +707,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 	}
+	application.Status.ManagedKinds = managedKinds(objectKinds(desired))
 	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, desired)
 	if err != nil {
 		failure := accessFailure(err, "HealthFailure", "Applied resources could not be read", true)
@@ -707,7 +733,9 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: "One or more resources are degraded", Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
-	if summary.Progressing > 0 || summary.Unknown > 0 {
+	// Unknown health is reported in the summary but never holds a rollout:
+	// only resources that are genuinely progressing are waited for.
+	if summary.Progressing > 0 {
 		if application.Spec.Health.Timeout != nil && revision.Status.StartedAt != nil && time.Since(revision.Status.StartedAt.Time) > application.Spec.Health.Timeout.Duration {
 			failure := corev1alpha1.RevisionFailure{Reason: "TimeoutFailure", Message: "Health observation timed out", Retryable: true}
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -914,7 +942,7 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
 		r.Recorder = mgr.GetEventRecorderFor("application-controller")
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	built, err := ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Application{}).
 		Watches(&corev1alpha1.Repository{}, handler.EnqueueRequestsFromMapFunc(r.applicationsForRepository)).
 		WatchesMetadata(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
@@ -924,5 +952,14 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesMetadata(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		WatchesMetadata(&appsv1.DaemonSet{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		Named("application").
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return err
+	}
+	recheck := r.DriftResyncInterval
+	if recheck <= 0 {
+		recheck = 5 * time.Minute
+	}
+	r.watches = newDriftWatches(built, mgr.GetCache(), r.Client, recheck)
+	return nil
 }
