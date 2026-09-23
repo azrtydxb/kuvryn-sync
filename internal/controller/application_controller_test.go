@@ -20,11 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -186,16 +189,57 @@ var _ = Describe("Application Controller", func() {
 		revision := listApplicationRevisions(ctx, resourceName).Items[0]
 		Expect(revision.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
 
-		updated := &corev1alpha1.Application{}
-		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-		updated.SetAnnotations(map[string]string{"solder.io/approved-revision": revision.Name})
-		Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+		approve(ctx, typeNamespacedName, revision, "alice@example.com")
 		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
-		revision = listApplicationRevisions(ctx, resourceName).Items[0]
-		Expect(revision.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		applied := listApplicationRevisions(ctx, resourceName).Items[0]
+		Expect(applied.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(applied.Status.Approval).NotTo(BeNil())
+		Expect(applied.Status.Approval.ApprovedBy).To(Equal("alice@example.com"))
+		Expect(applied.Status.Approval.PlanDigest).To(Equal(revision.Status.Plan.Digest))
+	})
+
+	It("ignores an approval without a recorded approver and digest", func() {
+		createRepository(ctx)
+		Expect(k8sClient.Create(ctx, newApplication(resourceName, corev1alpha1.RenderTypeYAML))).To(Succeed())
+		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		revision := listApplicationRevisions(ctx, resourceName).Items[0]
+
+		updated := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		updated.SetAnnotations(map[string]string{corev1alpha1.ApprovedRevisionAnnotation: revision.Name})
+		Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(listApplicationRevisions(ctx, resourceName).Items[0].Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, &corev1.ConfigMap{}))).To(BeTrue())
+	})
+
+	It("requires a new approval when the plan changes after approval", func() {
+		createRepository(ctx)
+		Expect(k8sClient.Create(ctx, newApplication(resourceName, corev1alpha1.RenderTypeYAML))).To(Succeed())
+		capture := &capturingRenderer{objects: []unstructured.Unstructured{configMapObject("", "reviewed")}}
+		controllerReconciler := newApplicationReconciler(nil, capture)
+		recorder := record.NewFakeRecorder(20)
+		controllerReconciler.Recorder = recorder
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		approve(ctx, typeNamespacedName, listApplicationRevisions(ctx, resourceName).Items[0], "alice@example.com")
+
+		capture.objects = []unstructured.Unstructured{configMapObject("", "changed-after-review")}
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		revision := listApplicationRevisions(ctx, resourceName).Items[0]
+		Expect(revision.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
+		Expect(revision.Status.Approval).To(BeNil())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, &corev1.ConfigMap{}))).To(BeTrue())
+		Expect(drainEvents(recorder)).To(ContainElement(ContainSubstring("ApprovalStale")))
 	})
 
 	It("uses live state when building the plan", func() {
@@ -413,4 +457,17 @@ func deleteObject(ctx context.Context, obj client.Object) {
 func jsonMarshal(v any) (string, error) {
 	data, err := json.Marshal(v)
 	return string(data), err
+}
+
+// approve records an approval the way the admission webhook does.
+func approve(ctx context.Context, key types.NamespacedName, revision corev1alpha1.Revision, user string) {
+	app := &corev1alpha1.Application{}
+	Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+	app.SetAnnotations(map[string]string{
+		corev1alpha1.ApprovedRevisionAnnotation: revision.Name,
+		corev1alpha1.ApprovedByAnnotation:       user,
+		corev1alpha1.ApprovedAtAnnotation:       time.Now().UTC().Format(time.RFC3339),
+		corev1alpha1.ApprovedDigestAnnotation:   revision.Status.Plan.Digest,
+	})
+	Expect(k8sClient.Update(ctx, app)).To(Succeed())
 }

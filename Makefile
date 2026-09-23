@@ -47,7 +47,7 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 	@if command -v "$(PRETTIER)" >/dev/null 2>&1; then \
-		"$(PRETTIER)" --log-level warn --write config/crd/bases config/rbac/role.yaml; \
+		"$(PRETTIER)" --log-level warn --write config/crd/bases config/rbac/role.yaml config/webhook/manifests.yaml; \
 	else \
 		echo "prettier not found; generated manifests left unformatted"; \
 	fi

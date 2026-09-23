@@ -290,6 +290,12 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	revision.Status.Plan = plan.RevisionPlan(r.planLimit())
+	digest, err := planDigest(revision.Spec.DesiredStateHash, plan)
+	if err != nil {
+		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be fingerprinted"), Retryable: false}
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+	}
+	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
 	if failure := conflictFailure(plan); failure != nil {
@@ -314,7 +320,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, nil
 	}
-	if !r.shouldApply(application, revision) {
+	approval, stale := manualApproval(application, revision)
+	if !application.Spec.Sync.Automatic && approval == nil {
 		status.AwaitApproval(revision, application)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
@@ -322,11 +329,46 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Status().Update(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
-		r.event(application, corev1.EventTypeNormal, "ApprovalRequired", "Application plan is awaiting approval")
+		if stale {
+			r.event(application, corev1.EventTypeWarning, "ApprovalStale", "Application plan changed after approval; approve the new plan")
+		} else {
+			r.event(application, corev1.EventTypeNormal, "ApprovalRequired", "Application plan is awaiting approval")
+		}
 		log.Info("Planned Application", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
 		return ctrl.Result{}, nil
 	}
+	if !application.Spec.Sync.Automatic {
+		revision.Status.Approval = approval
+	}
 	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale)
+}
+
+// manualApproval returns the approval recorded for exactly this Revision and
+// plan digest. stale reports an approval for this Revision whose plan has
+// changed since, which must be approved again.
+func manualApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision) (approval *corev1alpha1.RevisionApproval, stale bool) {
+	annotations := application.GetAnnotations()
+	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name {
+		return nil, false
+	}
+	approvedBy := annotations[corev1alpha1.ApprovedByAnnotation]
+	digest := annotations[corev1alpha1.ApprovedDigestAnnotation]
+	approvedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.ApprovedAtAnnotation])
+	if approvedBy == "" || err != nil || digest != revision.Status.Plan.Digest {
+		return nil, true
+	}
+	return &corev1alpha1.RevisionApproval{ApprovedBy: approvedBy, ApprovedAt: metav1.NewTime(approvedAt), PlanDigest: digest}, false
+}
+
+// planDigest fingerprints what an approval covers: the rendered desired state
+// and the complete, redacted change plan against live state.
+func planDigest(desiredStateHash string, plan planner.Plan) (string, error) {
+	raw, err := json.Marshal(plan.RevisionPlan(0))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append([]byte(desiredStateHash+"\n"), raw...))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 var errServiceAccountRequired = errors.New("application has no serviceAccountName and the controller has no default service account")
@@ -594,13 +636,6 @@ func (r *ApplicationReconciler) reportRetryBlocked(ctx context.Context, applicat
 	r.markApplicationFailure(application, blocked.Reason, message)
 	r.event(application, corev1.EventTypeWarning, blocked.Reason, message)
 	return r.Status().Update(ctx, application)
-}
-
-func (r *ApplicationReconciler) shouldApply(application *corev1alpha1.Application, revision *corev1alpha1.Revision) bool {
-	if application.Spec.Sync.Automatic {
-		return true
-	}
-	return application.GetAnnotations()["solder.io/approved-revision"] == revision.Name
 }
 
 func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application *corev1alpha1.Application) error {

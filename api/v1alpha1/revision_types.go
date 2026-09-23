@@ -114,11 +114,25 @@ type RevisionStatus struct {
 	// failure records the most recent deterministic failure classification.
 	// +optional
 	Failure *RevisionFailure `json:"failure,omitempty"`
+	// approval records who approved this Revision's plan, when it was applied
+	// through manual approval.
+	// +optional
+	Approval *RevisionApproval `json:"approval,omitempty"`
 	// conditions represent the current state of the Revision resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// RevisionApproval is the audit record of a manual approval.
+type RevisionApproval struct {
+	// approvedBy is the authenticated user who approved the plan.
+	ApprovedBy string `json:"approvedBy"`
+	// approvedAt is when the approval was admitted.
+	ApprovedAt metav1.Time `json:"approvedAt"`
+	// planDigest is the plan digest the approval was given for.
+	PlanDigest string `json:"planDigest"`
 }
 
 // RevisionFailure describes a machine-readable deployment failure.

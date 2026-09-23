@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -374,6 +375,56 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(output).To(BeEmpty(), "tenant escalated through Solder")
 		})
 
+		It("should apply a manual Application only after an attributed approval", func() {
+			manifestPath := writeTempManifest(approvalApplicationManifest)
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply approval e2e resources")
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e", "--ignore-not-found=true"))
+			})
+
+			By("waiting for the plan to await approval")
+			var revision, digest string
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
+					"-l", "solder.io/application=solder-e2e-approval",
+					"-o", "jsonpath={.items[0].metadata.name} {.items[0].status.phase} {.items[0].status.plan.digest}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				fields := strings.Fields(output)
+				g.Expect(fields).To(HaveLen(3))
+				g.Expect(fields[1]).To(Equal("AwaitingApproval"))
+				revision, digest = fields[0], fields[2]
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("approving the Revision as the kubectl user")
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "application", "solder-e2e-approval",
+				"solder.io/approved-revision="+revision))
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the webhook recorded the approver and a forged approver is reverted")
+			approver, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(approver).NotTo(BeEmpty())
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "--overwrite", "application", "solder-e2e-approval",
+				"solder.io/approved-by=mallory"))
+			Expect(err).NotTo(HaveOccurred())
+			stillApprover, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stillApprover).To(Equal(approver))
+
+			By("waiting for the approved Revision to apply with its audit record")
+			Eventually(func(g Gomega) {
+				output, err := utils.Run(exec.Command("kubectl", "get", "revision", revision,
+					"-o", "jsonpath={.status.phase} {.status.approval.approvedBy} {.status.approval.planDigest}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Healthy " + approver + " " + digest))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
 		It("should reject a HealthCheck with an invalid CEL rule at admission", func() {
 			manifestPath := writeTempManifest(`apiVersion: solder.io/v1alpha1
 kind: HealthCheck
@@ -413,6 +464,20 @@ spec:
 				vwhOutput, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(len(vwhOutput)).To(BeNumerically(">", 10))
+			}
+			Eventually(verifyCAInjection).Should(Succeed())
+		})
+
+		It("should have CA injection for mutating webhooks", func() {
+			By("checking CA injection for mutating webhooks")
+			verifyCAInjection := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get",
+					"mutatingwebhookconfigurations.admissionregistration.k8s.io",
+					"solder-mutating-webhook-configuration",
+					"-o", "go-template={{ range .webhooks }}{{ .clientConfig.caBundle }}{{ end }}")
+				mwhOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(len(mwhOutput)).To(BeNumerically(">", 10))
 			}
 			Eventually(verifyCAInjection).Should(Succeed())
 		})
@@ -638,5 +703,61 @@ spec:
     namespace: solder-e2e
   sync:
     automatic: true
+    conflictPolicy: fail
+`
+
+// approvalApplicationManifest deploys the product fixture with manual approval.
+const approvalApplicationManifest = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: solder-e2e
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solder-e2e-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: solder-e2e-deployer
+  namespace: solder-e2e
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: solder-e2e-deployer
+    namespace: default
+---
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: solder-e2e-approval-repo
+spec:
+  type: git
+  git:
+    url: https://github.com/azrtydxb/solder-e2e-app.git
+    revision: main
+  pollInterval: 30s
+---
+apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-approval
+spec:
+  serviceAccountName: solder-e2e-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-approval-repo
+    path: manifests
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e
+  sync:
+    automatic: false
     conflictPolicy: fail
 `

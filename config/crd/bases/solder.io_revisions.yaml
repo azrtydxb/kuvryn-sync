@@ -182,6 +182,30 @@ spec:
             status:
               description: status defines observed lifecycle, plan, and health state.
               properties:
+                approval:
+                  description: |-
+                    approval records who approved this Revision's plan, when it was applied
+                    through manual approval.
+                  properties:
+                    approvedAt:
+                      description: approvedAt is when the approval was admitted.
+                      format: date-time
+                      type: string
+                    approvedBy:
+                      description:
+                        approvedBy is the authenticated user who approved
+                        the plan.
+                      type: string
+                    planDigest:
+                      description:
+                        planDigest is the plan digest the approval was given
+                        for.
+                      type: string
+                  required:
+                    - approvedAt
+                    - approvedBy
+                    - planDigest
+                  type: object
                 attempts:
                   description:
                     attempts counts reconciliation attempts for retry-loop
@@ -343,6 +367,11 @@ spec:
                 plan:
                   description: plan stores bounded, redacted deployment plan details.
                   properties:
+                    digest:
+                      description: |-
+                        digest identifies the complete plan and desired state; an approval is
+                        valid only for the digest it was given for.
+                      type: string
                     resources:
                       description:
                         resources is intentionally bounded by the planner

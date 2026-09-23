@@ -24,6 +24,31 @@ Application, Repository, and Revision status remain the public integration API.
 Mutation helpers update public CRDs and require exact Revision approval where
 applicable.
 
+## Manual approval
+
+With `spec.sync.automatic: false`, Solder plans each Revision and waits. To
+approve, set the Application annotation `solder.io/approved-revision` to the
+Revision name, with `solder approve` or `kubectl annotate`. Anyone allowed to
+update the Application can approve; use RBAC to decide who that is.
+
+Solder's admission webhook then records, from the authenticated request:
+
+- `solder.io/approved-by`: the Kubernetes user who approved;
+- `solder.io/approved-at`: when;
+- `solder.io/approved-digest`: the digest of the plan they approved
+  (`status.plan.digest` on the Revision).
+
+These annotations cannot be set or edited by hand: the webhook overwrites them
+on every change. Applications discovered from `.solder.yaml` never carry
+approvals from Git. Solder applies only when the approved Revision's current
+plan digest still matches; if desired or live state changed after approval,
+the Revision returns to AwaitingApproval with an `ApprovalStale` Event and must
+be approved again. The applied Revision keeps the record in
+`status.approval`, and `solder history -o json` exports it.
+
+The webhook fails closed: while the controller is unavailable, Applications
+cannot be created or updated.
+
 ## Safety defaults
 
 - Server-Side Apply conflicts fail by default.

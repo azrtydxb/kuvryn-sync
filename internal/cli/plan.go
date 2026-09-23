@@ -40,7 +40,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 		err = runRevision(ctx, args[1:], stdout, stderr)
 	case "plan":
 		err = runPlan(ctx, args[1:], stdout, stderr)
-	case "sync":
+	case "sync", "approve":
 		err = runSync(ctx, args[1:], stdout, stderr)
 	case "rollback":
 		err = runRollback(ctx, args[1:], stdout, stderr)
@@ -172,11 +172,13 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs.SetOutput(stderr)
 	namespace := fs.String("n", "default", "namespace")
 	fs.StringVar(namespace, "namespace", "default", "namespace")
+	output := fs.String("output", "table", "output format: table or json")
+	fs.StringVar(output, "o", "table", "output format: table or json")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder history <application> [-n namespace]")
+	if fs.NArg() != 1 || (*output != "table" && *output != "json") {
+		return fmt.Errorf("usage: solder history <application> [-n namespace] [-o table|json]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -186,11 +188,27 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err := c.List(ctx, &list, client.InNamespace(*namespace)); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(stdout, "NAME\tPHASE\tREVISION")
+	revisions := []corev1alpha1.Revision{}
 	for _, rev := range list.Items {
 		if rev.Spec.ApplicationRef.Name == fs.Arg(0) {
-			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.Source.Revision)
+			revisions = append(revisions, rev)
 		}
+	}
+	if *output == "json" {
+		out, err := RenderHistoryJSON(revisions)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(stdout, out)
+		return nil
+	}
+	_, _ = fmt.Fprintln(stdout, "NAME\tPHASE\tREVISION\tAPPROVED BY")
+	for _, rev := range revisions {
+		approvedBy := ""
+		if rev.Status.Approval != nil {
+			approvedBy = rev.Status.Approval.ApprovedBy
+		}
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.Source.Revision, approvedBy)
 	}
 	return nil
 }

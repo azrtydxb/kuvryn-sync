@@ -250,6 +250,8 @@ guard fields that may be absent.
 | `status.plan`                             | Bounded, redacted plan summary.                                                                                                       |
 | `status.health`                           | Bounded resource health summary.                                                                                                      |
 | `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                    |
+| `status.approval`                         | Audit record of a manual approval: `approvedBy`, `approvedAt`, `planDigest`.                                                          |
+| `status.plan.digest`                      | Digest of the desired state and full redacted plan; approvals bind to it.                                                             |
 | `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                    |
 | `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                |
 

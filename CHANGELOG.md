@@ -17,6 +17,16 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Manual approvals are attributable and bound to the plan: a mutating
+  admission webhook records the authenticated approver, time, and plan digest
+  whenever `solder.io/approved-revision` changes, and reverts hand-edited
+  records. Revisions carry `status.plan.digest`; Solder applies only when the
+  approved digest still matches, otherwise the Revision returns to
+  AwaitingApproval with an `ApprovalStale` Event. Applied Revisions record
+  `status.approval`. **Breaking:** an `approved-revision` annotation without the
+  webhook's record no longer applies anything.
+- `solder history -o json` exports the audit trail; `solder approve` aliases
+  `solder sync`.
 - Git, Kustomize, and Helm now run in process (go-git, kustomize/api, the
   Helm v4 SDK). Fixed: the controller image never shipped kustomize or helm,
   so `kustomize` and `helm` Applications could not render in it. The image no

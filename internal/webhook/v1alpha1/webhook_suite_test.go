@@ -112,6 +112,9 @@ var _ = BeforeSuite(func() {
 	err = SetupHealthCheckWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = SetupApplicationWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

@@ -47,7 +47,9 @@ solder history <name> -n <namespace>
 solder plan <name> -n <namespace>
 ```
 
-For manual approval policies, approve the exact Revision:
+For manual approval policies, approve the exact Revision. An `ApprovalStale`
+Event means the plan changed after approval; review `solder plan` and approve
+again:
 
 ```sh
 solder sync <application> -n <namespace> --revision <revision-name>

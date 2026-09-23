@@ -219,6 +219,10 @@ type PlanResourceChange struct {
 // RevisionPlan stores bounded plan details in Revision status.
 type RevisionPlan struct {
 	Summary PlanSummary `json:"summary,omitempty"`
+	// digest identifies the complete plan and desired state; an approval is
+	// valid only for the digest it was given for.
+	// +optional
+	Digest string `json:"digest,omitempty"`
 	// resources is intentionally bounded by the planner before it is written.
 	// +listType=atomic
 	// +optional

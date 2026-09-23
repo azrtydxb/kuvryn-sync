@@ -1,6 +1,6 @@
 # Approval records approver identity
 
-Status: open
+Status: done 2026-09-23
 Created: 2026-09-23
 Epic: attributable-approvals
 Sprint: -
@@ -11,9 +11,14 @@ As an auditor, I read a Revision and see which user or group approved it and whe
 
 ## Acceptance criteria
 
-- [ ] A validating admission webhook (decided 2026-09-23), scaffolded with `kubebuilder create webhook`, captures the authenticated requester of the approval and stores it in Revision status.
-- [ ] `solder approve` and a raw annotation patch both record identity.
-- [ ] An approval without an identifiable requester is rejected.
+- [x] An admission webhook (decided 2026-09-23), scaffolded with `kubebuilder create webhook`, captures the authenticated requester of the approval and stores it in Revision status. It is a mutating webhook: recording the approver requires writing it.
+- [x] `solder approve` and a raw annotation patch both record identity.
+- [x] An approval without an identifiable requester is rejected.
 
 ## Evidence
 
+- Webhook: `kubebuilder create webhook --kind Application --defaulting`; `ApplicationCustomDefaulter` stamps `approved-by/at/digest` from `admission.Request.UserInfo` when `approved-revision` changes and restores them otherwise; the controller copies them into `Revision.status.approval` at apply.
+- Envtest through the API server: `records the authenticated approver and the plan digest they approved` (impersonated user alice), `reverts forged approval records` (fails without the restore, mutation checked), `rejects approving a Revision that has no plan`, `clears the record when the approval is withdrawn`; `rejects the approval` covers a request without a user.
+- CLI: `solder approve` aliases `solder sync`; `TestSyncPatchCarriesOnlyTheApprovedRevision` proves the CLI sets only `approved-revision`, so CLI and raw patches are recorded identically by the webhook.
+- Controller: `applies only the exact approved manual Revision` asserts `status.approval.approvedBy`; `ignores an approval without a recorded approver and digest`. Discovery strips approval annotations from `.solder.yaml`.
+- Kind e2e `should apply a manual Application only after an attributed approval` is written but not yet run: Docker Desktop's storage returned I/O errors (2026-09-23) and needs a restart.

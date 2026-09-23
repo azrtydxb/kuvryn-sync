@@ -18,6 +18,20 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+// Manual approval annotations on an Application. Users set only
+// ApprovedRevisionAnnotation; the admission webhook records the rest from the
+// authenticated request and restores them on every other change.
+const (
+	// ApprovedRevisionAnnotation names the Revision being approved.
+	ApprovedRevisionAnnotation = "solder.io/approved-revision"
+	// ApprovedByAnnotation is the authenticated user who approved.
+	ApprovedByAnnotation = "solder.io/approved-by"
+	// ApprovedAtAnnotation is when the approval was admitted, in RFC 3339.
+	ApprovedAtAnnotation = "solder.io/approved-at"
+	// ApprovedDigestAnnotation is the plan digest the approval binds to.
+	ApprovedDigestAnnotation = "solder.io/approved-digest"
+)
+
 // ApplicationSpec defines the desired state of Application.
 type ApplicationSpec struct {
 	// source identifies and renders desired Kubernetes objects.
