@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/azrtydxb/solder/internal/decrypt"
+	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
 	"github.com/azrtydxb/solder/internal/renderer"
 )
 
@@ -90,5 +92,28 @@ func TestRenderRejectsSymlinkOutOfWorkspace(t *testing.T) {
 func TestRenderRejectsTraversalPath(t *testing.T) {
 	if _, err := (Renderer{}).Render(context.Background(), renderer.Input{Workspace: t.TempDir(), Path: "../outside"}); err == nil {
 		t.Fatal("traversal path accepted")
+	}
+}
+
+func TestRenderDecryptsSOPSBeforeTransforms(t *testing.T) {
+	key := decrypttest.Identity(t)
+	workspace := t.TempDir()
+	write(t, workspace, map[string]string{
+		"app/kustomization.yaml": "namePrefix: prod-\nresources:\n- secret.yaml\n",
+		"app/secret.yaml":        string(decrypttest.Encrypt(t, key.Recipient().String(), "apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\nstringData:\n  password: hunter2\n")),
+	})
+	decryptor, err := decrypt.New(key.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := Renderer{}.Render(context.Background(), renderer.Input{Workspace: workspace, Path: "app", Decrypt: decryptor.File})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 1 || objects[0].GetName() != "prod-db" {
+		t.Fatalf("objects = %#v", objects)
+	}
+	if objects[0].Object["stringData"].(map[string]any)["password"] != "hunter2" || objects[0].Object["sops"] != nil {
+		t.Fatalf("secret not decrypted: %#v", objects[0].Object)
 	}
 }

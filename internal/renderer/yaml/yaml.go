@@ -41,6 +41,9 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 	if err != nil {
 		return nil, err
 	}
+	if err := renderer.Contained(input.Workspace, root); err != nil {
+		return nil, err
+	}
 	files, err := manifestFiles(root)
 	if err != nil {
 		return nil, err
@@ -53,6 +56,11 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 		data, err := os.ReadFile(file)
 		if err != nil {
 			return nil, fmt.Errorf("read YAML manifest %s: %w", file, err)
+		}
+		if input.Decrypt != nil {
+			if data, err = input.Decrypt(file, data); err != nil {
+				return nil, err
+			}
 		}
 		decoded, err := Decode(data)
 		if err != nil {

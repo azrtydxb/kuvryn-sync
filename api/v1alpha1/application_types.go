@@ -80,6 +80,20 @@ type ApplicationSpec struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	DependsOn []LocalObjectReference `json:"dependsOn,omitempty"`
+	// decryption decrypts SOPS-encrypted manifests at render time.
+	// +optional
+	Decryption *DecryptionSpec `json:"decryption,omitempty"`
+}
+
+// DecryptionSpec configures render-time decryption.
+type DecryptionSpec struct {
+	// provider is the encryption format.
+	// +kubebuilder:validation:Enum=sops
+	Provider string `json:"provider"`
+	// secretRef names a Secret in the Application namespace, labelled
+	// solder.io/decryption-key=true, whose entries ending in .agekey hold age
+	// private keys.
+	SecretRef SecretReference `json:"secretRef"`
 }
 
 // NotificationEvent is an Application lifecycle event that can be notified.

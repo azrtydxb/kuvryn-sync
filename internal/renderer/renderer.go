@@ -34,6 +34,9 @@ type Input struct {
 	ValuesFiles []string
 	// Namespace is the release namespace for renderers that template it.
 	Namespace string
+	// Decrypt, when set, is applied to every file a renderer reads from the
+	// workspace; it returns SOPS-encrypted files decrypted and others as is.
+	Decrypt func(path string, data []byte) ([]byte, error)
 }
 
 // Renderer turns a desired-state source path into Kubernetes objects.

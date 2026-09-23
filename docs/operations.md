@@ -49,6 +49,37 @@ be approved again. The applied Revision keeps the record in
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated.
 
+## SOPS-encrypted Secrets
+
+Commit Secrets encrypted with [SOPS](https://getsops.io) using age keys, and
+give the Application the private keys:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sops-age
+  labels:
+    solder.io/decryption-key: "true"
+stringData:
+  payments.agekey: AGE-SECRET-KEY-1...
+---
+# On the Application:
+spec:
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+```
+
+Solder decrypts each SOPS file in memory as the `yaml` and `kustomize`
+renderers read it, before Kustomize transforms anything, and verifies the
+SOPS MAC. Plaintext is never written to disk, plans, status, or Events. Every
+entry ending in `.agekey` is tried; only age keys are supported. The key
+Secret must carry the label, like Git credential Secrets. An encrypted file
+in an Application without `spec.decryption` fails the Revision instead of
+being applied as ciphertext. Helm values files are not decrypted.
+
 ## Notifications
 
 Applications can send lifecycle notifications to a `NotificationSink` in their

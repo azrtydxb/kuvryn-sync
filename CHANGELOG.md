@@ -17,6 +17,11 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- SOPS decryption with age keys: `spec.decryption` points at a Secret
+  labelled `solder.io/decryption-key: "true"`; the `yaml` and `kustomize`
+  renderers decrypt SOPS files in memory with MAC verification, and encrypted
+  files without `spec.decryption` fail instead of being applied as ciphertext.
+  Uses the official sops library, which grows the manager binary by about 45 MB.
 - `spec.dependsOn` orders Applications in a namespace: a dependent plans but
   applies only once its dependencies are Healthy at their desired revision,
   with the `DependenciesReady` condition explaining any wait or cycle.

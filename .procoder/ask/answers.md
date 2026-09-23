@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 08:19 UTC. procoder reads this
+Written 2026-09-23 10:13 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -93,6 +93,12 @@ Answer: (2026-09-23) Approval-gated GitOps for regulated teams.
 Key: Refusal point for Applications without a service account
 
 Answer: (2026-09-23) Refuse before planning: no Revision, no cluster reads, only a ServiceAccountRequired condition.
+
+## (no longer asked)
+
+Key: SOPS decryption implementation
+
+Answer: (2026-09-23) Official sops/v3 library with age keys only; accept its dependency tree.
 
 ## (no longer asked)
 

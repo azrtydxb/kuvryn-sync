@@ -49,6 +49,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/applier"
+	"github.com/azrtydxb/solder/internal/decrypt"
 	"github.com/azrtydxb/solder/internal/health"
 	"github.com/azrtydxb/solder/internal/history"
 	"github.com/azrtydxb/solder/internal/impersonate"
@@ -505,6 +506,12 @@ func (r *ApplicationReconciler) renderDesired(ctx context.Context, application *
 		return nil, &failure
 	}
 	input := rendererInput(application, resolved.CacheDir)
+	decryptor, err := r.decryptor(ctx, application)
+	if err != nil {
+		failure := corev1alpha1.RevisionFailure{Reason: "DecryptionFailure", Message: safeMessage(err, "Decryption keys could not be loaded"), Retryable: true}
+		return nil, &failure
+	}
+	input.Decrypt = decryptor.File
 	objects, err := desiredRenderer.Render(ctx, input)
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: safeMessage(err, "Desired state render failed"), Retryable: true}
@@ -1212,4 +1219,33 @@ func (r *ApplicationReconciler) dependentsOf(ctx context.Context, obj client.Obj
 		}
 	}
 	return requests
+}
+
+// DecryptionKeyLabel marks a Secret that Solder may use for decryption keys.
+const DecryptionKeyLabel = "solder.io/decryption-key"
+
+// decryptor loads the Application's age keys. Without spec.decryption it
+// returns nil, which refuses encrypted files rather than applying ciphertext.
+func (r *ApplicationReconciler) decryptor(ctx context.Context, application *corev1alpha1.Application) (*decrypt.Decryptor, error) {
+	spec := application.Spec.Decryption
+	if spec == nil {
+		return nil, nil
+	}
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: application.Namespace, Name: spec.SecretRef.Name}, secret); err != nil {
+		return nil, fmt.Errorf("decryption Secret %s: %w", spec.SecretRef.Name, err)
+	}
+	if secret.Labels[DecryptionKeyLabel] != "true" {
+		return nil, fmt.Errorf("decryption Secret %s is not labelled %s=true", spec.SecretRef.Name, DecryptionKeyLabel)
+	}
+	keys := []string{}
+	for name, value := range secret.Data {
+		if strings.HasSuffix(name, ".agekey") {
+			keys = append(keys, string(value))
+		}
+	}
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("decryption Secret %s has no .agekey entries", spec.SecretRef.Name)
+	}
+	return decrypt.New(keys...)
 }

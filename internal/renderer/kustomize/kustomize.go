@@ -27,7 +27,7 @@ func (Renderer) Render(_ context.Context, input renderer.Input) ([]unstructured.
 	if err != nil {
 		return nil, err
 	}
-	workspace, err := inMemory(input.Workspace)
+	workspace, err := inMemory(input.Workspace, input.Decrypt)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +49,9 @@ func (Renderer) Render(_ context.Context, input renderer.Input) ([]unstructured.
 }
 
 // inMemory copies the workspace's regular files, following only symlinks
-// that stay inside it, into an in-memory filesystem rooted at "/".
-func inMemory(workspace string) (filesys.FileSystem, error) {
+// that stay inside it and decrypting SOPS files, into an in-memory
+// filesystem rooted at "/".
+func inMemory(workspace string, decrypt func(string, []byte) ([]byte, error)) (filesys.FileSystem, error) {
 	if err := renderer.Contained(workspace, workspace); err != nil {
 		return nil, err
 	}
@@ -77,6 +78,13 @@ func inMemory(workspace string) (filesys.FileSystem, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		// Decrypt before Kustomize transforms anything: the SOPS MAC covers
+		// the whole document, including names a prefix would change.
+		if decrypt != nil {
+			if data, err = decrypt(rel, data); err != nil {
+				return err
+			}
 		}
 		return memory.WriteFile(target, data)
 	})

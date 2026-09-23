@@ -61,6 +61,33 @@ spec:
             spec:
               description: spec defines the desired deployment behavior.
               properties:
+                decryption:
+                  description:
+                    decryption decrypts SOPS-encrypted manifests at render
+                    time.
+                  properties:
+                    provider:
+                      description: provider is the encryption format.
+                      enum:
+                        - sops
+                      type: string
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret in the Application namespace, labelled
+                        solder.io/decryption-key=true, whose entries ending in .agekey hold age
+                        private keys.
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - provider
+                    - secretRef
+                  type: object
                 deletionPolicy:
                   default: Orphan
                   description: |-
