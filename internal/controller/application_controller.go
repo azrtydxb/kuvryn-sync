@@ -912,7 +912,9 @@ func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.
 	if revision.Status.CompletedAt != nil {
 		lastFailure = revision.Status.CompletedAt.Time
 	}
-	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, DeployedRevision: application.Status.DeployedRevision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure, Suspended: application.Spec.Suspend}, time.Now(), ops.RateLimiter{Base: time.Second, Max: time.Minute}.Delay(int(revision.Status.Attempts)))
+	// Back off exponentially from one second, capped at one minute.
+	backoff := min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
+	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), backoff)
 	if decision.Allowed {
 		return nil
 	}

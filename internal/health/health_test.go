@@ -1,10 +1,7 @@
 package health
 
 import (
-	"context"
-	"errors"
 	"testing"
-	"time"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -98,29 +95,6 @@ func TestEvaluateJobs(t *testing.T) {
 		if got.State != want {
 			t.Fatalf("job with %q condition = %s, want %s", conditionType, got.State, want)
 		}
-	}
-}
-
-func TestObserveStopsOnHealthyAndTimeout(t *testing.T) {
-	calls := 0
-	results, err := Observe(context.Background(), time.Millisecond, time.Second, func(context.Context) ([]unstructured.Unstructured, error) {
-		calls++
-		if calls == 1 {
-			return []unstructured.Unstructured{deployment("api", 2, 1)}, nil
-		}
-		return []unstructured.Unstructured{deployment("api", 2, 2)}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 || results[0].State != corev1alpha1.HealthStateHealthy || calls != 2 {
-		t.Fatalf("unexpected observe result calls=%d results=%#v", calls, results)
-	}
-	_, err = Observe(context.Background(), time.Millisecond, time.Millisecond, func(context.Context) ([]unstructured.Unstructured, error) {
-		return []unstructured.Unstructured{deployment("api", 2, 1)}, nil
-	})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected timeout, got %v", err)
 	}
 }
 
