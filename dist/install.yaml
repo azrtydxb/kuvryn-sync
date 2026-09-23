@@ -69,6 +69,33 @@ spec:
             spec:
               description: spec defines the desired deployment behavior.
               properties:
+                decryption:
+                  description:
+                    decryption decrypts SOPS-encrypted manifests at render
+                    time.
+                  properties:
+                    provider:
+                      description: provider is the encryption format.
+                      enum:
+                        - sops
+                      type: string
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret in the Application namespace, labelled
+                        solder.io/decryption-key=true, whose entries ending in .agekey hold age
+                        private keys.
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - provider
+                    - secretRef
+                  type: object
                 deletionPolicy:
                   default: Orphan
                   description: |-
@@ -78,6 +105,26 @@ spec:
                     - Orphan
                     - DeleteManagedResources
                   type: string
+                dependsOn:
+                  description: |-
+                    dependsOn names Applications in the same namespace that must be Healthy
+                    at their desired revision before this Application applies. Planning
+                    proceeds while they are not.
+                  items:
+                    description:
+                      LocalObjectReference references an object in the same
+                      namespace.
+                    properties:
+                      name:
+                        description: name is the referenced object name.
+                        minLength: 1
+                        type: string
+                    required:
+                      - name
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-type: atomic
                 destination:
                   description:
                     destination constrains where namespaced resources are
@@ -107,6 +154,58 @@ spec:
                       minimum: 1
                       type: integer
                   type: object
+                notifications:
+                  description: |-
+                    notifications sends lifecycle notifications to NotificationSinks in the
+                    Application namespace.
+                  items:
+                    description:
+                      NotificationSubscription sends selected events to one
+                      NotificationSink.
+                    properties:
+                      events:
+                        description: events selects which lifecycle events are sent.
+                        items:
+                          description:
+                            NotificationEvent is an Application lifecycle
+                            event that can be notified.
+                          enum:
+                            - AwaitingApproval
+                            - Healthy
+                            - Failed
+                            - RolledBack
+                          type: string
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
+                      sinkRef:
+                        description:
+                          sinkRef names a NotificationSink in the Application
+                          namespace.
+                        properties:
+                          name:
+                            description: name is the referenced object name.
+                            minLength: 1
+                            type: string
+                        required:
+                          - name
+                        type: object
+                    required:
+                      - events
+                      - sinkRef
+                    type: object
+                  maxItems: 8
+                  type: array
+                  x-kubernetes-list-type: atomic
+                serviceAccountName:
+                  description: |-
+                    serviceAccountName is the service account in the Application namespace
+                    that Solder impersonates to read, apply, and prune managed resources.
+                    When empty, the controller's default service account is used; when
+                    neither is set, Solder refuses to touch managed resources.
+                  maxLength: 253
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
                 source:
                   description: source identifies and renders desired Kubernetes objects.
                   properties:
@@ -121,17 +220,94 @@ spec:
                         helm:
                           description: helm configures Helm rendering when type is helm.
                           properties:
+                            chart:
+                              description: |-
+                                chart pulls a pinned chart from a Helm (https) or OCI (oci://)
+                                repository instead of rendering source.path as a chart.
+                              properties:
+                                name:
+                                  description: name is the chart name.
+                                  minLength: 1
+                                  type: string
+                                repository:
+                                  description:
+                                    repository is an https chart repository
+                                    URL or an oci:// registry path.
+                                  pattern: ^(https|oci)://
+                                  type: string
+                                secretRef:
+                                  description: |-
+                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    with `username` and `password` for the repository.
+                                  properties:
+                                    name:
+                                      description: name is the Secret name.
+                                      minLength: 1
+                                      type: string
+                                  required:
+                                    - name
+                                  type: object
+                                version:
+                                  description:
+                                    version is the exact chart version to
+                                    pull.
+                                  minLength: 1
+                                  type: string
+                              required:
+                                - name
+                                - repository
+                                - version
+                              type: object
                             releaseName:
                               description:
                                 releaseName is the Helm release name used
                                 for template rendering.
                               type: string
+                            values:
+                              description:
+                                values are merged last, over every other
+                                source.
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
                             valuesFiles:
                               description:
                                 valuesFiles are repository-relative values
                                 files.
                               items:
                                 type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            valuesFrom:
+                              description: |-
+                                valuesFrom merges values from ConfigMaps and Secrets in the Application
+                                namespace, read as the Application's service account, after valuesFiles.
+                              items:
+                                description:
+                                  HelmValuesReference names values stored
+                                  in a ConfigMap or Secret.
+                                properties:
+                                  key:
+                                    description:
+                                      key holds a YAML values document; it
+                                      defaults to values.yaml.
+                                    type: string
+                                  kind:
+                                    description: kind is ConfigMap or Secret.
+                                    enum:
+                                      - ConfigMap
+                                      - Secret
+                                    type: string
+                                  name:
+                                    description:
+                                      name is the object name in the Application
+                                      namespace.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                  - kind
+                                  - name
+                                type: object
+                              maxItems: 16
                               type: array
                               x-kubernetes-list-type: atomic
                           type: object
@@ -223,6 +399,7 @@ spec:
                       description: conflictPolicy controls SSA ownership conflict behavior.
                       enum:
                         - fail
+                        - adopt
                       type: string
                     prune:
                       description:
@@ -328,6 +505,29 @@ spec:
                         - Suspended
                       type: string
                   type: object
+                managedKinds:
+                  description: |-
+                    managedKinds lists the kinds Solder last applied for this Application.
+                    Pruning and drift watches use it to find managed objects of any kind,
+                    including after a controller restart.
+                  items:
+                    description:
+                      ManagedKind identifies a kind of object Solder manages
+                      for an Application.
+                    properties:
+                      apiVersion:
+                        description: apiVersion is the group/version of the kind.
+                        type: string
+                      kind:
+                        description: kind is the object kind.
+                        type: string
+                    required:
+                      - apiVersion
+                      - kind
+                    type: object
+                  maxItems: 256
+                  type: array
+                  x-kubernetes-list-type: atomic
                 observedGeneration:
                   description:
                     observedGeneration is the latest metadata.generation
@@ -358,6 +558,11 @@ spec:
                       minimum: 0
                       type: integer
                   type: object
+                serviceAccountName:
+                  description: |-
+                    serviceAccountName is the service account Solder last impersonated for
+                    this Application.
+                  type: string
                 state:
                   description:
                     state is the high-level health state displayed by kubectl
@@ -397,6 +602,431 @@ spec:
       storage: true
       subresources:
         status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: healthchecks.solder.io
+spec:
+  group: solder.io
+  names:
+    kind: HealthCheck
+    listKind: HealthCheckList
+    plural: healthchecks
+    singular: healthcheck
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.group
+          name: Group
+          type: string
+        - jsonPath: .spec.kind
+          name: Kind
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            HealthCheck defines how Solder judges the health of a kind that kstatus
+            conventions cannot describe.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines the health rules.
+              properties:
+                group:
+                  description: |-
+                    group is the API group of the kind the rules apply to; empty for the
+                    core group.
+                  type: string
+                kind:
+                  description: kind is the kind the rules apply to.
+                  minLength: 1
+                  type: string
+                rules:
+                  description: |-
+                    rules are evaluated in order against each live object of the kind; the
+                    first rule whose expression is true decides its health. When no rule
+                    matches, Solder falls back to kstatus conventions.
+                  items:
+                    description: HealthRule maps a CEL condition to a health state.
+                    properties:
+                      expression:
+                        description: |-
+                          expression is a CEL expression over the live object, available as
+                          `object`, that evaluates to a bool.
+                        maxLength: 1024
+                        minLength: 1
+                        type: string
+                      message:
+                        description: message is reported with the state.
+                        maxLength: 256
+                        type: string
+                      state:
+                        description:
+                          state is the health reported when the expression
+                          is true.
+                        enum:
+                          - Healthy
+                          - Progressing
+                          - Degraded
+                        type: string
+                    required:
+                      - expression
+                      - state
+                    type: object
+                  maxItems: 16
+                  minItems: 1
+                  type: array
+                  x-kubernetes-list-type: atomic
+              required:
+                - kind
+                - rules
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: imagepolicies.solder.io
+spec:
+  group: solder.io
+  names:
+    kind: ImagePolicy
+    listKind: ImagePolicyList
+    plural: imagepolicies
+    singular: imagepolicy
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .status.latestImage
+          name: Image
+          type: string
+        - jsonPath: .status.lastScannedAt
+          name: Scanned
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description:
+            ImagePolicy scans an image repository and selects the image to
+            run.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines the desired state of ImagePolicy
+              properties:
+                image:
+                  description: image is the image repository to scan, such as ghcr.io/acme/api.
+                  minLength: 1
+                  type: string
+                interval:
+                  default: 5m
+                  description: interval is how often the registry is scanned.
+                  type: string
+                policy:
+                  description: policy decides which image is selected.
+                  properties:
+                    digest:
+                      description:
+                        digest follows the current digest of one fixed tag,
+                        such as main.
+                      properties:
+                        tag:
+                          description: tag is the tag whose current digest is selected.
+                          minLength: 1
+                          type: string
+                      required:
+                        - tag
+                      type: object
+                    semver:
+                      description:
+                        semver selects the highest tag within a semantic
+                        version range.
+                      properties:
+                        range:
+                          description:
+                            range is a semver constraint such as ">=1.2.0
+                            <2.0.0".
+                          minLength: 1
+                          type: string
+                      required:
+                        - range
+                      type: object
+                    tagPattern:
+                      description: |-
+                        tagPattern selects the last tag matching a regular expression, in the
+                        given order.
+                      properties:
+                        order:
+                          default: alphabetical
+                          description: |-
+                            order sorts matching tags: alphabetical or numerical (by the first
+                            capture group, or the whole tag). The last tag in order is selected.
+                          enum:
+                            - alphabetical
+                            - numerical
+                          type: string
+                        regex:
+                          description: regex matches candidate tags.
+                          minLength: 1
+                          type: string
+                      required:
+                        - regex
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                    - message: set exactly one of semver, tagPattern, or digest
+                      rule:
+                        "(has(self.semver) ? 1 : 0) + (has(self.tagPattern) ? 1 :
+                        0) + (has(self.digest) ? 1 : 0) == 1"
+                secretRef:
+                  description: |-
+                    secretRef names a kubernetes.io/dockerconfigjson Secret, labelled
+                    solder.io/registry-credentials=true, used to read the registry.
+                  properties:
+                    name:
+                      description: name is the Secret name.
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                  type: object
+                webhook:
+                  description: |-
+                    webhook lets a registry or CI trigger an immediate scan through
+                    Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+                  properties:
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret whose `token` authenticates requests, as a
+                        GitHub signature, a GitLab token, or an Authorization Bearer token.
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
+              required:
+                - image
+                - policy
+              type: object
+            status:
+              description: status defines the observed state of ImagePolicy
+              properties:
+                conditions:
+                  description: conditions represent the state of the policy.
+                  items:
+                    description:
+                      Condition contains details for one aspect of the current
+                      state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: |-
+                          lastTransitionTime is the last time the condition transitioned from one status to another.
+                          This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: |-
+                          message is a human readable message indicating details about the transition.
+                          This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: |-
+                          observedGeneration represents the .metadata.generation that the condition was set based upon.
+                          For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                          with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: |-
+                          reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                          Producers of specific condition types may define expected values and meanings for this field,
+                          and whether the values are considered a guaranteed API.
+                          The value should be a CamelCase string.
+                          This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                lastScannedAt:
+                  description: lastScannedAt is when the registry was last read successfully.
+                  format: date-time
+                  type: string
+                latestDigest:
+                  description: latestDigest is the selected tag's manifest digest.
+                  type: string
+                latestImage:
+                  description: latestImage is the immutable reference image:tag@digest.
+                  type: string
+                latestTag:
+                  description: latestTag is the selected tag.
+                  type: string
+                observedGeneration:
+                  description:
+                    observedGeneration is the latest metadata.generation
+                    processed.
+                  format: int64
+                  type: integer
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: notificationsinks.solder.io
+spec:
+  group: solder.io
+  names:
+    kind: NotificationSink
+    listKind: NotificationSinkList
+    plural: notificationsinks
+    singular: notificationsink
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.type
+          name: Type
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: NotificationSink is a destination for Application lifecycle notifications.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines the sink.
+              properties:
+                secretRef:
+                  description: |-
+                    secretRef names a Secret in the sink's namespace holding `url` (an
+                    https URL) and, for webhook sinks, `hmacKey` used to sign each body.
+                  properties:
+                    name:
+                      description: name is the Secret name.
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                  type: object
+                type:
+                  description: type selects the delivery format.
+                  enum:
+                    - webhook
+                    - slack
+                  type: string
+              required:
+                - secretRef
+                - type
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -460,6 +1090,15 @@ spec:
                     type: string
                   type: array
                   x-kubernetes-list-type: atomic
+                applicationServiceAccountName:
+                  description: |-
+                    applicationServiceAccountName is the service account that Applications
+                    discovered from .solder.yaml run as. Discovered Applications may only
+                    name this account; when it is empty they may not set serviceAccountName
+                    and use the controller's default service account.
+                  maxLength: 253
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                  type: string
                 git:
                   description: git configures a Git desired-state source.
                   properties:
@@ -493,6 +1132,42 @@ spec:
                   required:
                     - url
                   type: object
+                imageUpdate:
+                  description: |-
+                    imageUpdate commits the images selected by ImagePolicies in this
+                    namespace back to the repository, wherever a file carries a marker such
+                    as `# {"$imagepolicy": "<namespace>:<policy>"}`.
+                  properties:
+                    authorEmail:
+                      default: solder@localhost
+                      type: string
+                    authorName:
+                      default: Solder
+                      description: authorName and authorEmail sign the commits.
+                      type: string
+                    branch:
+                      description: branch receives the commits; it defaults to spec.git.revision.
+                      type: string
+                    path:
+                      description:
+                        path limits which repository-relative directory is
+                        scanned for markers.
+                      type: string
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret, labelled solder.io/git-credentials=true, with
+                        credentials allowed to push (same keys as spec.git.auth).
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
                 pollInterval:
                   description:
                     pollInterval controls source polling when no external
@@ -504,6 +1179,26 @@ spec:
                   enum:
                     - git
                   type: string
+                webhook:
+                  description: |-
+                    webhook lets GitHub or GitLab push events trigger an immediate fetch
+                    through Solder's webhook receiver at /hooks/<namespace>/<name>.
+                  properties:
+                    secretRef:
+                      description: |-
+                        secretRef names a Secret in the Repository namespace whose `token` is the
+                        webhook secret configured on GitHub (HMAC) or GitLab (token).
+                      properties:
+                        name:
+                          description: name is the Secret name.
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - secretRef
+                  type: object
               type: object
             status:
               description: status defines the observed source state.
@@ -727,17 +1422,94 @@ spec:
                         helm:
                           description: helm configures Helm rendering when type is helm.
                           properties:
+                            chart:
+                              description: |-
+                                chart pulls a pinned chart from a Helm (https) or OCI (oci://)
+                                repository instead of rendering source.path as a chart.
+                              properties:
+                                name:
+                                  description: name is the chart name.
+                                  minLength: 1
+                                  type: string
+                                repository:
+                                  description:
+                                    repository is an https chart repository
+                                    URL or an oci:// registry path.
+                                  pattern: ^(https|oci)://
+                                  type: string
+                                secretRef:
+                                  description: |-
+                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    with `username` and `password` for the repository.
+                                  properties:
+                                    name:
+                                      description: name is the Secret name.
+                                      minLength: 1
+                                      type: string
+                                  required:
+                                    - name
+                                  type: object
+                                version:
+                                  description:
+                                    version is the exact chart version to
+                                    pull.
+                                  minLength: 1
+                                  type: string
+                              required:
+                                - name
+                                - repository
+                                - version
+                              type: object
                             releaseName:
                               description:
                                 releaseName is the Helm release name used
                                 for template rendering.
                               type: string
+                            values:
+                              description:
+                                values are merged last, over every other
+                                source.
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
                             valuesFiles:
                               description:
                                 valuesFiles are repository-relative values
                                 files.
                               items:
                                 type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            valuesFrom:
+                              description: |-
+                                valuesFrom merges values from ConfigMaps and Secrets in the Application
+                                namespace, read as the Application's service account, after valuesFiles.
+                              items:
+                                description:
+                                  HelmValuesReference names values stored
+                                  in a ConfigMap or Secret.
+                                properties:
+                                  key:
+                                    description:
+                                      key holds a YAML values document; it
+                                      defaults to values.yaml.
+                                    type: string
+                                  kind:
+                                    description: kind is ConfigMap or Secret.
+                                    enum:
+                                      - ConfigMap
+                                      - Secret
+                                    type: string
+                                  name:
+                                    description:
+                                      name is the object name in the Application
+                                      namespace.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                  - kind
+                                  - name
+                                type: object
+                              maxItems: 16
                               type: array
                               x-kubernetes-list-type: atomic
                           type: object
@@ -781,6 +1553,36 @@ spec:
             status:
               description: status defines observed lifecycle, plan, and health state.
               properties:
+                approval:
+                  description: |-
+                    approval records who approved this Revision's plan, when it was applied
+                    through manual approval.
+                  properties:
+                    approvedAt:
+                      description: approvedAt is when the approval was admitted.
+                      format: date-time
+                      type: string
+                    approvedBy:
+                      description:
+                        approvedBy is the authenticated user who approved
+                        the plan.
+                      type: string
+                    desiredStateHash:
+                      description: |-
+                        desiredStateHash is the desired state the approved plan was built from.
+                        The approval covers the rest of this Revision's rollout only while the
+                        desired state still has this hash.
+                      type: string
+                    planDigest:
+                      description:
+                        planDigest is the plan digest the approval was given
+                        for.
+                      type: string
+                  required:
+                    - approvedAt
+                    - approvedBy
+                    - planDigest
+                  type: object
                 attempts:
                   description:
                     attempts counts reconciliation attempts for retry-loop
@@ -788,6 +1590,11 @@ spec:
                   format: int32
                   minimum: 0
                   type: integer
+                chartDigest:
+                  description: |-
+                    chartDigest is the sha256 of the Helm chart archive pulled from a chart
+                    repository for this Revision.
+                  type: string
                 completedAt:
                   description:
                     completedAt records when this Revision reached a terminal
@@ -925,6 +1732,57 @@ spec:
                       minimum: 0
                       type: integer
                   type: object
+                hooks:
+                  description:
+                    hooks reports the pre-sync and post-sync hooks run for
+                    this Revision.
+                  items:
+                    description: HookStatus is the state of one sync hook.
+                    properties:
+                      message:
+                        description: message explains the state.
+                        type: string
+                      resource:
+                        description: resource identifies the hook object.
+                        properties:
+                          apiVersion:
+                            description:
+                              apiVersion is the resource API version, such
+                              as apps/v1.
+                            minLength: 1
+                            type: string
+                          kind:
+                            description: kind is the Kubernetes resource kind.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: name is the resource name.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: namespace is empty for cluster-scoped resources.
+                            type: string
+                        required:
+                          - apiVersion
+                          - kind
+                          - name
+                        type: object
+                      stage:
+                        description: stage is PreSync or PostSync.
+                        type: string
+                      state:
+                        description: |-
+                          state is the hook's health: Progressing while it runs, Healthy once it
+                          succeeded, Degraded when it failed.
+                        type: string
+                    required:
+                      - resource
+                      - stage
+                      - state
+                    type: object
+                  maxItems: 64
+                  type: array
+                  x-kubernetes-list-type: atomic
                 phase:
                   description: phase is the lifecycle state of this deployment attempt.
                   enum:
@@ -942,6 +1800,11 @@ spec:
                 plan:
                   description: plan stores bounded, redacted deployment plan details.
                   properties:
+                    digest:
+                      description: |-
+                        digest identifies the complete plan and desired state; an approval is
+                        valid only for the digest it was given for.
+                      type: string
                     resources:
                       description:
                         resources is intentionally bounded by the planner
@@ -1020,6 +1883,7 @@ spec:
                                     that will be used by apply.
                                   enum:
                                     - fail
+                                    - adopt
                                   type: string
                               required:
                                 - manager
@@ -1251,17 +2115,30 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: solder-manager-role
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-healthcheck-admin-role
 rules:
   - apiGroups:
-      - ""
+      - solder.io
     resources:
-      - configmaps
-      - namespaces
-      - persistentvolumeclaims
-      - secrets
-      - serviceaccounts
-      - services
+      - healthchecks
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-healthcheck-editor-role
+rules:
+  - apiGroups:
+      - solder.io
+    resources:
+      - healthchecks
     verbs:
       - create
       - delete
@@ -1270,72 +2147,57 @@ rules:
       - patch
       - update
       - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-healthcheck-viewer-role
+rules:
   - apiGroups:
-      - ""
+      - solder.io
     resources:
-      - events
+      - healthchecks
     verbs:
-      - create
-      - patch
-  - apiGroups:
-      - apiextensions.k8s.io
-    resources:
-      - customresourcedefinitions
-    verbs:
-      - create
-      - delete
       - get
       - list
-      - patch
-      - update
       - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-imagepolicy-admin-role
+rules:
   - apiGroups:
-      - apps
+      - solder.io
     resources:
-      - daemonsets
-      - deployments
-      - replicasets
-      - statefulsets
+      - imagepolicies
     verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
+      - "*"
   - apiGroups:
-      - batch
+      - solder.io
     resources:
-      - cronjobs
-      - jobs
+      - imagepolicies/status
     verbs:
-      - create
-      - delete
       - get
-      - list
-      - patch
-      - update
-      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-imagepolicy-editor-role
+rules:
   - apiGroups:
-      - networking.k8s.io
+      - solder.io
     resources:
-      - ingresses
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - clusterrolebindings
-      - clusterroles
-      - rolebindings
-      - roles
+      - imagepolicies
     verbs:
       - create
       - delete
@@ -1347,7 +2209,81 @@ rules:
   - apiGroups:
       - solder.io
     resources:
+      - imagepolicies/status
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-imagepolicy-viewer-role
+rules:
+  - apiGroups:
+      - solder.io
+    resources:
+      - imagepolicies
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - solder.io
+    resources:
+      - imagepolicies/status
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: solder-manager-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - services
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - impersonate
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - statefulsets
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - solder.io
+    resources:
       - applications
+      - imagepolicies
       - repositories
       - revisions
     verbs:
@@ -1362,6 +2298,7 @@ rules:
       - solder.io
     resources:
       - applications/finalizers
+      - imagepolicies/finalizers
       - repositories/finalizers
       - revisions/finalizers
     verbs:
@@ -1370,12 +2307,22 @@ rules:
       - solder.io
     resources:
       - applications/status
+      - imagepolicies/status
       - repositories/status
       - revisions/status
     verbs:
       - get
       - patch
       - update
+  - apiGroups:
+      - solder.io
+    resources:
+      - healthchecks
+      - notificationsinks
+    verbs:
+      - get
+      - list
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -1404,6 +2351,59 @@ rules:
       - /metrics
     verbs:
       - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-notificationsink-admin-role
+rules:
+  - apiGroups:
+      - solder.io
+    resources:
+      - notificationsinks
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-notificationsink-editor-role
+rules:
+  - apiGroups:
+      - solder.io
+    resources:
+      - notificationsinks
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-notificationsink-viewer-role
+rules:
+  - apiGroups:
+      - solder.io
+    resources:
+      - notificationsinks
+    verbs:
+      - get
+      - list
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -1612,6 +2612,23 @@ spec:
     app.kubernetes.io/name: solder
     control-plane: controller-manager
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-webhook-service
+  namespace: solder-system
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    app.kubernetes.io/name: solder
+    control-plane: controller-manager
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1640,9 +2657,10 @@ spec:
             - --metrics-bind-address=:8443
             - --leader-elect
             - --health-probe-bind-address=:8081
+            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
           command:
             - /manager
-          image: ghcr.io/azrtydxb/solder:v0.1.11
+          image: ghcr.io/azrtydxb/solder:v0.2.0
           livenessProbe:
             httpGet:
               path: /healthz
@@ -1653,6 +2671,9 @@ spec:
           ports:
             - containerPort: 8081
               name: health
+              protocol: TCP
+            - containerPort: 9443
+              name: webhook-server
               protocol: TCP
           readinessProbe:
             httpGet:
@@ -1676,6 +2697,9 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmp
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-certs
+              readOnly: true
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -1685,3 +2709,90 @@ spec:
       volumes:
         - emptyDir: {}
           name: tmp
+        - name: webhook-certs
+          secret:
+            secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-serving-cert
+  namespace: solder-system
+spec:
+  dnsNames:
+    - solder-webhook-service.solder-system.svc
+    - solder-webhook-service.solder-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: solder-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: solder
+  name: solder-selfsigned-issuer
+  namespace: solder-system
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: solder-system/solder-serving-cert
+  name: solder-mutating-webhook-configuration
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: solder-webhook-service
+        namespace: solder-system
+        path: /mutate-solder-io-v1alpha1-application
+    failurePolicy: Fail
+    name: mapplication-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - solder.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - applications
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: solder-system/solder-serving-cert
+  name: solder-validating-webhook-configuration
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: solder-webhook-service
+        namespace: solder-system
+        path: /validate-solder-io-v1alpha1-healthcheck
+    failurePolicy: Fail
+    name: vhealthcheck-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - solder.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - healthchecks
+    sideEffects: None

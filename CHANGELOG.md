@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+_Each Application now applies as its own service account, and Solder reaches
+parity with Flux and Argo CD for Helm repositories, SOPS, approvals,
+notifications, hooks and waves, and image automation. Most changes below are
+breaking; follow the [upgrade checklist](docs/upgrade.md) before installing._
 
 - Solder now builds with Go 1.26, required by `golang.org/x/crypto` v0.57,
   which fixes two SSH channel deadlocks a Git server could trigger. Also

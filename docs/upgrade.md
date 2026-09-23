@@ -22,9 +22,9 @@ helm template solder charts/solder >/tmp/solder-chart.yaml
 kubectl apply --dry-run=server -f /tmp/solder-chart.yaml -n solder-system
 ```
 
-## Upgrading from 0.1.x
+## Upgrading from 0.1.x to 0.2.0
 
-The next release changes how Solder is installed and what it will do on an
+Release 0.2.0 changes how Solder is installed and what it will do on an
 Application's behalf. Before upgrading:
 
 1. **Install cert-manager.** Solder's admission webhooks (HealthCheck
