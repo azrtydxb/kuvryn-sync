@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+_Each Application now applies as its own service account, and Solder reaches
+parity with Flux and Argo CD for Helm repositories, SOPS, approvals,
+notifications, hooks and waves, and image automation. Most changes below are
+breaking; follow the [upgrade checklist](docs/upgrade.md) before installing._
 
 - Solder now builds with Go 1.26, required by `golang.org/x/crypto` v0.57,
   which fixes two SSH channel deadlocks a Git server could trigger. Also
@@ -64,6 +69,8 @@ skip` is new.
 - Fixed: a succeeded hook deleted by `ttlSecondsAfterFinished` was re-run, and
   a missing object counted as Healthy.
 - Fixed: `DeploymentStarted` was emitted on every observation requeue.
+- Fixed: `solder_application_reconcile_duration_seconds` measured the time since
+  the manager started instead of each reconcile's own duration.
 - Fixed: when Solder and another manager shared a field, the conflict could go
   unreported until apply failed.
 - RBAC denials while reading, applying, or pruning fail the Revision with

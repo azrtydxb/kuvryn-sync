@@ -25,3 +25,7 @@ Manual approval targets exact Revision.
 ## Closure Evidence
 
 - Closed after the all-gap closure pass: product paths now include controller-integrated render/plan/apply/prune/health/drift/retry/rollback handling, bounded metrics and optional OTel tracing, lifecycle Events, CLI operations, installer/CI polish, and regenerated API/manifests. Verification evidence is the final `make fmt test`, `procoder test`, `procoder lint`, `procoder security`, and `procoder check` gate run for this pass.
+
+## Superseded by the 0.2.0 cleanup
+
+The approval check moved out of `syncpolicy.CheckApproval`: the Application admission webhook (`internal/webhook/v1alpha1/application_webhook.go`) binds an approval to the exact Revision and its plan digest, and `solder approve` (`internal/cli/plan.go`) sends both.

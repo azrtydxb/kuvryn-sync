@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -80,10 +81,7 @@ func runInstall(args []string, stdout io.Writer) error {
 }
 
 func runApplications(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder apps", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder apps", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -100,10 +98,7 @@ func runApplications(ctx context.Context, args []string, stdout, stderr io.Write
 }
 
 func runRepositories(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder repos", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder repos", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -123,10 +118,7 @@ func runRepo(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if len(args) == 0 || args[0] != "get" {
 		return fmt.Errorf("usage: solder repo get <name> [-n namespace]")
 	}
-	fs := flag.NewFlagSet("solder repo get", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder repo get", stderr)
 	if err := fs.Parse(interspersedFlags(args[1:])); err != nil {
 		return err
 	}
@@ -146,10 +138,7 @@ func runRepo(ctx context.Context, args []string, stdout, stderr io.Writer) error
 }
 
 func runGetApplication(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder get", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder get", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -169,10 +158,7 @@ func runGetApplication(ctx context.Context, args []string, stdout, stderr io.Wri
 }
 
 func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder history", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder history", stderr)
 	output := fs.String("output", "table", "output format: table or json")
 	fs.StringVar(output, "o", "table", "output format: table or json")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
@@ -215,10 +201,7 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 }
 
 func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder revision", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder revision", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -238,10 +221,7 @@ func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) e
 }
 
 func runSync(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder sync", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder sync", stderr)
 	revision := fs.String("revision", "", "exact Revision object name to approve")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
@@ -276,11 +256,13 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 		return fmt.Errorf("revision %s has no plan to approve yet", rev.Name)
 	}
 	_, _ = fmt.Fprintf(stdout, "approving %s for %s with plan digest %s\n", rev.Name, app.Name, digest)
-	patch, err := BuildSyncPatch(*app, rev.Name, rev.Name, digest)
-	if err != nil {
-		return err
-	}
-	body, err := yaml.YAMLToJSON([]byte(patch.Patch))
+	// Both annotations are always sent. A computed merge patch would drop
+	// approved-revision when it already holds this Revision, and the webhook
+	// would then check the digest against whatever Revision the server holds.
+	body, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]string{
+		corev1alpha1.ApprovedRevisionAnnotation: rev.Name,
+		corev1alpha1.ApproveDigestAnnotation:    digest,
+	}}})
 	if err != nil {
 		return err
 	}
@@ -292,10 +274,7 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 }
 
 func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder rollback", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder rollback", stderr)
 	revisionName := fs.String("revision", "", "Revision object to roll back to; defaults to latest healthy")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
@@ -338,12 +317,7 @@ func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: target}, rev); err != nil {
 		return err
 	}
-	ann := app.GetAnnotations()
-	if ann == nil {
-		ann = map[string]string{}
-	}
-	ann["solder.io/rollback-revision"] = rev.Spec.Source.Revision
-	app.SetAnnotations(ann)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "solder.io/rollback-revision", rev.Spec.Source.Revision)
 	if err := c.Update(ctx, app); err != nil {
 		return err
 	}
@@ -356,10 +330,7 @@ func runDrift(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 }
 
 func runDiagnose(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder diagnose", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder diagnose", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -379,10 +350,7 @@ func runDiagnose(ctx context.Context, args []string, stdout, stderr io.Writer) e
 }
 
 func runSuspend(ctx context.Context, args []string, stdout, stderr io.Writer, suspend bool) error {
-	fs := flag.NewFlagSet("solder suspend", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	fs, namespace := newFlagSet("solder suspend", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -406,12 +374,9 @@ func runSuspend(ctx context.Context, args []string, stdout, stderr io.Writer, su
 }
 
 func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("solder plan", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs, namespace := newFlagSet("solder plan", stderr)
 	format := fs.String("o", "text", "output format: text, json, yaml")
 	file := fs.String("f", "", "read Revision YAML/JSON from file instead of the cluster")
-	namespace := fs.String("n", "default", "namespace for cluster lookup")
-	fs.StringVar(namespace, "namespace", "default", "namespace for cluster lookup")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -425,6 +390,16 @@ func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	}
 	doc := planoutput.Document{Application: application, Revision: rev.Spec.Source.Revision, Plan: rev.Status.Plan}
 	return planoutput.Write(stdout, doc, *format)
+}
+
+// newFlagSet returns the flags of the named command, starting with its
+// -n/--namespace flag.
+func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *string) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	namespace := fs.String("n", "default", "namespace")
+	fs.StringVar(namespace, "namespace", "default", "namespace")
+	return fs, namespace
 }
 
 func interspersedFlags(args []string) []string {

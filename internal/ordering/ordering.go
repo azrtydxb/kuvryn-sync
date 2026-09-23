@@ -2,6 +2,8 @@ package ordering
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,7 +13,7 @@ import (
 
 // Apply returns deterministic dependency-aware apply order for common Kubernetes kinds.
 func Apply(objects []unstructured.Unstructured) []unstructured.Unstructured {
-	out := copyObjects(objects)
+	out := slices.Clone(objects)
 	sort.SliceStable(out, func(i, j int) bool {
 		li, lj := layer(out[i]), layer(out[j])
 		if li != lj {
@@ -25,15 +27,7 @@ func Apply(objects []unstructured.Unstructured) []unstructured.Unstructured {
 // Prune returns reverse dependency order for safe deletion.
 func Prune(objects []unstructured.Unstructured) []unstructured.Unstructured {
 	out := Apply(objects)
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out
-}
-
-func copyObjects(objects []unstructured.Unstructured) []unstructured.Unstructured {
-	out := make([]unstructured.Unstructured, len(objects))
-	copy(out, objects)
+	slices.Reverse(out)
 	return out
 }
 
@@ -217,12 +211,7 @@ func Groups(objects []unstructured.Unstructured) []Group {
 	if len(pre) > 0 {
 		groups = append(groups, Group{Stage: StagePreSync, Objects: Apply(pre)})
 	}
-	numbers := make([]int, 0, len(waves))
-	for wave := range waves {
-		numbers = append(numbers, wave)
-	}
-	sort.Ints(numbers)
-	for _, wave := range numbers {
+	for _, wave := range slices.Sorted(maps.Keys(waves)) {
 		groups = append(groups, Group{Stage: StageSync, Wave: wave, Objects: Apply(waves[wave])})
 	}
 	if len(post) > 0 {

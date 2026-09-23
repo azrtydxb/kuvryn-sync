@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -96,7 +95,6 @@ type ApplicationReconciler struct {
 	PlanLimit      int
 	Recorder       record.EventRecorder
 	Tracer         ops.Tracer
-	Metrics        ops.ApplicationMetrics
 
 	// Impersonation builds clients that act as an Application's service account.
 	Impersonation *impersonate.Clients
@@ -132,6 +130,7 @@ type ApplicationReconciler struct {
 
 // Reconcile resolves, renders, validates, plans, applies approved changes, and observes health.
 func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, reconcileErr error) {
+	start := time.Now()
 	if r.Tracer != nil {
 		var finish func(error)
 		ctx, finish = r.Tracer.Start(ctx, "Application/Reconcile")
@@ -139,11 +138,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	metricApp := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: req.Namespace}}
 	metricPhase := corev1alpha1.RevisionPhase("")
-	metrics := r.Metrics
-	if metrics == nil {
-		metrics = ops.PrometheusApplicationMetrics()
-	}
-	defer func() { ops.ObserveApplicationReconcile(metrics, metricApp, metricPhase, reconcileErr) }()
+	defer func() { ops.ObserveReconcile(metricApp, metricPhase, reconcileErr, time.Since(start)) }()
 	log := logf.FromContext(ctx)
 	unwatched := false
 	defer func() {
@@ -569,11 +564,7 @@ func (r *ApplicationReconciler) resolver() source.Resolver {
 	if r.SourceResolver != nil {
 		return r.SourceResolver
 	}
-	root := r.CacheDir
-	if root == "" {
-		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
-	}
-	r.SourceResolver = gitcache.NewCache(root)
+	r.SourceResolver = gitcache.NewCache(cacheRoot(r.CacheDir))
 	return r.SourceResolver
 }
 
@@ -650,11 +641,7 @@ func (r *ApplicationReconciler) pullChart(ctx context.Context, namespace string,
 		}
 		src.Username, src.Password = string(secret.Data["username"]), string(secret.Data["password"])
 	}
-	root := r.CacheDir
-	if root == "" {
-		root = filepath.Join(os.TempDir(), defaultSourceCacheDir)
-	}
-	return helmrenderer.Pull(filepath.Join(root, "charts"), namespace, src)
+	return helmrenderer.Pull(filepath.Join(cacheRoot(r.CacheDir), "charts"), namespace, src)
 }
 
 // helmValues merges valuesFrom, in order, then inline values, reading
@@ -916,7 +903,9 @@ func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.
 	if revision.Status.CompletedAt != nil {
 		lastFailure = revision.Status.CompletedAt.Time
 	}
-	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, DeployedRevision: application.Status.DeployedRevision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure, Suspended: application.Spec.Suspend}, time.Now(), ops.RateLimiter{Base: time.Second, Max: time.Minute}.Delay(int(revision.Status.Attempts)))
+	// Back off exponentially from one second, capped at one minute.
+	backoff := min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
+	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), backoff)
 	if decision.Allowed {
 		return nil
 	}
@@ -1037,10 +1026,6 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	// the same deployment carrying on.
 	resuming := progress.state == rolloutInProgress && progress.previousPhase != corev1alpha1.RevisionPhaseFailed
 	status.StartApplying(revision, application, metav1.Now())
-	if err := syncpolicy.EnsureMutationAllowed(*application, revision.Status.Phase); err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "ApplyBlocked", Message: safeMessage(err, "Application is not allowed to apply"), Retryable: false}
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
-	}
 	setRolloutComplete(revision, false)
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return ctrl.Result{}, err
@@ -1083,7 +1068,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 			}
 		}
 		if len(pending) > 0 {
-			if _, err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
+			if err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
 				failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 			}
@@ -1271,12 +1256,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	rollbackMissing := false
 	if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback && application.GetAnnotations()["solder.io/rollback-revision"] == "" {
 		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
-			annotations := application.GetAnnotations()
-			if annotations == nil {
-				annotations = map[string]string{}
-			}
-			annotations["solder.io/rollback-revision"] = target.Spec.Source.Revision
-			application.SetAnnotations(annotations)
+			metav1.SetMetaDataAnnotation(&application.ObjectMeta, "solder.io/rollback-revision", target.Spec.Source.Revision)
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.Update(ctx, application); err != nil {

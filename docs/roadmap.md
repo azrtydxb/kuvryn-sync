@@ -25,4 +25,4 @@ Policy, signature, SBOM, and provenance checks should run after render/plan and 
 
 ## AI explanations
 
-AI remains an optional explanation layer over redacted plans, health, graph, drift, and diagnosis. It must not be required for reconciliation and must never receive Secret values by default.
+AI remains an optional explanation layer over redacted plans, health, drift, and diagnosis. It must not be required for reconciliation and must never receive Secret values by default.

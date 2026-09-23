@@ -25,3 +25,7 @@ Solder explains rollout success/failure through graph-backed health and diagnosi
 ## Closure Evidence
 
 - Closed after the all-gap closure pass: product paths now include controller-integrated render/plan/apply/prune/health/drift/retry/rollback handling, bounded metrics and optional OTel tracing, lifecycle Events, CLI operations, installer/CI polish, and regenerated API/manifests. Verification evidence is the final `make fmt test`, `procoder test`, `procoder lint`, `procoder security`, and `procoder check` gate run for this pass.
+
+## Superseded by the 0.2.0 cleanup
+
+The `internal/graph`, `internal/diagnosis`, and `internal/drift` packages were removed because nothing used them; see the notes on stories 032, 033, and 036–040 for where each behaviour lives now or that it never shipped.

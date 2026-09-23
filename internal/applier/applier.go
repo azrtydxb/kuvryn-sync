@@ -19,45 +19,27 @@ const (
 // Applier mutates Kubernetes resources with server-side apply.
 type Applier struct {
 	Client               client.Client
-	FieldManager         string
 	ApplicationNamespace string
 }
 
-// Result summarizes an apply pass.
-type Result struct {
-	Applied int
-}
-
-// Apply applies each desired object idempotently using SSA and fail-conflict semantics.
-func (a Applier) Apply(ctx context.Context, application, revision string, desired []unstructured.Unstructured, policy corev1alpha1.ConflictPolicy) (Result, error) {
-	if a.Client == nil {
-		return Result{}, fmt.Errorf("applier client is required")
-	}
-	if policy == "" {
-		policy = corev1alpha1.ConflictPolicyFail
-	}
+// Apply applies each desired object idempotently using server-side apply.
+// The fail policy surfaces ownership conflicts; adopt takes the fields over.
+func (a Applier) Apply(ctx context.Context, application, revision string, desired []unstructured.Unstructured, policy corev1alpha1.ConflictPolicy) error {
 	if policy != corev1alpha1.ConflictPolicyFail && policy != corev1alpha1.ConflictPolicyAdopt {
-		return Result{}, fmt.Errorf("unsupported conflict policy %q", policy)
+		return fmt.Errorf("unsupported conflict policy %q", policy)
 	}
-
-	manager := a.FieldManager
-	if manager == "" {
-		manager = FieldManager
+	options := []client.PatchOption{client.FieldOwner(FieldManager)}
+	if policy == corev1alpha1.ConflictPolicyAdopt {
+		options = append(options, client.ForceOwnership)
 	}
-	result := Result{}
 	for i := range desired {
 		obj := desired[i].DeepCopy()
 		MarkManaged(obj, application, a.ApplicationNamespace, revision)
-		options := []client.PatchOption{client.FieldOwner(manager)}
-		if policy == corev1alpha1.ConflictPolicyAdopt {
-			options = append(options, client.ForceOwnership)
-		}
 		if err := a.Client.Patch(ctx, obj, client.Apply, options...); err != nil {
-			return result, err
+			return err
 		}
-		result.Applied++
 	}
-	return result, nil
+	return nil
 }
 
 // MarkManaged adds the labels and annotation Solder applies with every

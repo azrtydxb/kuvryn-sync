@@ -1,10 +1,11 @@
 package planner
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -58,11 +59,7 @@ func Build(desired []unstructured.Unstructured, live []unstructured.Unstructured
 	for id := range liveByID {
 		ids[id] = struct{}{}
 	}
-	ordered := make([]resource.ID, 0, len(ids))
-	for id := range ids {
-		ordered = append(ordered, id)
-	}
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].String() < ordered[j].String() })
+	ordered := slices.SortedFunc(maps.Keys(ids), func(a, b resource.ID) int { return cmp.Compare(a.String(), b.String()) })
 
 	plan := Plan{Changes: make([]Change, 0, len(ordered))}
 	for _, id := range ordered {
@@ -142,13 +139,8 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 			paths[path] = struct{}{}
 		}
 	}
-	ordered := make([]string, 0, len(paths))
-	for path := range paths {
-		ordered = append(ordered, path)
-	}
-	sort.Strings(ordered)
 	out := []corev1alpha1.PlanFieldChange{}
-	for _, path := range ordered {
+	for _, path := range slices.Sorted(maps.Keys(paths)) {
 		if df[path] == lf[path] {
 			continue
 		}
@@ -167,12 +159,9 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 func flatten(out map[string]string, prefix string, v any) {
 	switch typed := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
+		// Sorted, so a dotted key and a nested path that flatten alike
+		// resolve the same way every time.
+		for _, key := range slices.Sorted(maps.Keys(typed)) {
 			path := key
 			if prefix != "" {
 				path = prefix + "." + key

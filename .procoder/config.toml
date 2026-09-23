@@ -1,0 +1,6 @@
+[release]
+# The handles whose release notes these are; the changelog credit rule does
+# not ask about them.
+maintainers = ["piwi3910"]
+# The version-bearing files `procoder release` verifies stay in sync.
+files = ["charts/solder/Chart.yaml", "dist/install.yaml"]

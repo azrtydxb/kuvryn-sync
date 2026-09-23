@@ -1,9 +1,7 @@
 package health
 
 import (
-	context "context"
 	"fmt"
-	"time"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/resource"
@@ -125,53 +123,6 @@ func Summary(results []Result) corev1alpha1.ResourceHealthSummary {
 		}
 	}
 	return out
-}
-
-// Observe evaluates snapshots until all are healthy, any is degraded, timeout fires, or context is cancelled.
-func Observe(ctx context.Context, interval, timeout time.Duration, snapshots func(context.Context) ([]unstructured.Unstructured, error)) ([]Result, error) {
-	if interval <= 0 {
-		interval = 10 * time.Millisecond
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	for {
-		objects, err := snapshots(ctx)
-		if err != nil {
-			return nil, err
-		}
-		results := make([]Result, 0, len(objects))
-		for _, obj := range objects {
-			result, err := Evaluate(obj)
-			if err != nil {
-				return nil, err
-			}
-			results = append(results, result)
-		}
-		if terminal(results) {
-			return results, nil
-		}
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		case <-time.After(interval):
-		}
-	}
-}
-
-func terminal(results []Result) bool {
-	allHealthy := len(results) > 0
-	for _, result := range results {
-		if result.State == corev1alpha1.HealthStateDegraded {
-			return true
-		}
-		if result.State != corev1alpha1.HealthStateHealthy {
-			allHealthy = false
-		}
-	}
-	return allHealthy
 }
 
 func progressing(result Result, reason, message string) Result {
