@@ -1,6 +1,6 @@
 # v0.2 Tenancy and generic resources
 
-Status: open
+Status: done 2026-09-23
 Created: 2026-09-23
 
 ## Goal
