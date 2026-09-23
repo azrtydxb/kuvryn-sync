@@ -33,7 +33,7 @@ spec:
 | Field                                | Description                                                                                                              |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                               |
-| `spec.git.url`                       | Git remote URL. HTTPS and SSH are supported by the source adapter.                                                       |
+| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.        |
 | `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                              |
 | `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`. |
 | `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                               |

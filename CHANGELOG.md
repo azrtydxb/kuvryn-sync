@@ -17,6 +17,19 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Git, Kustomize, and Helm now run in process (go-git, kustomize/api, the
+  Helm v4 SDK). Fixed: the controller image never shipped kustomize or helm,
+  so `kustomize` and `helm` Applications could not render in it. The image no
+  longer contains git either.
+- Rendering is confined to the checkout: symlinks pointing outside it are
+  refused, Kustomize cannot load bases outside it, and Helm values files must
+  lie inside it (previously `../` values paths could read controller files).
+- **Breaking:** Repository URLs must be `https`, `http`, `ssh`, or `git`;
+  filesystem paths are rejected. SSH remotes require `known_hosts` in the
+  credentials Secret. Kustomize remote bases are not fetched, and Helm chart
+  dependencies must be vendored into `charts/`.
+- Helm charts render with `.Release.Namespace` set to the destination
+  namespace instead of `default`.
 - New cluster-scoped `HealthCheck` API: ordered CEL rules decide the health of
   a kind, falling back to kstatus when none matches. Rules run with a cost
   limit and fail closed as Progressing.

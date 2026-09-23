@@ -95,8 +95,16 @@ policy controls.
 ## Network access
 
 The controller needs outbound access to configured Git remotes and access to the
-Kubernetes API. Renderer execution is limited to the controller environment and
-installed tools.
+Kubernetes API. Git, Kustomize, and Helm run in process; the controller image
+contains no git, kustomize, or helm binary and runs no subprocesses.
+
+Rendering only reads the checked-out commit. Checkouts refuse symlinks that
+point outside them, Kustomize builds against an in-memory copy of the checkout
+so bases outside it do not exist, Helm values files must lie inside the
+checkout, and neither renderer fetches remote bases, charts, or values.
+Repository URLs must use `https`, `http`, `ssh`, or `git`; filesystem paths are
+rejected. SSH remotes require a `known_hosts` entry in the credentials Secret,
+so an unknown or changed host key is never trusted.
 
 ## Responsible disclosure
 

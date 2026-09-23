@@ -57,7 +57,8 @@ import (
 	"github.com/azrtydxb/solder/internal/prune"
 	"github.com/azrtydxb/solder/internal/redact"
 	"github.com/azrtydxb/solder/internal/renderer"
-	execrenderer "github.com/azrtydxb/solder/internal/renderer/exec"
+	helmrenderer "github.com/azrtydxb/solder/internal/renderer/helm"
+	kustomizerenderer "github.com/azrtydxb/solder/internal/renderer/kustomize"
 	yamlrenderer "github.com/azrtydxb/solder/internal/renderer/yaml"
 	"github.com/azrtydxb/solder/internal/resource"
 	"github.com/azrtydxb/solder/internal/retry"
@@ -418,9 +419,9 @@ func (r *ApplicationReconciler) renderer(renderType corev1alpha1.RenderType) (re
 	case corev1alpha1.RenderTypeYAML:
 		return yamlrenderer.Renderer{}, nil
 	case corev1alpha1.RenderTypeKustomize:
-		return execrenderer.KustomizeRenderer{}, nil
+		return kustomizerenderer.Renderer{}, nil
 	case corev1alpha1.RenderTypeHelm:
-		return execrenderer.HelmRenderer{}, nil
+		return helmrenderer.Renderer{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported render type %q", renderType)
 	}
@@ -442,7 +443,11 @@ func (r *ApplicationReconciler) renderDesired(ctx context.Context, application *
 }
 
 func rendererInput(application *corev1alpha1.Application, workspace string) renderer.Input {
-	input := renderer.Input{Workspace: workspace, Path: application.Spec.Source.Path}
+	namespace := application.Spec.Destination.Namespace
+	if namespace == "" {
+		namespace = application.Namespace
+	}
+	input := renderer.Input{Workspace: workspace, Path: application.Spec.Source.Path, Namespace: namespace}
 	if application.Spec.Source.Render.Helm != nil {
 		input.ReleaseName = application.Spec.Source.Render.Helm.ReleaseName
 		input.ValuesFiles = append([]string(nil), application.Spec.Source.Render.Helm.ValuesFiles...)

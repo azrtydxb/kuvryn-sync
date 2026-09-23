@@ -113,7 +113,12 @@ Check that the desired-state repository contains the expected path and renderer
 inputs:
 
 - `render.type: yaml` expects Kubernetes YAML files under the path.
-- `render.type: kustomize` expects a Kustomize root.
-- `render.type: helm` expects a chart and optional values files.
+- `render.type: kustomize` expects a Kustomize root. Bases and resources must be
+  in the same repository; remote bases are not fetched.
+- `render.type: helm` expects a chart and optional values files inside the
+  repository. Chart dependencies must be vendored into `charts/` (run
+  `helm dependency build` and commit the result). `.Release.Namespace` is the
+  Application's destination namespace.
+- A checkout fails if the commit contains a symlink pointing outside it.
 
 Use `solder diagnose` and controller logs for the deterministic failure reason.

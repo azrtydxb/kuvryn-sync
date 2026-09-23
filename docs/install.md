@@ -68,7 +68,9 @@ kubectl api-resources --api-group=solder.io
 ## Git credentials
 
 For private Git repositories, create a Secret in the same namespace as the
-Repository and reference it with `spec.git.auth.secretRef.name`.
+Repository and reference it with `spec.git.auth.secretRef.name`. HTTPS remotes
+use `username` and `password`, or `token`. SSH remotes need `sshPrivateKey` and
+`known_hosts`; Solder rejects host keys that are not listed.
 
 ```sh
 kubectl create secret generic platform-git \
