@@ -78,10 +78,10 @@ solder plan payments -n payments
 solder approve payments -n payments --revision <revision-name>
 ```
 
-Wait until the Application is Synced and Healthy:
+Wait until the Solder Application is Synced and Healthy:
 
 ```sh
-kubectl -n payments get application payments
+kubectl -n payments get applications.solder.io payments
 ```
 
 ## 5. Remove the Flux Kustomization
@@ -100,10 +100,21 @@ the ownership records on the migrated objects so the next change does not
 conflict with a manager that no longer exists:
 
 ```sh
-kubectl get all,configmap,secret,ingress -n payments \
-  -l solder.io/application=payments -o name |
+kubectl get all,configmap,secret,ingress,serviceaccount,role,rolebinding,pvc \
+  -n payments -l solder.io/application=payments -o name |
   xargs -I% kubectl -n payments patch % --type merge \
     -p '{"metadata":{"managedFields":[{}]}}'
+```
+
+This covers the workload kinds `all` expands to (such as Deployments,
+StatefulSets, DaemonSets, Services and Jobs), ConfigMaps, Secrets, Ingresses,
+ServiceAccounts, Roles, RoleBindings and PersistentVolumeClaims. If the
+Solder Application manages other kinds, such as custom resources, list them
+and add them to the command:
+
+```sh
+kubectl -n payments get applications.solder.io payments \
+  -o jsonpath='{range .status.managedKinds[*]}{.apiVersion}{" "}{.kind}{"\n"}{end}'
 ```
 
 ## 7. Settle the Application
@@ -112,7 +123,7 @@ Switch back to the default conflict policy so future conflicts stop the
 deployment again, and enable pruning and automatic sync if you want them:
 
 ```sh
-kubectl -n payments patch application payments --type merge \
+kubectl -n payments patch applications.solder.io payments --type merge \
   -p '{"spec":{"sync":{"conflictPolicy":"fail","prune":true,"automatic":true}}}'
 ```
 

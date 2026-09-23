@@ -89,7 +89,7 @@ Y
 clear_ownership() {
 	# Guide step 6.
 	local obj
-	k get all,configmap,secret,ingress -n solder-e2e -l "$1" -o name | while read -r obj; do
+	k get all,configmap,secret,ingress,serviceaccount,role,rolebinding,pvc -n solder-e2e -l "$1" -o name | while read -r obj; do
 		k -n solder-e2e patch "$obj" --type merge -p '{"metadata":{"managedFields":[{}]}}' >/dev/null
 	done
 }
