@@ -32,6 +32,8 @@ Check every hunk for:
   two installs in one namespace route to each other.
 - CI on self-hosted runners: pull requests from forks must not run there; the
   runners reach the internal network.
+- Comments copied into several files: re-read each copy against the file
+  it now sits in; a claim true for one workflow is often false for the next.
 - Prose and markdown: code spans unbroken, lists formatted, wording that
   says what the code actually does.
 

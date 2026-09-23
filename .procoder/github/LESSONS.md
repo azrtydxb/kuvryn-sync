@@ -36,3 +36,15 @@ Entry shape (unindented in real entries):
 - Class: judgment
 - Missed by: rubric
 - Adaptation: REVIEW.md now forbids running fork pull requests on self-hosted runners; the workflows send fork PRs to GitHub-hosted runners.
+
+## 2026-09-23 Copilot review of PR #4 — Go bump missed the devcontainer image
+
+- Class: mechanical
+- Missed by: test
+- Adaptation: `TestGoVersionMatchesBuildImages` fails when the Dockerfile or devcontainer image lags the go.mod Go version.
+
+## 2026-09-23 Copilot review of PR #4 — trigger comment copied into workflows it did not describe
+
+- Class: taste
+- Missed by: rubric
+- Adaptation: REVIEW.md now asks for every copied comment to be re-read against the file it lands in.
