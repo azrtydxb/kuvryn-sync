@@ -123,8 +123,10 @@ func withoutCompletedHooks(objects []unstructured.Unstructured, states map[corev
 }
 
 // splitHooks sorts a hook group by what this rollout already did with each
-// hook: pending hooks are applied, watched ones were applied and are only
-// checked, and done ones succeeded and count as Healthy without a look.
+// hook: pending hooks are applied, watched ones are still running and are
+// only checked, and done ones succeeded and count as Healthy without a look.
+// A failed hook is pending again, so a retry re-creates one an operator
+// deleted to run it afresh.
 func splitHooks(objects []unstructured.Unstructured, states map[corev1alpha1.ResourceRef]corev1alpha1.HealthState) (pending, watched []unstructured.Unstructured, done []health.Result) {
 	for _, obj := range objects {
 		id, err := resource.FromObject(obj)
@@ -133,7 +135,7 @@ func splitHooks(objects []unstructured.Unstructured, states map[corev1alpha1.Res
 			continue
 		}
 		switch state, recorded := states[resourceRef(id)]; {
-		case !recorded:
+		case !recorded, state == corev1alpha1.HealthStateDegraded:
 			pending = append(pending, obj)
 		case state == corev1alpha1.HealthStateHealthy:
 			done = append(done, health.Result{Resource: id, State: state, Reason: "HookSucceeded", Message: "hook already succeeded for this Revision"})

@@ -344,6 +344,26 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue())
 	})
 
+	It("re-creates a failed hook an operator deleted when the rollout is retried", func() {
+		attempts := int32(3)
+		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts })
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		setWidgetConditions(map[string]any{"type": "Stalled", "status": "True", "message": "database locked"})
+		reconcileOnce(r)
+		failed := latestRevision()
+		Expect(failed.Status.Failure).NotTo(BeNil())
+		Expect(failed.Status.Failure.Reason).To(Equal("HookFailed"))
+
+		deleteWidget()
+		failed.Status.CompletedAt = &metav1.Time{Time: time.Now().Add(-time.Hour)}
+		Expect(k8sClient.Status().Update(ctx, &failed)).To(Succeed())
+		reconcileOnce(r)
+		Expect(widgetExists()).To(BeTrue(), "the retry did not run the failed hook again")
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving))
+	})
+
 	It("announces a deployment once while observing it", func() {
 		recorder := record.NewFakeRecorder(100)
 		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0")}, nil)
