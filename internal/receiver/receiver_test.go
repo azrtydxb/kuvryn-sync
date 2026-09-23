@@ -5,10 +5,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
@@ -48,7 +50,12 @@ func sign(body string) string {
 }
 
 func post(r *Receiver, path, body string, headers map[string]string) int {
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	return send(r, "192.0.2.1:1234", path, strings.NewReader(body), headers)
+}
+
+func send(r *Receiver, remote, path string, body io.Reader, headers map[string]string) int {
+	req := httptest.NewRequest(http.MethodPost, path, body)
+	req.RemoteAddr = remote
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -93,7 +100,7 @@ func TestReceiverRejects(t *testing.T) {
 		"bad signature":     {"/hooks/default/platform", githubPush, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=00"}, http.StatusUnauthorized},
 		"bad gitlab token":  {"/hooks/default/platform", githubPush, map[string]string{"X-Gitlab-Event": "Push Hook", "X-Gitlab-Token": "wrong"}, http.StatusUnauthorized},
 		"no signature":      {"/hooks/default/platform", githubPush, map[string]string{"X-GitHub-Event": "push"}, http.StatusUnauthorized},
-		"unknown repo":      {"/hooks/default/missing", githubPush, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(githubPush)}, http.StatusNotFound},
+		"unknown repo":      {"/hooks/default/missing", githubPush, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(githubPush)}, http.StatusUnauthorized},
 		"other repository":  {"/hooks/default/platform", `{"repository":{"clone_url":"https://github.com/evil/other.git"}}`, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(`{"repository":{"clone_url":"https://github.com/evil/other.git"}}`)}, http.StatusBadRequest},
 		"oversized payload": {"/hooks/default/platform", strings.Repeat("x", maxBody+1), map[string]string{"X-GitHub-Event": "push"}, http.StatusRequestEntityTooLarge},
 	}
@@ -118,6 +125,51 @@ func TestReceiverRateLimitsPerRepository(t *testing.T) {
 	}
 	if code := post(r, "/hooks/default/platform", githubPush, headers); code != http.StatusTooManyRequests {
 		t.Fatalf("second = %d", code)
+	}
+}
+
+func TestStrangersCannotSpendARepositorysBudget(t *testing.T) {
+	r, c := newReceiver(t, rate.Every(1<<62), 1)
+	for range 3 {
+		if code := post(r, "/hooks/default/platform", githubPush, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=00"}); code != http.StatusUnauthorized {
+			t.Fatalf("unsigned = %d", code)
+		}
+	}
+	if code := post(r, "/hooks/default/platform", githubPush, map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": sign(githubPush)}); code != http.StatusAccepted || requestedAt(t, c) == "" {
+		t.Fatalf("signed push after unsigned ones = %d", code)
+	}
+}
+
+func TestReceiverRateLimitsPerRemoteAddress(t *testing.T) {
+	r, _ := newReceiver(t, rate.Inf, 1)
+	r.PeerLimit, r.PeerBurst = rate.Every(1<<62), 1
+	headers := map[string]string{"X-GitHub-Event": "push"}
+	if code := send(r, "198.51.100.7:4000", "/hooks/default/missing", strings.NewReader(githubPush), headers); code != http.StatusUnauthorized {
+		t.Fatalf("first = %d", code)
+	}
+	if code := send(r, "198.51.100.7:4001", "/hooks/default/missing", strings.NewReader(githubPush), headers); code != http.StatusTooManyRequests {
+		t.Fatalf("second from the same address = %d", code)
+	}
+	if code := send(r, "203.0.113.9:4000", "/hooks/default/missing", strings.NewReader(githubPush), headers); code != http.StatusUnauthorized {
+		t.Fatalf("another address = %d", code)
+	}
+}
+
+func TestUnknownAndUnauthorizedLookAlike(t *testing.T) {
+	r, _ := newReceiver(t, rate.Inf, 1)
+	headers := map[string]string{"X-GitHub-Event": "push", "X-Hub-Signature-256": "sha256=00"}
+	unknown := post(r, "/hooks/default/missing", githubPush, headers)
+	wrong := post(r, "/hooks/default/platform", githubPush, headers)
+	if unknown != http.StatusUnauthorized || wrong != unknown {
+		t.Fatalf("unknown = %d, unauthorized = %d", unknown, wrong)
+	}
+}
+
+func TestUnreadableBodyIsABadRequest(t *testing.T) {
+	r, _ := newReceiver(t, rate.Inf, 1)
+	body := iotest.ErrReader(io.ErrUnexpectedEOF)
+	if code := send(r, "192.0.2.1:1234", "/hooks/default/platform", body, map[string]string{"X-GitHub-Event": "push"}); code != http.StatusBadRequest {
+		t.Fatalf("code = %d", code)
 	}
 }
 
@@ -155,7 +207,7 @@ func TestRegistryWebhookRequestsAnImageScan(t *testing.T) {
 	if code := post(r, "/hooks/imagepolicies/payments/api", `{}`, map[string]string{"Authorization": "Bearer wrong"}); code != http.StatusUnauthorized || requested() != "" {
 		t.Fatalf("wrong token: code = %d", code)
 	}
-	if code := post(r, "/hooks/imagepolicies/payments/no-hook", `{}`, map[string]string{"Authorization": "Bearer reg-token"}); code != http.StatusNotFound {
+	if code := post(r, "/hooks/imagepolicies/payments/no-hook", `{}`, map[string]string{"Authorization": "Bearer reg-token"}); code != http.StatusUnauthorized {
 		t.Fatalf("policy without webhook: code = %d", code)
 	}
 	if code := post(r, "/hooks/imagepolicies/payments/api", `{"action":"published"}`, map[string]string{"Authorization": "Bearer reg-token"}); code != http.StatusAccepted || requested() == "" {

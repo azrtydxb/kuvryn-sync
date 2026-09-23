@@ -9,7 +9,9 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,13 +45,22 @@ func init() {
 type Receiver struct {
 	Client client.Client
 	Addr   string
-	// Limit and Burst bound accepted requests per Repository.
+	// Limit and Burst bound authenticated requests per Repository or
+	// ImagePolicy; zero means 1/s, burst 10.
 	Limit rate.Limit
 	Burst int
+	// PeerLimit and PeerBurst bound requests per remote address before
+	// authentication; zero means 5/s, burst 50.
+	PeerLimit rate.Limit
+	PeerBurst int
 
 	mu       sync.Mutex
 	limiters map[string]*rate.Limiter
+	peers    map[string]*rate.Limiter
 }
+
+// maxPeers bounds the per-address limiters; the set is reset when it fills.
+const maxPeers = 10000
 
 // Start serves until ctx is done; it is a manager.Runnable.
 func (r *Receiver) Start(ctx context.Context) error {
@@ -79,30 +90,14 @@ func (r *Receiver) Handler() http.Handler {
 }
 
 func (r *Receiver) receive(w http.ResponseWriter, req *http.Request) {
-	key := client.ObjectKey{Namespace: req.PathValue("namespace"), Name: req.PathValue("name")}
-	ctx := req.Context()
 	repository := &corev1alpha1.Repository{}
-	if err := r.Client.Get(ctx, key, repository); err != nil || repository.Spec.Webhook == nil || repository.Spec.Git == nil {
-		reply(w, http.StatusNotFound, "not_found")
-		return
-	}
-	// Limiters exist only for real Repositories, so unknown paths cannot grow them.
-	if !r.limiter(key.String()).Allow() {
-		reply(w, http.StatusTooManyRequests, "rate_limited")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
-	if err != nil {
-		reply(w, http.StatusRequestEntityTooLarge, "too_large")
-		return
-	}
-	secret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: key.Namespace, Name: repository.Spec.Webhook.SecretRef.Name}, secret); err != nil || len(secret.Data["token"]) == 0 {
-		reply(w, http.StatusNotFound, "not_found")
-		return
-	}
-	if !authentic(req, body, secret.Data["token"]) {
-		reply(w, http.StatusUnauthorized, "unauthorized")
+	body, ok := r.admit(w, req, "repository", repository, func() string {
+		if repository.Spec.Webhook == nil || repository.Spec.Git == nil {
+			return ""
+		}
+		return repository.Spec.Webhook.SecretRef.Name
+	})
+	if !ok {
 		return
 	}
 	switch event := req.Header.Get("X-GitHub-Event") + req.Header.Get("X-Gitlab-Event"); event {
@@ -118,7 +113,7 @@ func (r *Receiver) receive(w http.ResponseWriter, req *http.Request) {
 		reply(w, http.StatusBadRequest, "repository_mismatch")
 		return
 	}
-	if err := requestReconcile(ctx, r.Client, repository); err != nil {
+	if err := requestReconcile(req.Context(), r.Client, repository); err != nil {
 		reply(w, http.StatusInternalServerError, "error")
 		return
 	}
@@ -128,36 +123,75 @@ func (r *Receiver) receive(w http.ResponseWriter, req *http.Request) {
 // receiveImage requests an immediate scan of an ImagePolicy. Any
 // authenticated request counts, since registries differ in what they send.
 func (r *Receiver) receiveImage(w http.ResponseWriter, req *http.Request) {
-	key := client.ObjectKey{Namespace: req.PathValue("namespace"), Name: req.PathValue("name")}
-	ctx := req.Context()
 	policy := &corev1alpha1.ImagePolicy{}
-	if err := r.Client.Get(ctx, key, policy); err != nil || policy.Spec.Webhook == nil {
-		reply(w, http.StatusNotFound, "not_found")
+	if _, ok := r.admit(w, req, "imagepolicy", policy, func() string {
+		if policy.Spec.Webhook == nil {
+			return ""
+		}
+		return policy.Spec.Webhook.SecretRef.Name
+	}); !ok {
 		return
 	}
-	if !r.limiter("imagepolicy/" + key.String()).Allow() {
-		reply(w, http.StatusTooManyRequests, "rate_limited")
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
-	if err != nil {
-		reply(w, http.StatusRequestEntityTooLarge, "too_large")
-		return
-	}
-	secret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: key.Namespace, Name: policy.Spec.Webhook.SecretRef.Name}, secret); err != nil || len(secret.Data["token"]) == 0 {
-		reply(w, http.StatusNotFound, "not_found")
-		return
-	}
-	if !authentic(req, body, secret.Data["token"]) {
-		reply(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	if err := requestReconcile(ctx, r.Client, policy); err != nil {
+	if err := requestReconcile(req.Context(), r.Client, policy); err != nil {
 		reply(w, http.StatusInternalServerError, "error")
 		return
 	}
 	reply(w, http.StatusAccepted, "accepted")
+}
+
+// admit runs the checks every hook shares: the caller's rate limit, the body
+// size, and authentication against the token in the Secret that secretName
+// picks from obj once it is loaded. An unknown object and a bad token get the
+// same answer, so callers cannot probe which objects exist. The object's own
+// rate limit is charged only after authentication, so strangers cannot use up
+// its budget. When admit returns false it has already replied.
+func (r *Receiver) admit(w http.ResponseWriter, req *http.Request, kind string, obj client.Object, secretName func() string) ([]byte, bool) {
+	if !r.allowPeer(req) {
+		reply(w, http.StatusTooManyRequests, "rate_limited")
+		return nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
+	if err != nil {
+		if errors.As(err, new(*http.MaxBytesError)) {
+			reply(w, http.StatusRequestEntityTooLarge, "too_large")
+		} else {
+			reply(w, http.StatusBadRequest, "bad_request")
+		}
+		return nil, false
+	}
+	key := client.ObjectKey{Namespace: req.PathValue("namespace"), Name: req.PathValue("name")}
+	token, err := r.token(req.Context(), key, obj, secretName)
+	if err != nil {
+		reply(w, http.StatusInternalServerError, "error")
+		return nil, false
+	}
+	if len(token) == 0 || !authentic(req, body, token) {
+		reply(w, http.StatusUnauthorized, "unauthorized")
+		return nil, false
+	}
+	// Limiters exist only for authenticated objects, so unknown paths cannot grow them.
+	if !r.allowObject(kind + "/" + key.String()) {
+		reply(w, http.StatusTooManyRequests, "rate_limited")
+		return nil, false
+	}
+	return body, true
+}
+
+// token loads obj and the webhook token it names. A missing object, webhook,
+// Secret, or token yields no token and no error.
+func (r *Receiver) token(ctx context.Context, key client.ObjectKey, obj client.Object, secretName func() string) ([]byte, error) {
+	if err := r.Client.Get(ctx, key, obj); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	name := secretName()
+	if name == "" {
+		return nil, nil
+	}
+	secret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: key.Namespace, Name: name}, secret); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	return secret.Data["token"], nil
 }
 
 // requestReconcile stamps RequestedAtAnnotation, which re-queues obj.
@@ -172,22 +206,44 @@ func requestReconcile(ctx context.Context, c client.Client, obj client.Object) e
 	return c.Patch(ctx, obj, patch)
 }
 
-func (r *Receiver) limiter(key string) *rate.Limiter {
+func (r *Receiver) allowObject(key string) bool {
+	limit, burst := r.Limit, r.Burst
+	if limit == 0 {
+		limit, burst = rate.Every(time.Second), 10
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.limiters == nil {
 		r.limiters = map[string]*rate.Limiter{}
 	}
-	limiter, ok := r.limiters[key]
-	if !ok {
-		limit, burst := r.Limit, r.Burst
-		if limit == 0 {
-			limit, burst = rate.Every(time.Second), 10
-		}
-		limiter = rate.NewLimiter(limit, burst)
-		r.limiters[key] = limiter
+	return take(r.limiters, key, limit, burst)
+}
+
+func (r *Receiver) allowPeer(req *http.Request) bool {
+	peer, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		peer = req.RemoteAddr
 	}
-	return limiter
+	limit, burst := r.PeerLimit, r.PeerBurst
+	if limit == 0 {
+		limit, burst = 5, 50
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.peers == nil || len(r.peers) >= maxPeers {
+		r.peers = map[string]*rate.Limiter{}
+	}
+	return take(r.peers, peer, limit, burst)
+}
+
+// take charges one request to the limiter for key, creating it on first use.
+func take(limiters map[string]*rate.Limiter, key string, limit rate.Limit, burst int) bool {
+	limiter, ok := limiters[key]
+	if !ok {
+		limiter = rate.NewLimiter(limit, burst)
+		limiters[key] = limiter
+	}
+	return limiter.Allow()
 }
 
 // authentic verifies a GitHub HMAC signature, a GitLab token, or a Bearer
