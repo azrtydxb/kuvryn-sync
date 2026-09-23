@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -97,5 +98,36 @@ func TestApproveRefusesRevisionsItCannotApprove(t *testing.T) {
 				t.Fatal("approval was recorded")
 			}
 		})
+	}
+}
+
+// Re-approving the Revision that approved-revision already names must still
+// send it: the webhook checks the digest against the Revision in the request.
+func TestApproveResendsTheRevisionItAlreadyNames(t *testing.T) {
+	base := approvalClient(t, "digest-new")
+	app := &corev1alpha1.Application{}
+	if err := base.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, app); err != nil {
+		t.Fatal(err)
+	}
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.ApprovedRevisionAnnotation, "payments-abc")
+	if err := base.Update(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+	var patches []string
+	c := interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			body, err := patch.Data(obj)
+			if err != nil {
+				return err
+			}
+			patches = append(patches, string(body))
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	if err := approve(context.Background(), c, "default", "payments", "payments-abc", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(patches) != 1 || !strings.Contains(patches[0], corev1alpha1.ApprovedRevisionAnnotation) || !strings.Contains(patches[0], "digest-new") {
+		t.Fatalf("re-approval patch = %v, want approved-revision and the new digest", patches)
 	}
 }

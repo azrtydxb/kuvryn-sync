@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"github.com/azrtydxb/solder/internal/planoutput"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -254,10 +256,17 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 		return fmt.Errorf("revision %s has no plan to approve yet", rev.Name)
 	}
 	_, _ = fmt.Fprintf(stdout, "approving %s for %s with plan digest %s\n", rev.Name, app.Name, digest)
-	patch := client.MergeFrom(app.DeepCopy())
-	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.ApprovedRevisionAnnotation, rev.Name)
-	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.ApproveDigestAnnotation, digest)
-	if err := c.Patch(ctx, app, patch); err != nil {
+	// Both annotations are always sent. A computed merge patch would drop
+	// approved-revision when it already holds this Revision, and the webhook
+	// would then check the digest against whatever Revision the server holds.
+	body, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]string{
+		corev1alpha1.ApprovedRevisionAnnotation: rev.Name,
+		corev1alpha1.ApproveDigestAnnotation:    digest,
+	}}})
+	if err != nil {
+		return err
+	}
+	if err := c.Patch(ctx, app, client.RawPatch(types.MergePatchType, body)); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(stdout, "approved %s for %s\n", rev.Name, app.Name)
