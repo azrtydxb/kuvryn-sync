@@ -63,7 +63,24 @@ jobs:
           load: true
           tags: ${{ env.IMG }}
 
-      - name: Running Test e2e
+      # The steps below are make test-e2e split up, so the cluster outlives a
+      # failed run long enough to collect diagnostics.
+      - name: Create the Kind cluster
         run: |
           go mod tidy
-          make test-e2e IMG="$IMG" KIND_LOAD_IMAGE=true
+          make setup-test-e2e manifests generate
+          kind load docker-image "$IMG" --name solder-test-e2e
+
+      - name: Running Test e2e
+        run: IMG="$IMG" KIND_CLUSTER=solder-test-e2e go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+
+      - name: Collect cluster diagnostics
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -80 || true
+          kubectl -n cert-manager describe pods | tail -120 || true
+
+      - name: Delete the Kind cluster
+        if: always()
+        run: kind delete cluster --name solder-test-e2e || true
