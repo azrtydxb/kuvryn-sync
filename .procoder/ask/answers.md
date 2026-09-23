@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 07:31 UTC. procoder reads this
+Written 2026-09-23 07:36 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -15,6 +15,12 @@ Answer: (2026-09-23) Validating admission webhook records the authenticated user
 Key: Discovered Applications when the Repository pins no service account
 
 Answer: (2026-09-23) Discovered Applications may not set serviceAccountName; they use the controller default.
+
+## (no longer asked)
+
+Key: Escalation fixture for the Kind e2e test (story 006)
+
+Answer: (2026-09-23) Push `escalation/clusterrolebinding.yaml` to github.com/azrtydxb/solder-e2e-app.
 
 ## (no longer asked)
 

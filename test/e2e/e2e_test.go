@@ -316,6 +316,39 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(output).To(Equal("Healthy"))
 		})
 
+		It("should refuse to apply what the Application's service account may not", func() {
+			manifestPath := writeTempManifest(escalationApplicationManifest)
+
+			By("applying an Application whose Git path grants its own service account cluster-admin")
+			cmd := exec.Command("kubectl", "apply", "-f", manifestPath)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply escalation e2e resources")
+
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", "solder-e2e-escalation",
+					"--ignore-not-found=true"))
+			})
+
+			By("waiting for the Revision to fail as Forbidden")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command(
+					"kubectl", "get", "revision", "-l", "solder.io/application=solder-e2e-escalation", "-o",
+					"jsonpath={.items[0].status.phase}:{.items[0].status.failure.reason}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Failed:Forbidden"))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying the ClusterRoleBinding was not created")
+			cmd = exec.Command("kubectl", "get", "clusterrolebinding", "solder-e2e-escalation",
+				"--ignore-not-found=true", "-o", "name")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(BeEmpty(), "tenant escalated through Solder")
+		})
+
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 	})
 })
@@ -480,4 +513,62 @@ spec:
     timeout: 2m
   history:
     limit: 5
+`
+
+// escalationApplicationManifest deploys a Git path containing a ClusterRoleBinding
+// that would grant the Application's own namespace-scoped service account
+// cluster-admin.
+const escalationApplicationManifest = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: solder-e2e
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solder-e2e-deployer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: solder-e2e-deployer
+  namespace: solder-e2e
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: solder-e2e-deployer
+    namespace: default
+---
+apiVersion: solder.io/v1alpha1
+kind: Repository
+metadata:
+  name: solder-e2e-escalation-repo
+spec:
+  type: git
+  git:
+    url: https://github.com/azrtydxb/solder-e2e-app.git
+    revision: main
+  pollInterval: 30s
+---
+apiVersion: solder.io/v1alpha1
+kind: Application
+metadata:
+  name: solder-e2e-escalation
+spec:
+  serviceAccountName: solder-e2e-deployer
+  source:
+    repositoryRef:
+      name: solder-e2e-escalation-repo
+    path: escalation
+    render:
+      type: yaml
+  destination:
+    namespace: solder-e2e
+  sync:
+    automatic: true
+    conflictPolicy: fail
 `
