@@ -78,10 +78,37 @@ subjects:
 ```
 
 The controller's own role cannot change managed resources at all. It may
-manage Solder's CRDs, record Events, read Git-auth Secrets, impersonate
-service accounts, and list and watch the metadata of the kinds it watches for
-drift. Secrets are never cached by the controller. Review
+manage Solder's CRDs, record Events, impersonate service accounts, list and
+watch the metadata of the kinds it watches for drift, and read Secrets. Review
 `config/rbac/role.yaml`; the Helm chart role is kept identical to it by a test.
+
+The Secret grant is cluster-wide `get`, `list` and `watch`. RBAC cannot limit a
+grant to metadata or to labelled Secrets, so the controller's service account
+can read every Secret in the cluster; protect it accordingly. What the manager
+does with that grant is narrower:
+
+- It watches Secrets metadata-only, to notice drift on Secrets it manages. Only
+  that metadata is cached; Secret contents are never cached.
+- It reads a Secret's contents with an uncached `get`, by the name an object in
+  the same namespace references, and only for these purposes:
+  - Git credentials for fetching and image write-back
+    (`spec.git.auth.secretRef`, `spec.imageUpdate.secretRef`) must be labelled
+    `solder.io/git-credentials: "true"`.
+  - Registry credentials for ImagePolicy scans and Helm chart pulls
+    (`spec.secretRef` of an ImagePolicy, `render.helm.chart.secretRef`) must be
+    labelled `solder.io/registry-credentials: "true"`.
+  - age keys for decryption (`spec.decryption.secretRef`) must be labelled
+    `solder.io/decryption-key: "true"`.
+  - Webhook receiver tokens (`spec.webhook.secretRef` of a Repository or
+    ImagePolicy) and NotificationSink Secrets (`spec.secretRef`) need no label.
+    They are only ever compared against incoming requests or used to reach the
+    sink's own URL, and are read from the referencing object's namespace.
+- Helm `valuesFrom` Secrets are read as the Application's service account, not
+  as the controller.
+
+The labels exist because whoever writes a Repository, ImagePolicy or
+Application chooses both the destination and the Secret. Without them, any
+Secret in the namespace could be sent to a server of the author's choosing.
 
 ## Supply chain
 
@@ -96,17 +123,36 @@ policy controls.
 
 ## Network access
 
-The controller needs outbound access to configured Git remotes and access to the
-Kubernetes API. Git, Kustomize, and Helm run in process; the controller image
-contains no git, kustomize, or helm binary and runs no subprocesses.
+Besides the Kubernetes API, the controller makes outbound connections to:
 
-Rendering only reads the checked-out commit. Checkouts refuse symlinks that
-point outside them, Kustomize builds against an in-memory copy of the checkout
-so bases outside it do not exist, Helm values files must lie inside the
-checkout, and neither renderer fetches remote bases, charts, or values.
-Repository URLs must use `https`, `http`, `ssh`, or `git`; filesystem paths are
-rejected. SSH remotes require a `known_hosts` entry in the credentials Secret,
-so an unknown or changed host key is never trusted.
+- Git remotes of Repositories, to fetch.
+- Git remotes of Repositories with `spec.imageUpdate`, to push image
+  write-back commits.
+- Helm chart repositories (`https://`) and OCI registries (`oci://`) named in
+  an Application's `render.helm.chart`, to pull the pinned chart.
+- Container registries of ImagePolicies, to list tags.
+- NotificationSink endpoints, which must be `https` URLs.
+
+It accepts inbound connections on the admission webhook port (9443), the
+metrics port (8443), the health probe port (8081), and, only when the manager
+runs with `--webhook-receiver-bind-address` (Helm value
+`webhookReceiver.enabled`), the push webhook receiver. The receiver takes
+`POST /hooks/<namespace>/<repository>` and
+`POST /hooks/imagepolicies/<namespace>/<name>`, answers only for objects that
+set `spec.webhook`, and authenticates each request against that object's token
+Secret.
+
+Git, Kustomize, and Helm run in process; the controller image contains no git,
+kustomize, or helm binary and runs no subprocesses.
+
+Rendering reads the checked-out commit and, for `render.helm.chart`, the pulled
+chart. Checkouts refuse symlinks that point outside them, Kustomize builds
+against an in-memory copy of the checkout so bases outside it do not exist,
+and remote Kustomize bases are refused. Helm values files must lie inside the
+checkout, and charts in the checkout must vendor their dependencies. Repository
+URLs must use `https`, `http`, `ssh`, or `git`; filesystem paths are rejected.
+SSH remotes require a `known_hosts` entry in the credentials Secret, so an
+unknown or changed host key is never trusted.
 
 ## Responsible disclosure
 
