@@ -22,10 +22,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
@@ -42,7 +45,13 @@ import (
 	"github.com/azrtydxb/solder/internal/source"
 )
 
-const defaultRevision = "HEAD"
+const (
+	defaultRevision = "HEAD"
+	// checkoutMarker marks a fully written worktree; no Git entry may use it.
+	checkoutMarker = ".solder-checkout"
+	// maxSymlinkHops bounds symlink resolution like the kernel's loop limit.
+	maxSymlinkHops = 40
+)
 
 // allowLocalRepositories permits filesystem paths as repository URLs. Only
 // tests enable it: a controller has no business reading Git repositories
@@ -229,10 +238,10 @@ func (c *Cache) resolve(ctx context.Context, repo *gogit.Repository, auth transp
 }
 
 // materializeWorktree writes the commit's files to a directory shared by every
-// Application on the same commit, refusing symlinks that point outside it.
+// Application on the same commit, refusing symlinks that resolve outside it.
 func (c *Cache) materializeWorktree(repo *gogit.Repository, cacheDir, commit string) (string, error) {
 	worktree := filepath.Join(cacheDir, "worktrees", commit)
-	if _, err := os.Stat(filepath.Join(worktree, ".solder-checkout")); err == nil {
+	if _, err := os.Stat(filepath.Join(worktree, checkoutMarker)); err == nil {
 		return worktree, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", classified(source.FailureReasonSourceFailure, "Could not inspect source worktree", err)
@@ -253,14 +262,20 @@ func (c *Cache) materializeWorktree(repo *gogit.Repository, cacheDir, commit str
 		return "", classified(source.FailureReasonSourceFailure, "Could not create source worktree", err)
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-	if err := tree.Files().ForEach(func(file *object.File) error { return writeFile(staging, file) }); err != nil {
+	err = tree.Files().ForEach(func(file *object.File) error { return writeFile(staging, file) })
+	if err == nil {
+		// Each link passed on its own; together they may still form a chain
+		// that leaves the checkout, which only the finished tree shows.
+		err = checkSymlinks(staging)
+	}
+	if err != nil {
 		var sourceErr *source.Error
 		if errors.As(err, &sourceErr) {
 			return "", err
 		}
 		return "", classified(source.FailureReasonSourceFailure, "Could not check out Git commit", err)
 	}
-	if err := os.WriteFile(filepath.Join(staging, ".solder-checkout"), []byte(commit), 0o600); err != nil {
+	if err := createFile(filepath.Join(staging, checkoutMarker), 0o600, strings.NewReader(commit)); err != nil {
 		return "", classified(source.FailureReasonSourceFailure, "Could not mark source worktree", err)
 	}
 	if err := os.RemoveAll(worktree); err != nil {
@@ -277,25 +292,126 @@ func writeFile(root string, file *object.File) error {
 	if !inside(root, path) {
 		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s escapes the checkout", file.Name), nil)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+	if first, _, _ := strings.Cut(file.Name, "/"); strings.EqualFold(first, checkoutMarker) {
+		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s is reserved", file.Name), nil)
 	}
-	contents, err := file.Contents()
-	if err != nil {
+	// A link written earlier may lead a parent directory out of the checkout.
+	if ok, err := resolvesInside(root, path); err != nil {
+		return err
+	} else if !ok {
+		return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git path %s escapes the checkout through a symlink", file.Name), nil)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	switch file.Mode {
 	case filemode.Symlink:
+		contents, err := file.Contents()
+		if err != nil {
+			return err
+		}
 		target := filepath.FromSlash(contents)
 		if filepath.IsAbs(target) || !inside(root, filepath.Join(filepath.Dir(path), target)) {
 			return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git symlink %s points outside the checkout", file.Name), nil)
 		}
 		return os.Symlink(target, path)
 	case filemode.Executable:
-		return os.WriteFile(path, []byte(contents), 0o700)
+		return writeBlob(path, 0o700, file)
 	default:
-		return os.WriteFile(path, []byte(contents), 0o600)
+		return writeBlob(path, 0o600, file)
 	}
+}
+
+func writeBlob(path string, perm os.FileMode, file *object.File) error {
+	reader, err := file.Reader()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = reader.Close() }()
+	return createFile(path, perm, reader)
+}
+
+// createFile writes a new file and fails if anything, a symlink included,
+// already exists at path, so nothing is ever written through a link.
+func createFile(path string, perm os.FileMode, contents io.Reader) error {
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, contents); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// checkSymlinks refuses any symlink under root that resolves outside it.
+func checkSymlinks(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.Type()&fs.ModeSymlink == 0 {
+			return err
+		}
+		ok, err := resolvesInside(root, path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			rel, _ := filepath.Rel(root, path)
+			return classified(source.FailureReasonValidationFailure, fmt.Sprintf("Git symlink %s points outside the checkout", filepath.ToSlash(rel)), nil)
+		}
+		return nil
+	})
+}
+
+// resolvesInside follows path below root one component at a time, resolving
+// every symlink on the way, and reports whether each step stays inside root.
+// A component that does not exist counts as inside: the kernel cannot
+// traverse it either, so dangling links are harmless.
+func resolvesInside(root, path string) (bool, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !inside(root, path) {
+		return false, nil
+	}
+	pending := strings.Split(rel, string(filepath.Separator))
+	current := root
+	for hops := 0; len(pending) > 0; {
+		name := pending[0]
+		pending = pending[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			if current == root {
+				return false, nil
+			}
+			current = filepath.Dir(current)
+			continue
+		}
+		next := filepath.Join(current, name)
+		info, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		if hops++; hops > maxSymlinkHops {
+			return false, nil
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return false, err
+		}
+		if filepath.IsAbs(target) {
+			return false, nil
+		}
+		pending = append(strings.Split(target, string(filepath.Separator)), pending...)
+	}
+	return true, nil
 }
 
 func inside(root, path string) bool {

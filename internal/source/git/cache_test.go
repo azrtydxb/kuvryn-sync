@@ -31,6 +31,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
@@ -312,4 +313,117 @@ func testSSHKey(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(pem.EncodeToMemory(block))
+}
+
+// treeEntry is a raw Git tree entry: a blob when entries is nil, else a tree.
+type treeEntry struct {
+	name     string
+	mode     filemode.FileMode
+	contents string
+	entries  []treeEntry
+}
+
+// commitTree stores the entries as given, in order and even when a name
+// repeats, as a hostile remote could, and points main at the commit.
+func commitTree(t *testing.T, entries []treeEntry) string {
+	t.Helper()
+	dir := t.TempDir()
+	repo, err := gogit.PlainInitWithOptions(dir, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := &object.Commit{Author: *signature(), Committer: *signature(), Message: "commit", TreeHash: storeTree(t, repo, entries)}
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), storeObject(t, repo, commit))); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, ".git")
+}
+
+func storeTree(t *testing.T, repo *gogit.Repository, entries []treeEntry) plumbing.Hash {
+	t.Helper()
+	tree := &object.Tree{}
+	for _, entry := range entries {
+		if entry.entries != nil {
+			tree.Entries = append(tree.Entries, object.TreeEntry{Name: entry.name, Mode: filemode.Dir, Hash: storeTree(t, repo, entry.entries)})
+			continue
+		}
+		blob := repo.Storer.NewEncodedObject()
+		blob.SetType(plumbing.BlobObject)
+		writer, err := blob.Writer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(entry.contents)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		hash, err := repo.Storer.SetEncodedObject(blob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree.Entries = append(tree.Entries, object.TreeEntry{Name: entry.name, Mode: entry.mode, Hash: hash})
+	}
+	return storeObject(t, repo, tree)
+}
+
+func storeObject(t *testing.T, repo *gogit.Repository, obj interface {
+	Encode(plumbing.EncodedObject) error
+}) plumbing.Hash {
+	t.Helper()
+	encoded := repo.Storer.NewEncodedObject()
+	if err := obj.Encode(encoded); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := repo.Storer.SetEncodedObject(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
+func link(name, target string) treeEntry {
+	return treeEntry{name: name, mode: filemode.Symlink, contents: target}
+}
+
+func TestCacheRefusesSymlinkChainsOutOfTheCheckout(t *testing.T) {
+	regular := treeEntry{name: "app.yaml", mode: filemode.Regular, contents: "kind: ConfigMap\n"}
+	for name, entries := range map[string][]treeEntry{
+		// Every link is inside on its own, but on disk s is the parent
+		// directory, so writing the marker would follow the chain out.
+		"marker through a chain": {link(".solder-checkout", "s/x"), regular, link("s", "t/.."), link("t", ".")},
+		"climbing chain":         {regular, link("s0", "."), link("s1", "s0/.."), link("s2", "s1/.."), link("s3", "s2/..")},
+		// A tree may repeat a name, so a file can land below an earlier link.
+		"file below a link": {link("a", "."), link("s", "a/.."), {name: "s", entries: []treeEntry{{name: "x", mode: filemode.Regular, contents: "pwned"}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repoDir := commitTree(t, entries)
+			cache := NewCache(filepath.Join(t.TempDir(), "cache"))
+			_, err := cache.Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: "main"})
+			var sourceErr *source.Error
+			if !errors.As(err, &sourceErr) || sourceErr.Reason != source.FailureReasonValidationFailure {
+				t.Fatalf("err = %v", err)
+			}
+			if written, _ := filepath.Glob(filepath.Join(cache.Root, "*", "worktrees", "*")); len(written) != 0 {
+				t.Fatalf("written outside the checkout: %v", written)
+			}
+		})
+	}
+}
+
+func TestCacheKeepsSymlinkChainsAndDanglingLinksInside(t *testing.T) {
+	repoDir := commitTree(t, []treeEntry{
+		link("a", "b"),
+		link("b", "dir/../dir"),
+		link("dangling", "missing/x"),
+		{name: "dir", entries: []treeEntry{{name: "app.yaml", mode: filemode.Regular, contents: "kind: ConfigMap\n"}}},
+	})
+	resolved, err := NewCache(filepath.Join(t.TempDir(), "cache")).Resolve(context.Background(), source.GitRepository{URL: repoDir, Revision: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(resolved.CacheDir, "a", "app.yaml")); err != nil || string(content) != "kind: ConfigMap\n" {
+		t.Fatalf("a/app.yaml = %q, %v", content, err)
+	}
 }
