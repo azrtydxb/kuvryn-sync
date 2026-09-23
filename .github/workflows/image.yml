@@ -8,9 +8,10 @@ on:
     tags: ["v*"]
   pull_request:
 
+# Main and tag runs publish, so only superseded pull request runs are cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -23,14 +24,18 @@ jobs:
       contents: read
       packages: write
     name: Build controller image
-    runs-on: ubuntu-latest
+    # The kw publish runners are native arm64 and reach the real ghcr.io. Pull
+    # requests from forks run untrusted code, so they get GitHub-hosted runners.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-azrtydxb-publish' || 'ubuntu-latest' }}
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      # Only the GitHub-hosted fallback is amd64 and needs arm64 emulation.
       - name: Set up QEMU
+        if: runner.arch != 'ARM64'
         uses: docker/setup-qemu-action@e77e8065d9f7ec6abdd9838668cd7b43924dd64d # v3.6.0
 
       - name: Set up Docker Buildx
