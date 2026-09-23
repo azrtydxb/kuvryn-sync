@@ -122,11 +122,30 @@ type RevisionStatus struct {
 	// repository for this Revision.
 	// +optional
 	ChartDigest string `json:"chartDigest,omitempty"`
+	// hooks reports the pre-sync and post-sync hooks run for this Revision.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Hooks []HookStatus `json:"hooks,omitempty"`
 	// conditions represent the current state of the Revision resource.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// HookStatus is the state of one sync hook.
+type HookStatus struct {
+	// resource identifies the hook object.
+	Resource ResourceRef `json:"resource"`
+	// stage is PreSync or PostSync.
+	Stage string `json:"stage"`
+	// state is the hook's health: Progressing while it runs, Healthy once it
+	// succeeded, Degraded when it failed.
+	State HealthState `json:"state"`
+	// message explains the state.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // RevisionApproval is the audit record of a manual approval.

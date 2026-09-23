@@ -132,6 +132,40 @@ Unknown Repositories get 404, bad signatures 401, bodies over 1 MB 413, and
 more than ten requests per second per Repository 429, all counted in
 `solder_webhook_receiver_requests_total`. Polling continues as a fallback.
 
+## Sync hooks and waves
+
+Solder applies an Application in groups and waits for each group to be
+Healthy before starting the next:
+
+1. **Pre-sync hooks**: objects annotated `solder.io/hook: pre-sync`, such as a
+   database migration Job.
+2. **Sync waves**, in ascending order of `solder.io/sync-wave` (an integer,
+   default `0`, negative allowed). Within a wave, objects apply in kind order
+   (Namespaces and CRDs first, then RBAC and config, Services, workloads,
+   routes).
+3. **Pruning** of objects no longer in desired state.
+4. **Post-sync hooks**: objects annotated `solder.io/hook: post-sync`, such as
+   a smoke test.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  annotations:
+    solder.io/hook: pre-sync
+```
+
+Helm's `pre-install`/`pre-upgrade` and `post-install`/`post-upgrade` hooks and
+Argo CD's `PreSync`/`PostSync` hooks and `sync-wave` annotations are honoured
+the same way, which eases migrations; Helm test hooks are never applied.
+
+A hook that fails (a failed Job, or a `Stalled` resource) fails the Revision
+with reason `HookFailed`, naming the hook, and later groups are not applied.
+The Revision's `status.hooks` lists each hook with its stage and state. Hook
+objects are kept after they finish so their logs stay available, and are
+deleted and run again when the next Revision syncs.
+
 ## Helm charts from repositories
 
 Helm Applications can render a chart from a chart repository instead of Git:

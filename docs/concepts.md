@@ -80,6 +80,10 @@ rules. Every other kind follows the kstatus conventions most controllers use:
   Progressing;
 - anything else, including an object with no status, is Healthy.
 
+Applications can order their rollout with
+[sync hooks and waves](operations.md#sync-hooks-and-waves); each group must be
+Healthy before the next is applied.
+
 A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
 expressions. A rollout waits only for Progressing resources, until
 `spec.health.timeout`.

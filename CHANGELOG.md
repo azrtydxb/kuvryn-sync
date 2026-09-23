@@ -17,6 +17,17 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Sync hooks and waves: `solder.io/hook: pre-sync|post-sync` and
+  `solder.io/sync-wave` (plus the Helm and Argo CD equivalents) order a
+  rollout into groups that must each be Healthy before the next; failed hooks
+  fail the Revision as `HookFailed`, `status.hooks` records them, and hooks are
+  re-run for each new Revision. Helm test hooks are never applied.
+- Fixed: a rollout still being observed was marked Healthy on the next
+  reconcile once nothing was left to apply, without waiting for its
+  resources to become Healthy.
+- Fixed: list items in managedFields (such as containers keyed by name) were
+  treated as owning the whole list, so fields the API server defaulted inside
+  them looked like changes on every reconcile.
 - Fixed: planning compared whole objects, so fields defaulted by the API
   server or owned by other field managers (an HPA's replicas, another tool's
   labels) looked like changes forever. Every Deployment re-applied on each

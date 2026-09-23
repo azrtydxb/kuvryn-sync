@@ -432,6 +432,57 @@ spec:
                       minimum: 0
                       type: integer
                   type: object
+                hooks:
+                  description:
+                    hooks reports the pre-sync and post-sync hooks run for
+                    this Revision.
+                  items:
+                    description: HookStatus is the state of one sync hook.
+                    properties:
+                      message:
+                        description: message explains the state.
+                        type: string
+                      resource:
+                        description: resource identifies the hook object.
+                        properties:
+                          apiVersion:
+                            description:
+                              apiVersion is the resource API version, such
+                              as apps/v1.
+                            minLength: 1
+                            type: string
+                          kind:
+                            description: kind is the Kubernetes resource kind.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: name is the resource name.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: namespace is empty for cluster-scoped resources.
+                            type: string
+                        required:
+                          - apiVersion
+                          - kind
+                          - name
+                        type: object
+                      stage:
+                        description: stage is PreSync or PostSync.
+                        type: string
+                      state:
+                        description: |-
+                          state is the hook's health: Progressing while it runs, Healthy once it
+                          succeeded, Degraded when it failed.
+                        type: string
+                    required:
+                      - resource
+                      - stage
+                      - state
+                    type: object
+                  maxItems: 64
+                  type: array
+                  x-kubernetes-list-type: atomic
                 phase:
                   description: phase is the lifecycle state of this deployment attempt.
                   enum:
