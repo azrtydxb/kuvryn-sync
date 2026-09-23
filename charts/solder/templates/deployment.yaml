@@ -13,6 +13,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: {{ include "solder.name" . }}
+        # Services select this too, so two releases in one namespace never
+        # route to each other's manager. It is not in the Deployment selector,
+        # which is immutable on upgrade.
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: {{ include "solder.fullname" . }}
       containers:

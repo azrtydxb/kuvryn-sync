@@ -9,6 +9,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: webhook
       port: 443

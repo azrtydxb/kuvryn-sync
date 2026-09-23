@@ -87,3 +87,38 @@ func TestHelmChartRoleMatchesGeneratedRole(t *testing.T) {
 		t.Fatalf("charts/solder/templates/rbac.yaml drifted from config/rbac/role.yaml\ngenerated:\n%s\nchart:\n%s", generated, chart)
 	}
 }
+
+// Two chart releases in one namespace must never route to each other's
+// manager, so every Service selects the release, and the pods carry it.
+func TestHelmChartServicesSelectTheirOwnRelease(t *testing.T) {
+	const instance = "app.kubernetes.io/instance: {{ .Release.Name }}"
+	templates, err := filepath.Glob(filepath.Join("..", "..", "charts", "solder", "templates", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := 0
+	for _, path := range templates {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, document := range strings.Split(string(contents), "\n---") {
+			switch {
+			case strings.Contains(document, "\nkind: Service\n"):
+				services++
+				selector := document[strings.Index(document, "\n  selector:"):]
+				if end := strings.Index(selector, "\n  ports:"); end >= 0 {
+					selector = selector[:end]
+				}
+				if !strings.Contains(selector, instance) {
+					t.Errorf("Service in %s does not select %q", filepath.Base(path), instance)
+				}
+			case strings.Contains(document, "\nkind: Deployment\n") && !strings.Contains(document, "        "+instance):
+				t.Errorf("Deployment in %s does not label its pods with %q", filepath.Base(path), instance)
+			}
+		}
+	}
+	if services == 0 {
+		t.Fatal("found no Services in the chart templates")
+	}
+}
