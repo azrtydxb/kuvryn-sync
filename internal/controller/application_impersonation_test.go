@@ -125,6 +125,17 @@ var _ = Describe("Application service account impersonation", func() {
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: escalation}, &rbacv1.ClusterRoleBinding{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant escalated through Solder")
 		Expect(drainEvents(recorder)).To(ContainElement(And(ContainSubstring("PruneInventoryIncomplete"), ContainSubstring("Secret"))))
+
+		By("keeping the Forbidden failure once retries are exhausted")
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		revision = listApplicationRevisions(ctx, appName).Items[0]
+		Expect(revision.Status.Failure.Reason).To(Equal("Forbidden"))
+		Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+		ready := apimeta.FindStatusCondition(updated.Status.Conditions, "Ready")
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Reason).To(Equal("RetryBlocked"))
+		Expect(ready.Message).To(ContainSubstring("Forbidden"))
 	})
 
 	It("fails planning as Forbidden when the account may not read desired objects", func() {

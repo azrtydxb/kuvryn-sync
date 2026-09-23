@@ -17,6 +17,10 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- Fixed: once retry limits were reached, every reconcile replaced the
+  Revision's failure with `RetryBlocked`, hiding the real cause. The Revision
+  now keeps its original failure and the Application's Ready condition reports
+  `RetryBlocked` together with it.
 - **Breaking:** Applications discovered from `.solder.yaml` run as the new
   Repository field `spec.applicationServiceAccountName` and may not name any
   other service account; when the Repository sets none, they may not set one

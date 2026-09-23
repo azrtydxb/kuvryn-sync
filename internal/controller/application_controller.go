@@ -215,7 +215,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	metricPhase = revision.Status.Phase
 	if blocked := retryBlocked(application, revision); blocked != nil {
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *blocked)
+		return ctrl.Result{}, r.reportRetryBlocked(ctx, application, revision, *blocked)
 	}
 
 	now := metav1.Now()
@@ -538,6 +538,19 @@ func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.
 		return nil
 	}
 	return &corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: decision.Reason, Retryable: false}
+}
+
+// reportRetryBlocked records on the Application that retries stopped, keeping
+// the Revision's original failure so operators still see why it failed.
+func (r *ApplicationReconciler) reportRetryBlocked(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, blocked corev1alpha1.RevisionFailure) error {
+	message := blocked.Message
+	if failure := revision.Status.Failure; failure != nil {
+		message = fmt.Sprintf("%s; last failure %s: %s", blocked.Message, failure.Reason, failure.Message)
+	}
+	message = safeMessage(errors.New(message), blocked.Message)
+	r.markApplicationFailure(application, blocked.Reason, message)
+	r.event(application, corev1.EventTypeWarning, blocked.Reason, message)
+	return r.Status().Update(ctx, application)
 }
 
 func (r *ApplicationReconciler) shouldApply(application *corev1alpha1.Application, revision *corev1alpha1.Revision) bool {
