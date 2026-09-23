@@ -1,0 +1,19 @@
+apiVersion: solder.io/v1alpha1
+kind: HealthCheck
+metadata:
+  labels:
+    app.kubernetes.io/name: solder
+    app.kubernetes.io/managed-by: kustomize
+  name: argoproj-rollout
+spec:
+  group: argoproj.io
+  kind: Rollout
+  rules:
+    - expression: object.status.phase == "Degraded"
+      state: Degraded
+      message: Rollout is degraded
+    - expression: object.status.phase == "Healthy"
+      state: Healthy
+    - expression: "true"
+      state: Progressing
+      message: Rollout is progressing

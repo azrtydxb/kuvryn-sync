@@ -1,6 +1,6 @@
 # What a human decided
 
-Written 2026-09-23 07:57 UTC. procoder reads this
+Written 2026-09-23 08:19 UTC. procoder reads this
 file to avoid asking a question twice; edit an answer here to change what
 it believes. Reword the question and it will be asked again.
 
@@ -45,6 +45,12 @@ Answer: (2026-09-23) kstatus plus user-defined CEL health rules.
 Key: How Solder learns about new image builds
 
 Answer: (2026-09-23) Built-in image automation: scan registries, pick by policy, commit the new reference back to Git.
+
+## (no longer asked)
+
+Key: How Solder runs Git, Kustomize, and Helm
+
+Answer: (2026-09-23) In-process for all three: kustomize/api (krusty), the Helm SDK, and go-git.
 
 ## (no longer asked)
 
@@ -99,6 +105,12 @@ Answer: (2026-09-23) Flux-style impersonation.
 Key: Unknown health and rollout completion
 
 Answer: (2026-09-23) Unknown does not block completion; it is reported only.
+
+## (no longer asked)
+
+Key: Webhook certificates for HealthCheck and approval admission webhooks
+
+Answer: (2026-09-23) Require cert-manager for webhook certificates (kubebuilder default).
 
 ## (no longer asked)
 

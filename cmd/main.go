@@ -47,6 +47,7 @@ import (
 	"github.com/azrtydxb/solder/internal/controller"
 	"github.com/azrtydxb/solder/internal/impersonate"
 	"github.com/azrtydxb/solder/internal/ops"
+	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -238,6 +239,13 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "revision")
 		os.Exit(1)
+	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err := webhookv1alpha1.SetupHealthCheckWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "HealthCheck")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

@@ -11,15 +11,19 @@ This guide deploys Solder and reconciles one application from Git.
 
 - Kubernetes cluster with permission to install CRDs and a controller.
 - `kubectl` configured for that cluster.
+- [cert-manager](https://cert-manager.io), which issues the certificate for
+  Solder's admission webhook.
 - `helm` for the chart flow, or `kustomize`/`kubectl` for raw manifests.
 - A Git repository containing Kubernetes manifests, Kustomize overlays, or a
   Helm chart.
 
 ## 1. Install the controller
 
-Install the CRDs first:
+Install cert-manager if the cluster does not have it, then the CRDs:
 
 ```sh
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager rollout status deployment/cert-manager-webhook
 kubectl apply -f config/crd/bases
 ```
 

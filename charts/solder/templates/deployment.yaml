@@ -24,6 +24,7 @@ spec:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8443
             - --drift-resync-interval={{ .Values.driftResyncInterval }}
+            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
             {{- with .Values.defaultServiceAccount }}
             - --default-service-account={{ . }}
             {{- end }}
@@ -32,11 +33,16 @@ spec:
               containerPort: 8443
             - name: health
               containerPort: 8081
+            - name: webhook-server
+              containerPort: 9443
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -48,3 +54,6 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "solder.fullname" . }}-webhook-cert

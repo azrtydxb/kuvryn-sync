@@ -109,6 +109,7 @@ type ApplicationReconciler struct {
 // +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
+// +kubebuilder:rbac:groups=solder.io,resources=healthchecks,verbs=get;list;watch
 // Managed resources are read and changed as the Application's service account;
 // the controller itself only watches their metadata to notice drift.
 // +kubebuilder:rbac:groups="",resources=configmaps;services;secrets,verbs=list;watch
@@ -353,6 +354,20 @@ func effectiveServiceAccount(application *corev1alpha1.Application, defaultServi
 		return application.Spec.ServiceAccountName
 	}
 	return defaultServiceAccount
+}
+
+// healthEvaluator compiles the cluster's HealthChecks. Invalid rules, which
+// admission normally rejects, are skipped and reported as a Warning Event.
+func (r *ApplicationReconciler) healthEvaluator(ctx context.Context, application *corev1alpha1.Application) (health.Evaluator, error) {
+	var checks corev1alpha1.HealthCheckList
+	if err := r.List(ctx, &checks); err != nil {
+		return health.Evaluator{}, err
+	}
+	evaluator, err := health.NewEvaluator(checks.Items)
+	if err != nil {
+		r.event(application, corev1.EventTypeWarning, "InvalidHealthCheck", safeMessage(err, "A HealthCheck rule is invalid"))
+	}
+	return evaluator, nil
 }
 
 // ensureWatches starts drift watches for kinds the controller may watch and
@@ -717,9 +732,14 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	for _, obj := range liveResult.Found {
 		liveObjects = append(liveObjects, obj)
 	}
+	evaluator, err := r.healthEvaluator(ctx, application)
+	if err != nil {
+		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "HealthChecks could not be read"), Retryable: true}
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+	}
 	healthResults := make([]health.Result, 0, len(liveObjects))
 	for _, obj := range liveObjects {
-		result, err := health.Evaluate(obj)
+		result, err := evaluator.Evaluate(obj)
 		if err != nil {
 			failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "Resource health could not be evaluated"), Retryable: true}
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)

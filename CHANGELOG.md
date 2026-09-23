@@ -17,6 +17,13 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- New cluster-scoped `HealthCheck` API: ordered CEL rules decide the health of
+  a kind, falling back to kstatus when none matches. Rules run with a cost
+  limit and fail closed as Progressing.
+- **Breaking (install):** a validating webhook rejects HealthChecks whose
+  expressions do not compile to a bool. cert-manager is now required: the raw
+  manifests and the Helm chart create an Issuer and Certificate for the
+  webhook. Install the new `healthchecks.solder.io` CRD with the others.
 - Health for kinds without a dedicated rule follows kstatus conventions
   (`observedGeneration`, `Stalled`, `Reconciling`, `Ready`); objects without a
   status are Healthy. Jobs are Healthy when complete and Degraded when failed.

@@ -14,6 +14,10 @@ chart. Both paths install the same CRDs and controller.
 - `kubectl` with cluster-admin permission for CRD installation.
 - `helm` if using the chart.
 - Network access from the controller Pod to configured Git remotes.
+- [cert-manager](https://cert-manager.io). Solder's validating webhook for
+  HealthChecks is served over TLS with a certificate cert-manager issues and
+  injects; both the raw manifests and the Helm chart create the Issuer and
+  Certificate and require cert-manager to be running first.
 
 ## Published image
 

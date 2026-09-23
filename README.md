@@ -45,9 +45,13 @@ Start with:
 
 ## Quickstart
 
-Install CRDs and deploy the controller with Helm:
+Solder's admission webhook gets its certificate from
+[cert-manager](https://cert-manager.io), so install that first, then the CRDs
+and the controller:
 
 ```sh
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl -n cert-manager rollout status deployment/cert-manager-webhook
 kubectl apply -f config/crd/bases
 helm upgrade --install solder charts/solder \
   --namespace solder-system \

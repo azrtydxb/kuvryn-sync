@@ -36,4 +36,14 @@ resources:
   kind: Revision
   path: github.com/azrtydxb/solder/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: solder.io
+  group: core
+  kind: HealthCheck
+  path: github.com/azrtydxb/solder/api/v1alpha1
+  version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
 version: "3"

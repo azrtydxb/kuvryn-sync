@@ -73,7 +73,9 @@ rules. Every other kind follows the kstatus conventions most controllers use:
   Progressing;
 - anything else, including an object with no status, is Healthy.
 
-A rollout waits only for Progressing resources, until `spec.health.timeout`.
+A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
+expressions. A rollout waits only for Progressing resources, until
+`spec.health.timeout`.
 
 ## Render, normalize, validate, plan
 

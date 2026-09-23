@@ -1,0 +1,108 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: healthchecks.solder.io
+spec:
+  group: solder.io
+  names:
+    kind: HealthCheck
+    listKind: HealthCheckList
+    plural: healthchecks
+    singular: healthcheck
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.group
+          name: Group
+          type: string
+        - jsonPath: .spec.kind
+          name: Kind
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            HealthCheck defines how Solder judges the health of a kind that kstatus
+            conventions cannot describe.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: spec defines the health rules.
+              properties:
+                group:
+                  description: |-
+                    group is the API group of the kind the rules apply to; empty for the
+                    core group.
+                  type: string
+                kind:
+                  description: kind is the kind the rules apply to.
+                  minLength: 1
+                  type: string
+                rules:
+                  description: |-
+                    rules are evaluated in order against each live object of the kind; the
+                    first rule whose expression is true decides its health. When no rule
+                    matches, Solder falls back to kstatus conventions.
+                  items:
+                    description: HealthRule maps a CEL condition to a health state.
+                    properties:
+                      expression:
+                        description: |-
+                          expression is a CEL expression over the live object, available as
+                          `object`, that evaluates to a bool.
+                        maxLength: 1024
+                        minLength: 1
+                        type: string
+                      message:
+                        description: message is reported with the state.
+                        maxLength: 256
+                        type: string
+                      state:
+                        description:
+                          state is the health reported when the expression
+                          is true.
+                        enum:
+                          - Healthy
+                          - Progressing
+                          - Degraded
+                        type: string
+                    required:
+                      - expression
+                      - state
+                    type: object
+                  maxItems: 16
+                  minItems: 1
+                  type: array
+                  x-kubernetes-list-type: atomic
+              required:
+                - kind
+                - rules
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

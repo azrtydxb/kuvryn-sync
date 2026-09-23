@@ -184,6 +184,46 @@ spec:
 | `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
 | `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
 
+## HealthCheck
+
+`HealthCheck` is a cluster-scoped set of CEL rules that decides the health of
+one kind, for kinds whose status kstatus conventions cannot describe.
+
+```yaml
+apiVersion: solder.io/v1alpha1
+kind: HealthCheck
+metadata:
+  name: argoproj-rollout
+spec:
+  group: argoproj.io
+  kind: Rollout
+  rules:
+    - expression: object.status.phase == "Degraded"
+      state: Degraded
+      message: Rollout is degraded
+    - expression: object.status.phase == "Healthy"
+      state: Healthy
+    - expression: "true"
+      state: Progressing
+      message: Rollout is progressing
+```
+
+| Field                     | Description                                                          |
+| ------------------------- | -------------------------------------------------------------------- |
+| `spec.group`              | API group of the kind; empty for the core group.                     |
+| `spec.kind`               | Kind the rules apply to.                                             |
+| `spec.rules[].expression` | CEL over the live object, `object`, returning a bool.                |
+| `spec.rules[].state`      | `Healthy`, `Progressing`, or `Degraded` when the expression is true. |
+| `spec.rules[].message`    | Message reported with the state.                                     |
+
+Rules are evaluated in order, and across HealthChecks for the same kind in name
+order; the first true expression decides. When none matches, kstatus
+conventions apply. A validating webhook rejects expressions that do not
+compile or do not return a bool. At runtime each rule has a cost limit; a rule
+that errors or exceeds it reports the object as Progressing with reason
+`HealthCheckFailed`, holding the rollout rather than passing it. Use `has()` to
+guard fields that may be absent.
+
 ## Revision
 
 `Revision` records an auditable deployment attempt.

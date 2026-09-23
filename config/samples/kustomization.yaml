@@ -1,6 +1,7 @@
 ## Append samples of your project ##
 resources:
-- core_v1alpha1_repository.yaml
-- core_v1alpha1_application.yaml
-- core_v1alpha1_revision.yaml
+  - core_v1alpha1_repository.yaml
+  - core_v1alpha1_application.yaml
+  - core_v1alpha1_revision.yaml
+  - core_v1alpha1_healthcheck.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

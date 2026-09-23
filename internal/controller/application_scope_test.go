@@ -90,6 +90,36 @@ var _ = Describe("Application destination namespace", func() {
 		Expect(app.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
 	})
 
+	It("judges health with a HealthCheck rule for its kind", func() {
+		ensureCustomKind(ctx, "Widget", "widgets")
+		check := &corev1alpha1.HealthCheck{
+			ObjectMeta: metav1.ObjectMeta{Name: "widgets"},
+			Spec: corev1alpha1.HealthCheckSpec{Group: "example.com", Kind: "Widget", Rules: []corev1alpha1.HealthRule{{
+				Expression: `object.spec.value == "broken"`, State: corev1alpha1.HealthStateDegraded, Message: "widget is broken",
+			}}},
+		}
+		Expect(k8sClient.Create(ctx, check)).To(Succeed())
+		DeferCleanup(deleteObject, ctx, check)
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		app.Spec.Sync.Automatic = true
+		Expect(k8sClient.Update(ctx, app)).To(Succeed())
+		DeferCleanup(func() {
+			widget := customObject("Widget", "broken-widget", "")
+			widget.SetNamespace("payments")
+			_ = k8sClient.Delete(ctx, &widget)
+		})
+
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{customObject("Widget", "broken-widget", "broken")}, nil)
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+
+		revision := listApplicationRevisions(ctx, appName).Items[0]
+		Expect(revision.Status.Failure).NotTo(BeNil())
+		Expect(revision.Status.Failure.Reason).To(Equal("HealthFailure"))
+		Expect(revision.Status.Health.Degraded).To(Equal(int32(1)))
+	})
+
 	It("prunes a custom-kind object removed from desired state using the inventory", func() {
 		ensureCustomKind(ctx, "Widget", "widgets")
 		app := &corev1alpha1.Application{}
