@@ -1,6 +1,6 @@
 # v0.4 Ecosystem parity
 
-Status: open
+Status: done 2026-09-23
 Created: 2026-09-23
 
 ## Goal
