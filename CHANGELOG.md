@@ -17,6 +17,9 @@
 - The service account is part of the Revision identity, so switching accounts
   starts a fresh Revision instead of reusing one blocked by retry limits.
 - `--default-service-account` is validated at startup.
+- `spec.dependsOn` orders Applications in a namespace: a dependent plans but
+  applies only once its dependencies are Healthy at their desired revision,
+  with the `DependenciesReady` condition explaining any wait or cycle.
 - Lifecycle notifications: the new `NotificationSink` API (HMAC-signed
   webhook or Slack, destination in a Secret) and `spec.notifications` on
   Applications send `AwaitingApproval` (with the approve command), `Healthy`,

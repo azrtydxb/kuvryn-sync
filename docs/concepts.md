@@ -44,6 +44,13 @@ Applications are the primary object operators watch with `kubectl get app` or
 in the source repository's `.solder.yaml` files for Repository-driven GitOps
 bootstrapping.
 
+Applications can depend on other Applications in the same namespace with
+`spec.dependsOn`, for example workloads on the operator that serves their
+custom resources. Solder still plans a dependent, but applies it only once
+every dependency is Healthy at the revision it currently wants, and reports
+what it waits for in the `DependenciesReady` condition. Dependents are
+re-queued as soon as a dependency changes.
+
 ## Revision
 
 A `Revision` records one resolved deployment attempt. It carries source identity,
