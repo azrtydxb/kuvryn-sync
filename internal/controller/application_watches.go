@@ -59,9 +59,14 @@ type driftWatches struct {
 	client     client.Client
 	recheck    time.Duration
 
+	// mu guards the maps only; permission checks and watch registration run
+	// unlocked so one slow kind does not hold up every worker.
 	mu      sync.Mutex
 	watched map[schema.GroupKind]bool
 	denied  map[schema.GroupKind]time.Time
+	// pending holds a channel per kind being checked, closed once the check
+	// ends, so concurrent callers wait instead of registering it twice.
+	pending map[schema.GroupKind]chan struct{}
 }
 
 func newDriftWatches(ctrl controller.Controller, informers cache.Cache, c client.Client, recheck time.Duration) *driftWatches {
@@ -69,13 +74,14 @@ func newDriftWatches(ctrl controller.Controller, informers cache.Cache, c client
 	for _, gvk := range staticWatchKinds {
 		watched[gvk.GroupKind()] = true
 	}
-	return &driftWatches{controller: ctrl, cache: informers, client: c, recheck: recheck, watched: watched, denied: map[schema.GroupKind]time.Time{}}
+	return &driftWatches{
+		controller: ctrl, cache: informers, client: c, recheck: recheck,
+		watched: watched, denied: map[schema.GroupKind]time.Time{}, pending: map[schema.GroupKind]chan struct{}{},
+	}
 }
 
 // ensure watches every kind it can and reports whether all kinds are watched.
 func (w *driftWatches) ensure(ctx context.Context, kinds []schema.GroupVersionKind) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	all := true
 	for _, gvk := range kinds {
 		if !w.ensureKind(ctx, gvk) {
@@ -87,16 +93,53 @@ func (w *driftWatches) ensure(ctx context.Context, kinds []schema.GroupVersionKi
 
 func (w *driftWatches) ensureKind(ctx context.Context, gvk schema.GroupVersionKind) bool {
 	gk := gvk.GroupKind()
-	if w.watched[gk] {
-		return true
+	for {
+		w.mu.Lock()
+		if w.watched[gk] {
+			w.mu.Unlock()
+			return true
+		}
+		if deniedAt, ok := w.denied[gk]; ok && time.Since(deniedAt) < w.recheck {
+			w.mu.Unlock()
+			return false
+		}
+		inFlight, busy := w.pending[gk]
+		if !busy {
+			done := make(chan struct{})
+			w.pending[gk] = done
+			w.mu.Unlock()
+
+			watched := w.register(ctx, gvk)
+
+			w.mu.Lock()
+			if watched {
+				delete(w.denied, gk)
+				w.watched[gk] = true
+			} else {
+				w.denied[gk] = time.Now()
+			}
+			delete(w.pending, gk)
+			close(done)
+			w.mu.Unlock()
+			return watched
+		}
+		w.mu.Unlock()
+		// Another worker is checking this kind; use its outcome.
+		select {
+		case <-inFlight:
+		case <-ctx.Done():
+			return false
+		}
 	}
-	if deniedAt, ok := w.denied[gk]; ok && time.Since(deniedAt) < w.recheck {
-		return false
-	}
+}
+
+// register checks that the controller may list and watch gvk and starts a
+// metadata watch on it, reporting whether the kind is now watched.
+func (w *driftWatches) register(ctx context.Context, gvk schema.GroupVersionKind) bool {
+	gk := gvk.GroupKind()
 	log := logf.FromContext(ctx)
 	mapping, err := w.client.RESTMapper().RESTMapping(gk, gvk.Version)
 	if err != nil {
-		w.denied[gk] = time.Now()
 		return false
 	}
 	for _, verb := range []string{"list", "watch"} {
@@ -104,7 +147,6 @@ func (w *driftWatches) ensureKind(ctx context.Context, gvk schema.GroupVersionKi
 			ResourceAttributes: &authorizationv1.ResourceAttributes{Group: gk.Group, Resource: mapping.Resource.Resource, Verb: verb},
 		}}
 		if err := w.client.Create(ctx, review); err != nil || !review.Status.Allowed {
-			w.denied[gk] = time.Now()
 			log.V(1).Info("Controller may not watch managed kind; relying on resync", "kind", gk.String(), "verb", verb)
 			return false
 		}
@@ -119,11 +161,8 @@ func (w *driftWatches) ensureKind(ctx context.Context, gvk schema.GroupVersionKi
 	})
 	if err := w.controller.Watch(source.Kind(w.cache, watched, enqueue, managed)); err != nil {
 		log.Error(err, "Failed to watch managed kind", "kind", gk.String())
-		w.denied[gk] = time.Now()
 		return false
 	}
-	delete(w.denied, gk)
-	w.watched[gk] = true
 	log.Info("Watching managed kind for drift", "kind", gk.String())
 	return true
 }
