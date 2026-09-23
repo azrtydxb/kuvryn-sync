@@ -1077,7 +1077,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 			}
 		}
 		if len(pending) > 0 {
-			if _, err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
+			if err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
 				failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 			}

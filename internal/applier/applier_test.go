@@ -10,6 +10,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestApplyIsIdempotentAndMarksOwnership(t *testing.T) {
@@ -21,12 +22,8 @@ func TestApplyIsIdempotentAndMarksOwnership(t *testing.T) {
 	obj := configMap("settings", "one")
 	a := Applier{Client: c, ApplicationNamespace: "default"}
 	for i := 0; i < 2; i++ {
-		result, err := a.Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{obj}, "")
-		if err != nil {
+		if err := a.Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{obj}, corev1alpha1.ConflictPolicyFail); err != nil {
 			t.Fatalf("apply %d: %v", i, err)
-		}
-		if result.Applied != 1 {
-			t.Fatalf("applied = %d", result.Applied)
 		}
 	}
 	var got unstructured.Unstructured
@@ -46,9 +43,31 @@ func TestApplyRejectsUnsupportedConflictPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := Applier{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	_, err := a.Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{configMap("settings", "one")}, corev1alpha1.ConflictPolicy("force"))
+	err := a.Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{configMap("settings", "one")}, corev1alpha1.ConflictPolicy("force"))
 	if err == nil {
 		t.Fatal("expected unsupported conflict policy error")
+	}
+}
+
+func TestApplyForcesOwnershipOnlyWhenAdopting(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	for policy, wantForce := range map[corev1alpha1.ConflictPolicy]bool{corev1alpha1.ConflictPolicyFail: false, corev1alpha1.ConflictPolicyAdopt: true} {
+		var got client.PatchOptions
+		c := interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).Build(), interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				got.ApplyOptions(opts)
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		})
+		if err := (Applier{Client: c}).Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{configMap("settings", "one")}, policy); err != nil {
+			t.Fatalf("%s: %v", policy, err)
+		}
+		if got.FieldManager != FieldManager || (got.Force != nil && *got.Force) != wantForce {
+			t.Fatalf("%s: field manager %q, force %v", policy, got.FieldManager, got.Force)
+		}
 	}
 }
 
