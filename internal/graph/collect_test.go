@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -76,6 +77,9 @@ func TestCollectGraphTreatsForbiddenReadsAsNotVisible(t *testing.T) {
 	}
 	if nodes["hidden"] != "unreadable" || nodes["absent"] != "missing" || nodes["settings"] != "present" {
 		t.Fatalf("nodes = %v", nodes)
+	}
+	if want := []string{"could not list Pods: forbidden", "could not list ReplicaSets: forbidden"}; !slices.Equal(g.Unread, want) {
+		t.Fatalf("unread = %q, want %q", g.Unread, want)
 	}
 	if len(gets) != 3 {
 		t.Fatalf("gets = %v", gets)

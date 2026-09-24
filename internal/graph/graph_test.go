@@ -338,6 +338,15 @@ func TestJSONAndDOTAreStable(t *testing.T) {
 	if string(first) != want {
 		t.Fatalf("JSON =\n%s\nwant\n%s", first, want)
 	}
+	withUnread := Build(objects)
+	withUnread.Unread = []string{"could not list Pods: forbidden"}
+	raw, err := json.Marshal(withUnread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(raw), `],"unread":["could not list Pods: forbidden"]}`) || !strings.Contains(withUnread.DOT(), "  // could not list Pods: forbidden\n") {
+		t.Fatalf("unread reads are not shown: %s\n%s", raw, withUnread.DOT())
+	}
 	dot := Build(objects).DOT()
 	if dot != Build(reversed).DOT() {
 		t.Fatal("DOT depends on input order")

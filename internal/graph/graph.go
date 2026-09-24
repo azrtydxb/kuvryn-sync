@@ -71,6 +71,10 @@ type Node struct {
 type Graph struct {
 	Nodes []Node
 	Edges []Edge
+	// Unread lists, sorted, the reads Collect could not make, such as
+	// "could not list Pods: forbidden": the graph may be missing what they
+	// would have found.
+	Unread []string
 
 	index map[string]int
 	out   map[string][]Edge
@@ -167,9 +171,10 @@ type jsonEdge struct {
 // by their resource ID string.
 func (g Graph) MarshalJSON() ([]byte, error) {
 	out := struct {
-		Nodes []jsonNode `json:"nodes"`
-		Edges []jsonEdge `json:"edges"`
-	}{Nodes: make([]jsonNode, 0, len(g.Nodes)), Edges: make([]jsonEdge, 0, len(g.Edges))}
+		Nodes  []jsonNode `json:"nodes"`
+		Edges  []jsonEdge `json:"edges"`
+		Unread []string   `json:"unread,omitempty"`
+	}{Nodes: make([]jsonNode, 0, len(g.Nodes)), Edges: make([]jsonEdge, 0, len(g.Edges)), Unread: g.Unread}
 	for _, node := range g.Nodes {
 		out.Nodes = append(out.Nodes, jsonNode{
 			ID:         node.ID.String(),
@@ -189,6 +194,9 @@ func (g Graph) MarshalJSON() ([]byte, error) {
 func (g Graph) DOT() string {
 	var b bytes.Buffer
 	b.WriteString("digraph solder {\n")
+	for _, unread := range g.Unread {
+		_, _ = fmt.Fprintf(&b, "  // %s\n", strings.ReplaceAll(unread, "\n", " "))
+	}
 	b.WriteString("  rankdir=LR;\n")
 	b.WriteString("  node [shape=box, fontname=\"Helvetica\"];\n")
 	for _, node := range g.Nodes {

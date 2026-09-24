@@ -155,7 +155,8 @@ solder graph payments -n default -o dot | dot -Tsvg > payments.svg
 
 `-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
 Graphviz DOT. A node marked `missing` is referenced but does not exist; one
-marked `unreadable` could not be checked. See
+marked `unreadable` could not be checked, and `unread` (a comment in DOT)
+lists the lists that failed, such as `could not list Pods: forbidden`. See
 [Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
 the edges.
 

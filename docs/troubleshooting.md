@@ -110,7 +110,10 @@ their own.
 A cause whose chain is only the managed resource itself means Solder found no
 deeper evidence; its reason is the resource's health verdict, such as
 `ReplicasUnavailable` during an ordinary rollout. Solder then emits no
-`Diagnosed` Event unless the Application is Degraded.
+`Diagnosed` Event unless the Application is Degraded. When a list failed,
+such a message ends with what was not visible, such as
+`not visible: could not list Pods: forbidden`: the evidence may be there,
+but the service account may not read it.
 
 Solder reads the objects below managed resources as the Application's service
 account. If the account may not list Pods or read Secrets, the diagnosis stops

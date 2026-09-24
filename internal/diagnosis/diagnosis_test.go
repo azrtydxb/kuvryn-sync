@@ -337,6 +337,17 @@ func TestUnhealthyObjectWithoutEvidenceIsItsOwnCause(t *testing.T) {
 	}
 }
 
+func TestFallbackCauseSaysWhatWasNotVisible(t *testing.T) {
+	d := deployment("api", map[string]any{})
+	g := graph.Build([]unstructured.Unstructured{d})
+	g.Unread = []string{"could not list Pods: forbidden", "could not list ReplicaSets: forbidden"}
+	cause := requireOne(t, Build(context.Background(), Input{Results: unhealthy(d), Graph: g, Objects: []unstructured.Unstructured{d}}))
+	want := "0/1 replicas available; not visible: could not list Pods: forbidden; could not list ReplicaSets: forbidden"
+	if !cause.Fallback || cause.Message != want {
+		t.Fatalf("cause = %+v, want message %q", cause, want)
+	}
+}
+
 func TestStatusConvertsCauses(t *testing.T) {
 	spec := envFromSecret("db", false)
 	d, rs, p := workload(spec, waiting("CreateContainerConfigError", "", nil))

@@ -2,6 +2,9 @@ package graph
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,7 +39,7 @@ const (
 // that are forbidden or fail only leave objects out: a referenced object
 // that could not be checked is marked unreadable rather than missing.
 func Collect(ctx context.Context, reader client.Reader, namespace string, managed []unstructured.Unstructured) (Graph, []unstructured.Unstructured) {
-	c := graphCollector{reader: reader, namespace: namespace, seen: map[types.UID]bool{}, budget: CollectObjectLimit}
+	c := graphCollector{reader: reader, namespace: namespace, seen: map[types.UID]bool{}, budget: CollectObjectLimit, unread: map[string]bool{}}
 	owners := map[types.UID]bool{}
 	for _, obj := range managed {
 		c.objects = append(c.objects, obj)
@@ -105,6 +108,10 @@ func Collect(ctx context.Context, reader client.Reader, namespace string, manage
 	}
 	g := Build(c.objects)
 	g.MarkUnreadable(unreadable...)
+	for failure := range c.unread {
+		g.Unread = append(g.Unread, failure)
+	}
+	slices.Sort(g.Unread)
 	return g, c.objects
 }
 
@@ -114,6 +121,8 @@ type graphCollector struct {
 	objects   []unstructured.Unstructured
 	seen      map[types.UID]bool
 	budget    int
+	// unread records the lists that failed.
+	unread map[string]bool
 }
 
 func (c *graphCollector) add(obj unstructured.Unstructured) {
@@ -142,6 +151,11 @@ func (c *graphCollector) list(ctx context.Context, gvk schema.GroupVersionKind, 
 	list.SetGroupVersionKind(gvk.GroupVersion().WithKind(gvk.Kind + "List"))
 	opts = append(opts, client.InNamespace(c.namespace), client.Limit(int64(min(CollectListLimit, c.budget))))
 	if err := c.reader.List(ctx, list, opts...); err != nil {
+		reason := strings.ToLower(string(apierrors.ReasonForError(err)))
+		if reason == "" {
+			reason = "failed"
+		}
+		c.unread[fmt.Sprintf("could not list %ss: %s", gvk.Kind, reason)] = true
 		logf.FromContext(ctx).V(1).Info("Could not list objects for diagnosis", "kind", gvk.Kind, "namespace", c.namespace, "reason", apierrors.ReasonForError(err))
 		return nil
 	}

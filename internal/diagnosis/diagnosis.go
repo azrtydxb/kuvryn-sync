@@ -102,7 +102,12 @@ func build(ctx context.Context, in Input, budget int) ([]Cause, int) {
 			if reason == "" {
 				reason = string(result.State)
 			}
-			causes = []Cause{{Resource: result.Resource, Reason: reason, Message: result.Message, Chain: []resource.ID{result.Resource}, Fallback: true}}
+			message := result.Message
+			if len(in.Graph.Unread) > 0 {
+				// Say why the walk may have found nothing deeper.
+				message = strings.TrimPrefix(message+"; not visible: "+strings.Join(in.Graph.Unread, "; "), "; ")
+			}
+			causes = []Cause{{Resource: result.Resource, Reason: reason, Message: message, Chain: []resource.ID{result.Resource}, Fallback: true}}
 		}
 		for _, cause := range causes {
 			cause.Reason = camel(cause.Reason)
