@@ -290,7 +290,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	}
-	unwatched = !r.ensureWatches(ctx, unionKinds(objectKinds(rendered), inventoryKinds(application)))
+	unwatched = !r.ensureWatches(ctx, applier.UnionKinds(objectKinds(rendered), applier.InventoryKinds(application)))
 	if err := validate.Desired(rendered, validate.Options{DestinationNamespace: application.Spec.Destination.Namespace}); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered desired state is invalid"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -317,7 +317,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	liveObjects := slices.Collect(maps.Values(liveResult.Found))
 	managedStale := []unstructured.Unstructured{}
 	if application.Spec.Sync.Prune {
-		managed, skipped, err := listManagedObjects(ctx, tenant, application, objectKinds(rendered))
+		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
 		if err != nil {
 			failure := accessFailure(err, "PlanFailure", "Managed resources could not be inventoried", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -759,11 +759,7 @@ func redactPlanValues(plan *corev1alpha1.RevisionPlan, secrets []string) {
 }
 
 func rendererInput(application *corev1alpha1.Application, workspace string) renderer.Input {
-	namespace := application.Spec.Destination.Namespace
-	if namespace == "" {
-		namespace = application.Namespace
-	}
-	input := renderer.Input{Workspace: workspace, Path: application.Spec.Source.Path, Namespace: namespace}
+	input := renderer.Input{Workspace: workspace, Path: application.Spec.Source.Path, Namespace: application.DestinationNamespace()}
 	if application.Spec.Source.Render.Helm != nil {
 		input.ReleaseName = application.Spec.Source.Render.Helm.ReleaseName
 		input.ValuesFiles = append([]string(nil), application.Spec.Source.Render.Helm.ValuesFiles...)
@@ -937,7 +933,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 			controllerutil.RemoveFinalizer(application, applicationFinalizer)
 			return r.Update(ctx, application)
 		}
-		managed, skipped, err := listManagedObjects(ctx, tenant, application, nil)
+		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{})
 		if err != nil {
 			return err
 		}
@@ -955,46 +951,6 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 	}
 	controllerutil.RemoveFinalizer(application, applicationFinalizer)
 	return r.Update(ctx, application)
-}
-
-// listManagedObjects inventories objects labelled as managed by application.
-// Kinds the service account may not list are returned as skipped, since their
-// objects can neither be found nor pruned.
-func listManagedObjects(ctx context.Context, reader client.Reader, application *corev1alpha1.Application, desiredKinds []schema.GroupVersionKind) ([]unstructured.Unstructured, []string, error) {
-	gvks := unionKinds(inventoryKinds(application), desiredKinds)
-	if len(application.Status.ManagedKinds) == 0 {
-		// Applications last synced before the inventory existed may still own
-		// objects of the kinds earlier releases always inventoried.
-		gvks = unionKinds(gvks, staticWatchKinds)
-	}
-	out := []unstructured.Unstructured{}
-	skipped := []string{}
-	for _, gvk := range gvks {
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"})
-		namespace := application.Spec.Destination.Namespace
-		if namespace == "" {
-			namespace = application.Namespace
-		}
-		if err := reader.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: application.Name}); err != nil {
-			if apimeta.IsNoMatchError(err) {
-				// The kind no longer exists, and neither do its objects.
-				continue
-			}
-			if apierrors.IsForbidden(err) {
-				skipped = append(skipped, gvk.Kind)
-				continue
-			}
-			return nil, nil, err
-		}
-		for _, item := range list.Items {
-			ownerNamespace := item.GetLabels()[applier.ApplicationNamespaceLabelKey]
-			if ownerNamespace == "" || ownerNamespace == application.Namespace {
-				out = append(out, item)
-			}
-		}
-	}
-	return out, skipped, nil
 }
 
 func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructured) []unstructured.Unstructured {

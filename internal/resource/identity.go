@@ -38,3 +38,12 @@ func (id ID) String() string {
 	}
 	return fmt.Sprintf("%s/%s/%s/%s", id.APIVersion(), id.Kind, id.Namespace, id.Name)
 }
+
+// QualifiedName is namespace/name, or only the name of a cluster-scoped
+// object.
+func (id ID) QualifiedName() string {
+	if id.Namespace == "" {
+		return id.Name
+	}
+	return id.Namespace + "/" + id.Name
+}

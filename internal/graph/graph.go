@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/azrtydxb/solder/internal/resource"
@@ -84,7 +85,7 @@ func Build(objects []unstructured.Unstructured) Graph {
 		if err != nil {
 			continue
 		}
-		key := keyOf(id)
+		key := Key(id)
 		if _, seen := b.objects[key]; seen {
 			continue
 		}
@@ -104,15 +105,7 @@ func Build(objects []unstructured.Unstructured) Graph {
 
 // Node returns the node for id, matched by group, kind, namespace and name.
 func (g Graph) Node(id resource.ID) (Node, bool) {
-	if g.index == nil {
-		for i, node := range g.Nodes {
-			if keyOf(node.ID) == keyOf(id) {
-				return g.Nodes[i], true
-			}
-		}
-		return Node{}, false
-	}
-	i, ok := g.index[keyOf(id)]
+	i, ok := g.index[Key(id)]
 	if !ok {
 		return Node{}, false
 	}
@@ -122,9 +115,9 @@ func (g Graph) Node(id resource.ID) (Node, bool) {
 // Out returns the edges leaving id, in graph order.
 func (g Graph) Out(id resource.ID) []Edge {
 	out := []Edge{}
-	key := keyOf(id)
+	key := Key(id)
 	for _, edge := range g.Edges {
-		if keyOf(edge.From) == key {
+		if Key(edge.From) == key {
 			out = append(out, edge)
 		}
 	}
@@ -146,7 +139,7 @@ func (g Graph) Missing() []resource.ID {
 // not be checked, so they are not reported as missing.
 func (g *Graph) MarkUnreadable(ids ...resource.ID) {
 	for _, id := range ids {
-		i, ok := g.index[keyOf(id)]
+		i, ok := g.index[Key(id)]
 		if !ok || !g.Nodes[i].Missing {
 			continue
 		}
@@ -248,7 +241,7 @@ func (b *builder) infer(id resource.ID, obj unstructured.Unstructured, keys []st
 		}
 		ownerID := resource.ID{Group: gv.Group, Version: gv.Version, Kind: owner.Kind, Namespace: id.Namespace, Name: owner.Name}
 		// An owner is not a dependency: only one that is present is linked.
-		if node, ok := b.nodes[keyOf(ownerID)]; ok {
+		if node, ok := b.nodes[Key(ownerID)]; ok {
 			b.link(node.ID, id, EdgeOwns, false)
 		}
 	}
@@ -267,7 +260,7 @@ func (b *builder) infer(id resource.ID, obj unstructured.Unstructured, keys []st
 		}
 	case id.Group == "discovery.k8s.io" && id.Kind == "EndpointSlice":
 		service := obj.GetLabels()["kubernetes.io/service-name"]
-		if node, ok := b.nodes[keyOf(resource.ID{Version: "v1", Kind: "Service", Namespace: id.Namespace, Name: service})]; ok && service != "" {
+		if node, ok := b.nodes[Key(resource.ID{Version: "v1", Kind: "Service", Namespace: id.Namespace, Name: service})]; ok && service != "" {
 			b.link(node.ID, id, EdgeEndpoints, false)
 		}
 	}
@@ -277,27 +270,41 @@ func (b *builder) infer(id resource.ID, obj unstructured.Unstructured, keys []st
 }
 
 func (b *builder) service(id resource.ID, obj unstructured.Unstructured, keys []string) {
-	selector, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "selector")
-	if len(selector) == 0 {
-		return
+	if selector, ok := Selector(obj); ok {
+		b.selects(id, selector, keys, true)
 	}
-	b.selects(id, labels.SelectorFromSet(selector), keys, true)
 }
 
 func (b *builder) disruptionBudget(id resource.ID, obj unstructured.Unstructured, keys []string) {
-	raw, found, _ := unstructured.NestedMap(obj.Object, "spec", "selector")
-	if !found {
-		return
+	if selector, ok := Selector(obj); ok {
+		b.selects(id, selector, keys, false)
+	}
+}
+
+// Selector returns the label selector in obj's spec.selector: a plain label
+// map for a Service, which selects nothing when empty, and a LabelSelector
+// for every other kind.
+func Selector(obj unstructured.Unstructured) (labels.Selector, bool) {
+	if obj.GroupVersionKind().GroupKind() == (schema.GroupKind{Kind: "Service"}) {
+		selector, _, err := unstructured.NestedStringMap(obj.Object, "spec", "selector")
+		if err != nil || len(selector) == 0 {
+			return nil, false
+		}
+		return labels.SelectorFromSet(selector), true
+	}
+	raw, found, err := unstructured.NestedMap(obj.Object, "spec", "selector")
+	if err != nil || !found {
+		return nil, false
 	}
 	var selector metav1.LabelSelector
-	if err := fromUnstructured(raw, &selector); err != nil {
-		return
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &selector); err != nil {
+		return nil, false
 	}
 	parsed, err := metav1.LabelSelectorAsSelector(&selector)
 	if err != nil {
-		return
+		return nil, false
 	}
-	b.selects(id, parsed, keys, false)
+	return parsed, true
 }
 
 // selects links id to the Pods in its namespace that selector matches and,
@@ -375,16 +382,16 @@ func (b *builder) podSpec(id resource.ID, spec map[string]any) {
 // reference links from to the object to refers to, adding it as a missing
 // node when the input does not hold it.
 func (b *builder) reference(from, to resource.ID, kind EdgeType, optional bool) {
-	node, ok := b.nodes[keyOf(to)]
+	node, ok := b.nodes[Key(to)]
 	if !ok {
 		node = &Node{ID: to, Missing: true}
-		b.nodes[keyOf(to)] = node
+		b.nodes[Key(to)] = node
 	}
 	b.link(from, node.ID, kind, optional)
 }
 
 func (b *builder) link(from, to resource.ID, kind EdgeType, optional bool) {
-	key := keyOf(from) + "->" + keyOf(to) + ":" + string(kind)
+	key := Key(from) + "->" + Key(to) + ":" + string(kind)
 	if edge, ok := b.edges[key]; ok {
 		// One required reference makes the edge required.
 		edge.Optional = edge.Optional && optional
@@ -400,7 +407,7 @@ func (b *builder) graph() Graph {
 	}
 	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID.String() < g.Nodes[j].ID.String() })
 	for i, node := range g.Nodes {
-		g.index[keyOf(node.ID)] = i
+		g.index[Key(node.ID)] = i
 	}
 	for _, edge := range b.edges {
 		g.Edges = append(g.Edges, *edge)
@@ -533,21 +540,13 @@ func templated(id resource.ID) bool {
 	return false
 }
 
-// keyOf identifies an object regardless of the API version it was read at.
-func keyOf(id resource.ID) string {
+// Key identifies an object regardless of the API version it was read at.
+func Key(id resource.ID) string {
 	return id.Group + "/" + id.Kind + "/" + id.Namespace + "/" + id.Name
 }
 
 func edgeKey(edge Edge) string {
 	return edge.From.String() + "->" + edge.To.String() + ":" + string(edge.Type)
-}
-
-func fromUnstructured(raw map[string]any, into any) error {
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, into)
 }
 
 func asMap(v any) map[string]any {

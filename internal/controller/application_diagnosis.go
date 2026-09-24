@@ -41,7 +41,7 @@ func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Read
 		application.Status.Diagnosis = nil
 		return
 	}
-	g, objects := graph.Collect(ctx, tenant, destinationNamespace(application), observed)
+	g, objects := graph.Collect(ctx, tenant, application.DestinationNamespace(), observed)
 	causes := diagnosis.Build(diagnosis.Input{Results: results, Graph: g, Objects: objects})
 	next := diagnosis.Status(causes)
 	changed := !sameCauses(application.Status.Diagnosis, next)
@@ -53,8 +53,8 @@ func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Read
 	if !evident && !degraded {
 		return
 	}
-	first := next[0]
-	message := fmt.Sprintf("%s %s: %s", first.Resource.Kind, refName(first.Resource), first.Reason)
+	first := causes[0]
+	message := fmt.Sprintf("%s %s: %s", first.Resource.Kind, first.Resource.QualifiedName(), first.Reason)
 	if first.Message != "" {
 		message += ": " + first.Message
 	}
@@ -70,18 +70,4 @@ func sameCauses(a, b []corev1alpha1.DiagnosisCause) bool {
 	return slices.EqualFunc(a, b, func(x, y corev1alpha1.DiagnosisCause) bool {
 		return x.Resource == y.Resource && x.Reason == y.Reason
 	})
-}
-
-func refName(ref corev1alpha1.ResourceRef) string {
-	if ref.Namespace == "" {
-		return ref.Name
-	}
-	return ref.Namespace + "/" + ref.Name
-}
-
-func destinationNamespace(application *corev1alpha1.Application) string {
-	if application.Spec.Destination.Namespace != "" {
-		return application.Spec.Destination.Namespace
-	}
-	return application.Namespace
 }

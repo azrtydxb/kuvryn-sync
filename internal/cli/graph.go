@@ -8,10 +8,6 @@ import (
 	"io"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
@@ -19,17 +15,6 @@ import (
 	"github.com/azrtydxb/solder/internal/graph"
 	"github.com/azrtydxb/solder/internal/redact"
 )
-
-// defaultManagedKinds are inventoried for Applications that have not
-// recorded status.managedKinds yet.
-var defaultManagedKinds = []corev1alpha1.ManagedKind{
-	{APIVersion: "v1", Kind: "ConfigMap"},
-	{APIVersion: "v1", Kind: "Secret"},
-	{APIVersion: "v1", Kind: "Service"},
-	{APIVersion: "apps/v1", Kind: "Deployment"},
-	{APIVersion: "apps/v1", Kind: "StatefulSet"},
-	{APIVersion: "apps/v1", Kind: "DaemonSet"},
-}
 
 func runGraph(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs, namespace := newFlagSet("solder graph", stderr)
@@ -54,15 +39,11 @@ func writeGraph(ctx context.Context, c client.Client, namespace, application, fo
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
 		return err
 	}
-	managed, err := managedObjects(ctx, c, app)
+	managed, _, err := applier.ListManaged(ctx, c, app, applier.ListOptions{})
 	if err != nil {
 		return err
 	}
-	destination := app.Spec.Destination.Namespace
-	if destination == "" {
-		destination = app.Namespace
-	}
-	g, _ := graph.Collect(ctx, c, destination, managed)
+	g, _ := graph.Collect(ctx, c, app.DestinationNamespace(), managed)
 	if format == "dot" {
 		_, _ = fmt.Fprint(stdout, g.DOT())
 		return nil
@@ -77,41 +58,6 @@ func writeGraph(ctx context.Context, c client.Client, namespace, application, fo
 	}
 	_, _ = fmt.Fprintln(stdout, indented.String())
 	return nil
-}
-
-// managedObjects lists the objects labelled as managed by app, of every kind
-// it last applied. Kinds the caller may not list are left out.
-func managedObjects(ctx context.Context, c client.Client, app *corev1alpha1.Application) ([]unstructured.Unstructured, error) {
-	kinds := app.Status.ManagedKinds
-	if len(kinds) == 0 {
-		kinds = defaultManagedKinds
-	}
-	namespace := app.Spec.Destination.Namespace
-	if namespace == "" {
-		namespace = app.Namespace
-	}
-	out := []unstructured.Unstructured{}
-	for _, kind := range kinds {
-		gv, err := schema.ParseGroupVersion(kind.APIVersion)
-		if err != nil {
-			continue
-		}
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gv.WithKind(kind.Kind + "List"))
-		if err := c.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: app.Name}); err != nil {
-			if apimeta.IsNoMatchError(err) || apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-				continue
-			}
-			return nil, err
-		}
-		for _, item := range list.Items {
-			owner := item.GetLabels()[applier.ApplicationNamespaceLabelKey]
-			if owner == "" || owner == app.Namespace {
-				out = append(out, item)
-			}
-		}
-	}
-	return out, nil
 }
 
 // RenderDiagnosis renders an Application's recorded diagnosis and the

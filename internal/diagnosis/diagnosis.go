@@ -64,7 +64,7 @@ func Build(in Input) []Cause {
 	d := diagnoser{graph: in.Graph, objects: map[string]unstructured.Unstructured{}}
 	for _, obj := range in.Objects {
 		if id, err := resource.FromObject(obj); err == nil {
-			d.objects[key(id)] = obj
+			d.objects[graph.Key(id)] = obj
 		}
 	}
 	unhealthy := slices.DeleteFunc(slices.Clone(in.Results), func(result health.Result) bool {
@@ -89,7 +89,7 @@ func Build(in Input) []Cause {
 		}
 		for _, cause := range causes {
 			cause.Reason = camel(cause.Reason)
-			id := key(cause.Resource) + "#" + cause.Reason
+			id := graph.Key(cause.Resource) + "#" + cause.Reason
 			if seen[id] {
 				continue
 			}
@@ -144,7 +144,7 @@ type diagnoser struct {
 // visit returns the root causes below id, reached along path.
 func (d diagnoser) visit(id resource.ID, path []resource.ID) []Cause {
 	for _, step := range path {
-		if key(step) == key(id) {
+		if graph.Key(step) == graph.Key(id) {
 			return nil
 		}
 	}
@@ -154,9 +154,9 @@ func (d diagnoser) visit(id resource.ID, path []resource.ID) []Cause {
 	path = append(slices.Clone(path), id)
 	node, ok := d.graph.Node(id)
 	if ok && node.Missing {
-		return []Cause{{Resource: id, Reason: "Missing" + id.Kind, Message: fmt.Sprintf("%s %s does not exist", id.Kind, name(id)), Chain: path}}
+		return []Cause{{Resource: id, Reason: "Missing" + id.Kind, Message: fmt.Sprintf("%s %s does not exist", id.Kind, id.QualifiedName()), Chain: path}}
 	}
-	obj, ok := d.objects[key(id)]
+	obj, ok := d.objects[graph.Key(id)]
 	if !ok {
 		return nil
 	}
@@ -199,7 +199,7 @@ func (d diagnoser) follow(id resource.ID, path []resource.ID, types ...graph.Edg
 		if edge.Optional || !slices.Contains(types, edge.Type) {
 			continue
 		}
-		if podSpecEdge(edge.Type) && pullOnly(d.objects[key(id)], edge.To) {
+		if podSpecEdge(edge.Type) && pullOnly(d.objects[graph.Key(id)], edge.To) {
 			// A workload's pull Secrets matter only through a Pod that
 			// cannot pull.
 			continue
@@ -257,7 +257,7 @@ func (d diagnoser) endpoints(id resource.ID, path []resource.ID) []Cause {
 		if edge.Type != graph.EdgeEndpoints {
 			continue
 		}
-		slice, ok := d.objects[key(edge.To)]
+		slice, ok := d.objects[graph.Key(edge.To)]
 		if !ok {
 			continue
 		}
@@ -279,23 +279,23 @@ func (d diagnoser) endpoints(id resource.ID, path []resource.ID) []Cause {
 
 // ownEvidence reads failure from an object's own status conditions.
 func ownEvidence(id resource.ID, obj unstructured.Unstructured, path []resource.ID) []Cause {
-	conditions := statusConditions(obj)
-	if condition, ok := conditions["Failed"]; ok && condition.status == "True" && id.Group == "batch" && id.Kind == "Job" {
-		message := condition.message
-		if condition.reason != "" {
-			message = condition.reason + ": " + message
+	conditions := health.Conditions(obj)
+	if condition, ok := conditions["Failed"]; ok && condition.Status == "True" && id.Group == "batch" && id.Kind == "Job" {
+		message := condition.Message
+		if condition.Reason != "" {
+			message = condition.Reason + ": " + message
 		}
 		return []Cause{{Resource: id, Reason: "JobFailed", Message: "Job failed: " + message, Chain: path}}
 	}
-	if condition, ok := conditions["ReplicaFailure"]; ok && condition.status == "True" {
-		reason := condition.reason
+	if condition, ok := conditions["ReplicaFailure"]; ok && condition.Status == "True" {
+		reason := condition.Reason
 		if reason == "" {
 			reason = "ReplicaFailure"
 		}
-		return []Cause{{Resource: id, Reason: reason, Message: condition.message, Chain: path}}
+		return []Cause{{Resource: id, Reason: reason, Message: condition.Message, Chain: path}}
 	}
-	if condition, ok := conditions["Progressing"]; ok && condition.status == "False" && condition.reason == "ProgressDeadlineExceeded" {
-		return []Cause{{Resource: id, Reason: condition.reason, Message: condition.message, Chain: path}}
+	if condition, ok := conditions["Progressing"]; ok && condition.Status == "False" && condition.Reason == "ProgressDeadlineExceeded" {
+		return []Cause{{Resource: id, Reason: condition.Reason, Message: condition.Message, Chain: path}}
 	}
 	return nil
 }
@@ -324,8 +324,8 @@ var waitingIgnored = map[string]bool{"": true, "ContainerCreating": true, "PodIn
 // podEvidence returns why a Pod is not running: it cannot be scheduled, a
 // container waits for a reason other than starting up, or it failed.
 func podEvidence(obj unstructured.Unstructured) (string, string, bool) {
-	if condition, ok := statusConditions(obj)["PodScheduled"]; ok && condition.status == "False" && condition.reason == "Unschedulable" {
-		return "Unschedulable", condition.message, true
+	if condition, ok := health.Conditions(obj)["PodScheduled"]; ok && condition.Status == "False" && condition.Reason == "Unschedulable" {
+		return "Unschedulable", condition.Message, true
 	}
 	containers := append(containerStatuses(obj, "initContainerStatuses"), containerStatuses(obj, "containerStatuses")...)
 	for _, container := range containers {
@@ -392,26 +392,6 @@ func containerStatuses(obj unstructured.Unstructured, field string) []map[string
 	return out
 }
 
-type condition struct {
-	status, reason, message string
-}
-
-func statusConditions(obj unstructured.Unstructured) map[string]condition {
-	out := map[string]condition{}
-	raw, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-	for _, item := range raw {
-		entry, _ := item.(map[string]any)
-		kind, _ := entry["type"].(string)
-		status, _ := entry["status"].(string)
-		reason, _ := entry["reason"].(string)
-		message, _ := entry["message"].(string)
-		if kind != "" {
-			out[kind] = condition{status: status, reason: reason, message: message}
-		}
-	}
-	return out
-}
-
 func podSpecEdge(kind graph.EdgeType) bool {
 	return kind == graph.EdgeUses || kind == graph.EdgeMounts || kind == graph.EdgeRunsAs
 }
@@ -429,17 +409,6 @@ func pullOnly(obj unstructured.Unstructured, target resource.ID) bool {
 		}
 	}
 	return false
-}
-
-func name(id resource.ID) string {
-	if id.Namespace == "" {
-		return id.Name
-	}
-	return id.Namespace + "/" + id.Name
-}
-
-func key(id resource.ID) string {
-	return id.Group + "/" + id.Kind + "/" + id.Namespace + "/" + id.Name
 }
 
 // camel keeps the letters and digits of reason and starts it with an upper

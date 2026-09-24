@@ -181,33 +181,20 @@ func (c *graphCollector) get(ctx context.Context, id resource.ID) (obj unstructu
 	}
 }
 
-// podSelector returns the label selector of the Pods a managed object runs
-// or selects, or nil.
+// podSelector returns the non-empty label selector of the Pods a managed
+// Service or workload selects, or nil.
 func podSelector(obj unstructured.Unstructured) labels.Selector {
 	gvk := obj.GroupVersionKind()
-	if gvk.Group == "" && gvk.Kind == "Service" {
-		selector, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "selector")
-		if len(selector) == 0 {
+	if gvk.Group != "" || gvk.Kind != "Service" {
+		if _, ok := PodSpec(obj); !ok || gvk.Kind == "Pod" || gvk.Kind == "CronJob" {
 			return nil
 		}
-		return labels.SelectorFromSet(selector)
 	}
-	if _, ok := PodSpec(obj); !ok || gvk.Kind == "Pod" || gvk.Kind == "CronJob" {
+	selector, ok := Selector(obj)
+	if !ok || selector.Empty() {
 		return nil
 	}
-	raw, found, _ := unstructured.NestedMap(obj.Object, "spec", "selector")
-	if !found {
-		return nil
-	}
-	var selector metav1.LabelSelector
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &selector); err != nil {
-		return nil
-	}
-	parsed, err := metav1.LabelSelectorAsSelector(&selector)
-	if err != nil || parsed.Empty() {
-		return nil
-	}
-	return parsed
+	return selector
 }
 
 func ownedBy(obj unstructured.Unstructured, owners map[types.UID]bool) bool {

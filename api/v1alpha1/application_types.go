@@ -408,6 +408,15 @@ type ApplicationList struct {
 	Items           []Application `json:"items"`
 }
 
+// DestinationNamespace is the namespace the Application deploys to: its
+// spec.destination.namespace, or its own namespace when that is empty.
+func (a *Application) DestinationNamespace() string {
+	if a.Spec.Destination.Namespace != "" {
+		return a.Spec.Destination.Namespace
+	}
+	return a.Namespace
+}
+
 func init() {
 	SchemeBuilder.Register(&Application{}, &ApplicationList{})
 }
