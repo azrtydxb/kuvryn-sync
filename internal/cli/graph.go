@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,11 +75,16 @@ func identityOnly(gvk schema.GroupVersionKind) bool {
 func RenderDiagnosis(app corev1alpha1.Application, failure *corev1alpha1.RevisionFailure) string {
 	var b bytes.Buffer
 	_, _ = fmt.Fprintf(&b, "%s: health %s, sync %s\n", app.Name, orUnknown(string(app.Status.Health.State)), orUnknown(string(app.Status.Sync.State)))
+	ready := apimeta.FindStatusCondition(app.Status.Conditions, "Ready")
+	notReady := ready != nil && ready.Status == metav1.ConditionFalse
+	if notReady {
+		_, _ = fmt.Fprintf(&b, "Ready: False: %s: %s\n", ready.Reason, redact.String(ready.Message))
+	}
 	if failure != nil {
 		_, _ = fmt.Fprintf(&b, "Failure: %s: %s\n", failure.Reason, redact.String(failure.Message))
 	}
 	if len(app.Status.Diagnosis) == 0 {
-		if failure == nil {
+		if failure == nil && !notReady {
 			_, _ = fmt.Fprintln(&b, "No failure or unhealthy resource recorded")
 		}
 		return b.String()

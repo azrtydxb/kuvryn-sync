@@ -118,9 +118,10 @@ solder resume payments -n default
 
 ## Diagnosis
 
-Explain why an Application is not Healthy. The command prints the latest
-Revision failure and every cause recorded in `status.diagnosis`, each with its
-chain from the unhealthy managed resource down to the root cause:
+Explain why an Application is not Healthy. The command prints the `Ready`
+condition when it is `False`, such as a `SourceFailure`, the latest Revision
+failure, and every cause recorded in `status.diagnosis`, each with its chain
+from the unhealthy managed resource down to the root cause:
 
 ```sh
 solder diagnose payments -n default

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -388,8 +389,12 @@ func diagnose(ctx context.Context, c client.Client, namespace, application strin
 		return err
 	}
 	var failure *corev1alpha1.RevisionFailure
-	if rev, err := newestRevision(ctx, c, application, namespace); err == nil {
+	rev, err := newestRevision(ctx, c, application, namespace)
+	switch {
+	case err == nil:
 		failure = rev.Status.Failure
+	case !errors.Is(err, errNoRevision):
+		return err
 	}
 	_, _ = fmt.Fprint(stdout, RenderDiagnosis(*app, failure))
 	return nil
@@ -501,6 +506,9 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 }
 
 // newestRevision returns the most recently created Revision of application.
+// errNoRevision reports an Application with no Revision yet.
+var errNoRevision = errors.New("no Revision found")
+
 func newestRevision(ctx context.Context, c client.Client, application, namespace string) (*corev1alpha1.Revision, error) {
 	var list corev1alpha1.RevisionList
 	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
@@ -517,7 +525,7 @@ func newestRevision(ctx context.Context, c client.Client, application, namespace
 		}
 	}
 	if newest == nil {
-		return nil, fmt.Errorf("no Revision found for application %q in namespace %q", application, namespace)
+		return nil, fmt.Errorf("%w for application %q in namespace %q", errNoRevision, application, namespace)
 	}
 	return newest, nil
 }

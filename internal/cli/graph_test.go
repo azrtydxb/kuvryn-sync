@@ -9,9 +9,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
@@ -234,6 +236,44 @@ Causes (2):
 `
 	if stdout.String() != want {
 		t.Fatalf("diagnose output:\n%s\nwant:\n%s", stdout.String(), want)
+	}
+}
+
+func TestDiagnoseShowsAFailingReadyCondition(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1alpha1.Application{
+		ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"},
+		Status: corev1alpha1.ApplicationStatus{
+			Health:     corev1alpha1.ApplicationHealthStatus{State: corev1alpha1.HealthStateDegraded},
+			Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Reason: "SourceFailure", Message: "Referenced Repository was not found"}},
+		},
+	}).Build()
+	var stdout bytes.Buffer
+	if err := diagnose(context.Background(), c, "default", "payments", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	want := "payments: health Degraded, sync Unknown\nReady: False: SourceFailure: Referenced Repository was not found\n"
+	if stdout.String() != want {
+		t.Fatalf("output = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestDiagnoseReturnsRevisionReadErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}}).Build()
+	denied := apierrors.NewForbidden(schema.GroupResource{Group: "solder.io", Resource: "revisions"}, "", nil)
+	c := interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return denied },
+	})
+	var stdout bytes.Buffer
+	if err := diagnose(context.Background(), c, "default", "payments", &stdout); !apierrors.IsForbidden(err) {
+		t.Fatalf("err = %v, output %q", err, stdout.String())
 	}
 }
 
