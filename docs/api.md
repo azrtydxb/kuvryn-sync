@@ -197,7 +197,13 @@ spec:
 
 `status.diagnosis` explains why an Application is not Healthy. Solder sets it
 whenever it evaluates health and finds a managed resource that is not Healthy,
-and clears it once every managed resource is. Each entry is one root cause:
+and clears it once every managed resource is. It is also cleared when
+reconciliation fails before health is observed, such as with a
+`SourceFailure`, `ServiceAccountFailure`, render, validation, apply or prune
+failure, and when retries are blocked after such a failure. It is kept while
+the Application reports drift, which does not observe health again, and while
+retries are blocked after a health failure (`HealthFailure`, `HookFailed` or
+`TimeoutFailure`), which it still explains. Each entry is one root cause:
 
 | Field      | Meaning                                                                                                                  |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------ |

@@ -915,7 +915,13 @@ func (r *ApplicationReconciler) reportRetryBlocked(ctx context.Context, applicat
 		message = fmt.Sprintf("%s; last failure %s: %s", blocked.Message, failure.Reason, failure.Message)
 	}
 	message = safeMessage(errors.New(message), blocked.Message)
+	diagnosed := application.Status.Diagnosis
 	r.markApplicationFailure(application, blocked.Reason, message)
+	// Retries stopped after a failed health observation, whose diagnosis
+	// still explains the Application.
+	if failure := revision.Status.Failure; failure != nil && healthFailure(failure.Reason) {
+		application.Status.Diagnosis = diagnosed
+	}
 	r.event(application, corev1.EventTypeWarning, blocked.Reason, message)
 	return r.Status().Update(ctx, application)
 }
@@ -1225,6 +1231,16 @@ func (r *ApplicationReconciler) updateKeepingStatus(ctx context.Context, applica
 	return err
 }
 
+// healthFailure reports failure reasons decided by observing the health of
+// managed objects, which status.diagnosis explains.
+func healthFailure(reason string) bool {
+	switch reason {
+	case "HealthFailure", "HookFailed", "TimeoutFailure":
+		return true
+	}
+	return false
+}
+
 func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, failure corev1alpha1.RevisionFailure) error {
 	now := metav1.Now()
 	rollbackQueued := false
@@ -1242,6 +1258,9 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 		}
 	}
 	status.Fail(revision, application, now, failure)
+	if !healthFailure(failure.Reason) {
+		application.Status.Diagnosis = nil
+	}
 	if rollbackQueued {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRollingBack
 		r.event(application, corev1.EventTypeWarning, "RollbackStarted", "Application failure triggered rollback")
@@ -1264,7 +1283,11 @@ func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application 
 	return rollback.Target(*current, list.Items)
 }
 
+// markApplicationFailure records a failure that stopped reconciliation
+// before health was observed, clearing a diagnosis that no longer explains
+// the Application.
 func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1.Application, reason, message string) {
+	application.Status.Diagnosis = nil
 	application.Status.ObservedGeneration = application.Generation
 	application.Status.State = corev1alpha1.HealthStateDegraded
 	application.Status.Health.State = corev1alpha1.HealthStateDegraded

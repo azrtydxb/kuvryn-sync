@@ -345,3 +345,92 @@ func TestRollbackKeepsTheStatusThisReconcileComputed(t *testing.T) {
 		t.Fatalf("health was lost: resources=%+v health=%s", stored.Status.Resources, stored.Status.Health.State)
 	}
 }
+
+func TestDiagnosisIsClearedByFailuresOutsideHealth(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	stale := []corev1alpha1.DiagnosisCause{{
+		Resource: corev1alpha1.ResourceRef{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: "db"},
+		Reason:   "MissingSecret",
+		Chain:    []corev1alpha1.ResourceRef{{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: "db"}},
+	}}
+	ctx := context.Background()
+	setup := func(t *testing.T, failure *corev1alpha1.RevisionFailure) (*ApplicationReconciler, *corev1alpha1.Application, *corev1alpha1.Revision) {
+		t.Helper()
+		app := newApplication("api", corev1alpha1.RenderTypeYAML)
+		rev := &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-new", Namespace: "default"},
+			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: "api"}},
+			Status:     corev1alpha1.RevisionStatus{Phase: corev1alpha1.RevisionPhaseFailed, Failure: failure},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(app, rev).
+			WithStatusSubresource(&corev1alpha1.Application{}, &corev1alpha1.Revision{}).Build()
+		live := &corev1alpha1.Application{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(app), live); err != nil {
+			t.Fatal(err)
+		}
+		live.Status.Diagnosis = stale
+		current := &corev1alpha1.Revision{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(rev), current); err != nil {
+			t.Fatal(err)
+		}
+		return &ApplicationReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(10)}, live, current
+	}
+	stored := func(t *testing.T, r *ApplicationReconciler) []corev1alpha1.DiagnosisCause {
+		t.Helper()
+		app := &corev1alpha1.Application{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: "default", Name: "api"}, app); err != nil {
+			t.Fatal(err)
+		}
+		return app.Status.Diagnosis
+	}
+
+	t.Run("source failure", func(t *testing.T) {
+		r, app, _ := setup(t, nil)
+		r.markApplicationFailure(app, "SourceFailure", "Referenced Repository was not found")
+		if app.Status.Diagnosis != nil {
+			t.Fatalf("diagnosis kept next to a SourceFailure: %+v", app.Status.Diagnosis)
+		}
+	})
+	t.Run("render failure", func(t *testing.T) {
+		r, app, rev := setup(t, nil)
+		if err := r.failRevisionAndApplication(ctx, app, rev, corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: "render failed"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := stored(t, r); got != nil {
+			t.Fatalf("diagnosis kept next to a RenderFailure: %+v", got)
+		}
+	})
+	t.Run("health failure", func(t *testing.T) {
+		r, app, rev := setup(t, nil)
+		if err := r.failRevisionAndApplication(ctx, app, rev, corev1alpha1.RevisionFailure{Reason: "TimeoutFailure", Message: "Health observation timed out"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := stored(t, r); len(got) != 1 {
+			t.Fatalf("the diagnosis of a health failure was dropped: %+v", got)
+		}
+	})
+	t.Run("retries blocked after a render failure", func(t *testing.T) {
+		r, app, rev := setup(t, &corev1alpha1.RevisionFailure{Reason: "RenderFailure", Message: "render failed"})
+		if err := r.reportRetryBlocked(ctx, app, rev, corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: "maxAttempts 1 reached"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := stored(t, r); got != nil {
+			t.Fatalf("diagnosis kept next to a blocked RenderFailure: %+v", got)
+		}
+	})
+	t.Run("retries blocked after a health failure", func(t *testing.T) {
+		r, app, rev := setup(t, &corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: "One or more resources are degraded"})
+		if err := r.reportRetryBlocked(ctx, app, rev, corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: "maxAttempts 1 reached"}); err != nil {
+			t.Fatal(err)
+		}
+		if got := stored(t, r); len(got) != 1 {
+			t.Fatalf("the diagnosis of a blocked health failure was dropped: %+v", got)
+		}
+	})
+}
