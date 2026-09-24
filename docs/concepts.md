@@ -179,7 +179,10 @@ Applications that manage other kinds are re-checked every
 
 A rollback records its intent on the Application: the source revision to roll
 back to, the source revision it rolls back from, and whether it is manual
-(`solder rollback`) or automatic (a `rollback` failure policy). Solder then
+(`solder rollback`) or automatic (a `rollback` failure policy). A request
+that does not say what it rolls back from rolls back from the commit the
+Application's spec resolves to, and a second `solder rollback` while one is
+pending keeps the first one's source. Solder then
 runs normal reconciliation against the target, with the same validation,
 planning, apply, health, and event behavior as a forward sync.
 
@@ -187,10 +190,12 @@ When the rollback completes, it holds. Every Revision of the source revision
 rolled back from, in any phase, is marked `Failed` with a `RolledBack`
 condition (reason `ManualRollback` or `RollbackCompleted`), and Solder does not
 deploy it again. The Application keeps running the target: Solder still
-reconciles it, observing its health, reporting drift, and self-healing when
-`spec.sync.selfHeal` is set, while sync stays `OutOfSync` against the held
-desired revision and `Ready` is `False` with reason `RolledBack`. An approval
-of a held Revision is ignored.
+reconciles it, observing its health, reporting drift of the target as
+`Drifted`, and self-healing when `spec.sync.selfHeal` is set. Otherwise sync is
+`OutOfSync`, since the held desired revision is not deployed, and `Ready` is
+`False` with reason `RolledBack`. An approval of a held Revision is ignored,
+and history retention never deletes a held Revision, which does not count
+against `spec.history.limit`.
 
 The hold is keyed on the commit and the Revision identity. It ends when:
 
@@ -200,15 +205,20 @@ The hold is keyed on the commit and the Revision identity. It ends when:
   desired state, so it deploys;
 - you delete the held Revision, which Solder then creates afresh;
 - you roll back to the held Revision explicitly, with
-  `solder rollback --revision`, which lifts its hold and deploys it.
+  `solder rollback --revision`, which lifts its hold and deploys it;
+- the held commit is the one deployed, as after an identity change that
+  deployed it is reverted: the old Revision is lifted and reconciled normally.
 
 A change that keeps the Revision identity, such as a new value in a Secret
 named by Helm `valuesFrom`, does not end the hold.
 
-A rollback that cannot reach its target, because the target fails to resolve,
-render, or deploy, or may no longer be retried, is abandoned: Solder removes
-the request, emits a `RollbackAbandoned` Warning Event, and reconciles the
-desired revision again, so a request never pins the Application.
+A rollback that cannot reach its target is abandoned: Solder removes the
+request, emits a `RollbackAbandoned` Warning Event, and reconciles the desired
+revision again. That happens when the target fails for a reason retrying cannot
+fix, such as invalid desired state, or once its `maxAttempts` are used up. A
+failed fetch of the target, or a retryable failure such as a failed chart pull,
+keeps the request, and Solder tries the target again after its backoff. To give
+up such a rollback yourself, remove the `solder.io/rollback-*` annotations.
 
 ## Events, metrics, and tracing
 

@@ -28,14 +28,18 @@
   `solder.io/rollback-kind` annotations. Once it completes, every Revision of
   the rolled-back-from revision, in any phase, is marked `Failed` with a
   `RolledBack` condition (`ManualRollback` or `RollbackCompleted`) and is not
-  deployed or approved again. The Application keeps reconciling the rollback
-  target, observing its health and self-healing drift, with sync `OutOfSync`
-  and `Ready=False/RolledBack`. The hold ends with a new commit, a change to
-  `spec.source.path`, `spec.source.render` or the service account, deleting
-  the held Revision, or an explicit rollback to it; a new value in a Secret
-  named by Helm `valuesFrom` does not end it. A rollback whose target cannot be
-  resolved, rendered, deployed, or retried is abandoned with a
-  `RollbackAbandoned` Warning Event instead of pinning the Application.
+  deployed, approved, or removed by history retention again. The Application
+  keeps reconciling the rollback target, observing its health and
+  self-healing drift, with sync `OutOfSync` and `Ready=False/RolledBack`. The
+  hold ends with a new commit, a change to `spec.source.path`,
+  `spec.source.render` or the service account, deleting the held Revision, an
+  explicit rollback to it, or the held commit being deployed again, such as
+  after reverting an identity change; a new value in a Secret named by Helm
+  `valuesFrom` does not end it. A rollback whose target fails for a reason
+  retrying cannot fix, or uses up its `maxAttempts`, is abandoned with a
+  `RollbackAbandoned` Warning Event instead of pinning the Application; a
+  failed fetch or a retryable failure keeps the request. Git cannot request a
+  rollback: discovery strips the rollback annotations from `.solder.yaml`.
 - Fixed: `solder rollback` without `--revision` picked the newest Healthy
   Revision, usually the one already deployed, so it did nothing. It now picks
   the newest Revision that is Healthy or was deployed by an earlier rollback,

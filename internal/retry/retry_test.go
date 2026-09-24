@@ -14,7 +14,7 @@ func TestDecideBlocksAfterMaxAttempts(t *testing.T) {
 	if decision.Allowed {
 		t.Fatal("retry loop allowed after max attempts")
 	}
-	if !strings.Contains(decision.Reason, "maxAttempts") || !strings.Contains(decision.Reason, "bad") {
+	if !decision.Exhausted || !strings.Contains(decision.Reason, "maxAttempts") || !strings.Contains(decision.Reason, "bad") {
 		t.Fatalf("unexpected reason: %#v", decision)
 	}
 }
@@ -22,7 +22,7 @@ func TestDecideBlocksAfterMaxAttempts(t *testing.T) {
 func TestDecideHonorsBackoff(t *testing.T) {
 	now := time.Unix(100, 0)
 	decision := Decide(corev1alpha1.FailurePolicy{}, State{DesiredRevision: "bad", LastFailureAt: now, Attempts: 0}, now.Add(time.Second), time.Minute)
-	if decision.Allowed || decision.Reason == "" {
+	if decision.Allowed || decision.Exhausted || decision.Reason == "" {
 		t.Fatalf("backoff not enforced: %#v", decision)
 	}
 	decision = Decide(corev1alpha1.FailurePolicy{}, State{DesiredRevision: "bad", LastFailureAt: now, Attempts: 0}, now.Add(2*time.Minute), time.Minute)

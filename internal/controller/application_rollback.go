@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,11 +29,6 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 )
-
-// RolledBackCondition is True on a Revision a completed rollback replaced.
-// Solder does not deploy a held Revision again: the Application stays on the
-// rollback target until a new commit, or a new Revision identity, arrives.
-const RolledBackCondition = corev1alpha1.RolledBackCondition
 
 const (
 	// manualRollbackReason is the RolledBack reason for a rollback a user
@@ -77,38 +73,53 @@ func clearRollbackRequest(application *corev1alpha1.Application) {
 	application.SetAnnotations(annotations)
 }
 
-// recordRollbackIntent completes a rollback request that does not say what it
-// rolls back from, such as one set by hand, with the revision the Application
-// desires now, before reconciling the target moves status.desiredRevision.
+// recordRollbackIntent records a request's source and kind when the request
+// did not, such as one set by hand. It writes only when something changed.
 func (r *ApplicationReconciler) recordRollbackIntent(ctx context.Context, application *corev1alpha1.Application, req rollbackRequest) (rollbackRequest, error) {
-	if req.from != "" && req.kind != "" {
-		return req, nil
-	}
-	if req.from == "" {
-		req.from = application.Status.DesiredRevision
-	}
 	if req.kind == "" {
 		req.kind = corev1alpha1.RollbackKindManual
+	}
+	if req == rollbackRequestOf(application) {
+		return req, nil
 	}
 	setRollbackRequest(application, req)
 	return req, r.updateKeepingStatus(ctx, application)
 }
 
+// applicationRevisions lists the Revisions of application: labelled with its
+// name and referring to it.
+func (r *ApplicationReconciler) applicationRevisions(ctx context.Context, application *corev1alpha1.Application) ([]corev1alpha1.Revision, error) {
+	var list corev1alpha1.RevisionList
+	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(list.Items, func(rev corev1alpha1.Revision) bool {
+		return rev.Spec.ApplicationRef.Name != application.Name
+	}), nil
+}
+
 // heldBy returns the RolledBack condition holding revision, if any.
 func heldBy(revision *corev1alpha1.Revision) *metav1.Condition {
-	condition := apimeta.FindStatusCondition(revision.Status.Conditions, RolledBackCondition)
+	condition := apimeta.FindStatusCondition(revision.Status.Conditions, corev1alpha1.RolledBackCondition)
 	if condition == nil || condition.Status != metav1.ConditionTrue {
 		return nil
 	}
 	return condition
 }
 
+// rollbackWording is the RolledBack reason for a manual or automatic rollback
+// and how it happened, for messages.
+func rollbackWording(manual bool) (reason, how string) {
+	if manual {
+		return manualRollbackReason, "manually"
+	}
+	return automaticRollbackReason, "after a failure"
+}
+
 // holdMessage is the Application Ready message while a rollback holds.
 func holdMessage(manual bool) string {
-	if manual {
-		return "Application was rolled back manually to an earlier Revision; a new commit deploys again"
-	}
-	return "Application was rolled back to an earlier Revision after a failure; a new commit deploys again"
+	_, how := rollbackWording(manual)
+	return "Application was rolled back " + how + " to an earlier Revision; a new commit deploys again"
 }
 
 // holdReplaced marks every Revision of the source revision a completed
@@ -119,19 +130,18 @@ func (r *ApplicationReconciler) holdReplaced(ctx context.Context, application *c
 	if req.from == "" || req.from == target.Spec.Source.Revision {
 		return nil
 	}
-	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	revisions, err := r.applicationRevisions(ctx, application)
+	if err != nil {
 		return err
 	}
-	how := "manually"
-	condition := metav1.Condition{Type: RolledBackCondition, Status: metav1.ConditionTrue, Reason: manualRollbackReason}
-	if req.automatic() {
-		how, condition.Reason = "after a failure", automaticRollbackReason
+	reason, how := rollbackWording(!req.automatic())
+	condition := metav1.Condition{
+		Type: corev1alpha1.RolledBackCondition, Status: metav1.ConditionTrue, Reason: reason,
+		Message: fmt.Sprintf("Rolled back %s to source revision %s", how, target.Spec.Source.Revision),
 	}
-	condition.Message = fmt.Sprintf("Rolled back %s to source revision %s", how, target.Spec.Source.Revision)
 	failure := corev1alpha1.RevisionFailure{Reason: "RolledBack", Message: condition.Message, Retryable: false}
-	for i := range list.Items {
-		replaced := &list.Items[i]
+	for i := range revisions {
+		replaced := &revisions[i]
 		if replaced.Name == target.Name || replaced.Spec.Source.Revision != req.from {
 			continue
 		}
@@ -151,16 +161,16 @@ func (r *ApplicationReconciler) holdReplaced(ctx context.Context, application *c
 	return nil
 }
 
-// liftHold clears the hold on a Revision an explicit rollback targets: the
-// user asked to deploy exactly it.
-func (r *ApplicationReconciler) liftHold(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision) error {
-	apimeta.RemoveStatusCondition(&revision.Status.Conditions, RolledBackCondition)
+// liftHold clears the hold on a Revision, because of why, so it deploys
+// again: an explicit rollback to it, or its commit running again.
+func (r *ApplicationReconciler) liftHold(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, why string) error {
+	apimeta.RemoveStatusCondition(&revision.Status.Conditions, corev1alpha1.RolledBackCondition)
 	revision.Status.Failure = nil
 	revision.Status.Phase = corev1alpha1.RevisionPhasePending
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
-	r.event(application, corev1.EventTypeNormal, "RollbackHoldLifted", fmt.Sprintf("Rollback to source revision %s lifted its hold", revision.Spec.Source.Revision))
+	r.event(application, corev1.EventTypeNormal, "RollbackHoldLifted", fmt.Sprintf("Hold on source revision %s lifted by %s", revision.Spec.Source.Revision, why))
 	return nil
 }
 
@@ -170,12 +180,12 @@ func (r *ApplicationReconciler) liftHold(ctx context.Context, application *corev
 // failed so retry limits apply to it.
 func (r *ApplicationReconciler) abandonRollback(ctx context.Context, application *corev1alpha1.Application, req rollbackRequest, why string) error {
 	if req.automatic() && req.from != "" {
-		var list corev1alpha1.RevisionList
-		if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+		revisions, err := r.applicationRevisions(ctx, application)
+		if err != nil {
 			return err
 		}
-		for i := range list.Items {
-			if rev := &list.Items[i]; rev.Spec.Source.Revision == req.from && rev.Status.Phase == corev1alpha1.RevisionPhaseRollingBack {
+		for i := range revisions {
+			if rev := &revisions[i]; rev.Spec.Source.Revision == req.from && rev.Status.Phase == corev1alpha1.RevisionPhaseRollingBack {
 				rev.Status.Phase = corev1alpha1.RevisionPhaseFailed
 				if err := r.updateRevisionStatus(ctx, rev); err != nil {
 					return err
@@ -211,13 +221,13 @@ func holdFrom(ctx context.Context) *rollbackHold {
 }
 
 // updateApplicationStatus writes the Application's status. While a rollback
-// holds, the desired revision is the held one and is not deployed, so sync is
-// OutOfSync whatever reconciling the deployed revision found.
+// holds, the desired revision is the held one and is not deployed, so a
+// deployed target that matches its own desired state is OutOfSync; drift of
+// the target stays visible as Drifted.
 func (r *ApplicationReconciler) updateApplicationStatus(ctx context.Context, application *corev1alpha1.Application) error {
 	if hold := holdFrom(ctx); hold != nil {
 		application.Status.DesiredRevision = hold.desired
-		switch application.Status.Sync.State {
-		case corev1alpha1.SyncStateSynced, corev1alpha1.SyncStateDrifted:
+		if application.Status.Sync.State == corev1alpha1.SyncStateSynced {
 			application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
 		}
 	}

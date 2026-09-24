@@ -29,10 +29,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -47,9 +50,16 @@ import (
 // namedWorkspaceResolver resolves the branch "main" to *revision and any
 // other ref, such as a rollback target, to itself, in a workspace named after
 // the commit, so a renderer can tell commits apart.
-type namedWorkspaceResolver struct{ revision *string }
+// A ref named in unreachable fails to resolve, like a fetch that fails.
+type namedWorkspaceResolver struct {
+	revision    *string
+	unreachable map[string]bool
+}
 
 func (r namedWorkspaceResolver) Resolve(_ context.Context, repository source.GitRepository) (source.ResolvedSource, error) {
+	if r.unreachable[repository.Revision] {
+		return source.ResolvedSource{}, errors.New("fetch failed")
+	}
 	resolved := repository.Revision
 	if resolved == "main" {
 		resolved = *r.revision
@@ -294,7 +304,29 @@ var _ = Describe("Rollbacks", func() {
 
 	// Catches a rollback request pinning the Application to a target that
 	// cannot be deployed, so no new commit ever deployed either.
-	It("abandons a rollback whose target fails", func() {
+	It("abandons a rollback whose target fails for good", func() {
+		invalid := unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap"}}
+		r.Renderers = commitRenderer(map[string][]unstructured.Unstructured{"invalid-sha": {invalid}})
+		recorder := record.NewFakeRecorder(100)
+		r.Recorder = recorder
+		reconcileOnce()
+		source = "b-sha"
+		reconcileOnce()
+
+		requestRollback("invalid-sha", "b-sha")
+		reconcileOnce()
+		Expect(application().GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRevisionAnnotation))
+		Expect(drainEvents(recorder)).To(ContainElement(And(HavePrefix("Warning RollbackAbandoned"), ContainSubstring("ValidationFailure"))))
+		reconcileOnce()
+		Expect(deployed()).To(Equal("b-sha"))
+		Expect(ready().Status).To(Equal(metav1.ConditionTrue))
+		Expect(revisionsOf("b-sha")[0].Status.Conditions).NotTo(ContainElement(HaveField("Type", corev1alpha1.RolledBackCondition)))
+		expectNewCommitDeploys()
+	})
+
+	// Catches a rollback pinning the Application once its target's retries
+	// are used up.
+	It("abandons a rollback once its target's retries run out", func() {
 		r.Renderers = commitRenderer(nil, "broken-sha")
 		recorder := record.NewFakeRecorder(100)
 		r.Recorder = recorder
@@ -304,19 +336,184 @@ var _ = Describe("Rollbacks", func() {
 
 		requestRollback("broken-sha", "b-sha")
 		reconcileOnce()
-		Expect(application().GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRevisionAnnotation))
-		Expect(drainEvents(recorder)).To(ContainElement(HavePrefix("Warning RollbackAbandoned")))
-		reconcileOnce()
-		Expect(deployed()).To(Equal("b-sha"))
-		Expect(ready().Status).To(Equal(metav1.ConditionTrue))
-		Expect(revisionsOf("b-sha")[0].Status.Conditions).NotTo(ContainElement(HaveField("Type", RolledBackCondition)))
-
-		By("abandoning a second request whose target may no longer be retried")
-		requestRollback("broken-sha", "b-sha")
+		Expect(application().GetAnnotations()).To(HaveKey(corev1alpha1.RollbackRevisionAnnotation), "a retryable failure abandoned the rollback")
 		reconcileOnce()
 		Expect(application().GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRevisionAnnotation))
 		Expect(drainEvents(recorder)).To(ContainElement(And(HavePrefix("Warning RollbackAbandoned"), ContainSubstring("maxAttempts"))))
 		expectNewCommitDeploys()
+	})
+
+	// Catches a transient failure, a failed fetch or a retryable rollout
+	// failure, abandoning a rollback that would then succeed.
+	It("keeps a rollback through transient failures", func() {
+		attempts := int32(3)
+		configured := application()
+		configured.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts
+		Expect(k8sClient.Update(ctx, configured)).To(Succeed())
+		unreachable := map[string]bool{}
+		r.SourceResolver = namedWorkspaceResolver{revision: &source, unreachable: unreachable}
+		failing := true
+		r.Renderers = func(corev1alpha1.RenderType) (renderer.Renderer, error) {
+			return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
+				commit := strings.TrimPrefix(input.Workspace, "/tmp/solder-workspace-")
+				if commit == "a-sha" && failing && application().GetAnnotations()[corev1alpha1.RollbackRevisionAnnotation] != "" {
+					return nil, errors.New("chart pull failed")
+				}
+				return []unstructured.Unstructured{configMapObject("", commit)}, nil
+			}), nil
+		}
+		recorder := record.NewFakeRecorder(100)
+		r.Recorder = recorder
+		reconcileOnce()
+		source = "b-sha"
+		reconcileOnce()
+
+		requestRollback("a-sha", "b-sha")
+		unreachable["a-sha"] = true
+		reconcileOnce()
+		Expect(application().GetAnnotations()).To(HaveKey(corev1alpha1.RollbackRevisionAnnotation), "a failed fetch abandoned the rollback")
+		unreachable["a-sha"] = false
+		reconcileOnce()
+		Expect(application().GetAnnotations()).To(HaveKey(corev1alpha1.RollbackRevisionAnnotation), "a retryable render failure abandoned the rollback")
+		reconcileOnce()
+		Expect(application().GetAnnotations()).To(HaveKey(corev1alpha1.RollbackRevisionAnnotation), "the backoff abandoned the rollback")
+		Expect(drainEvents(recorder)).NotTo(ContainElement(HavePrefix("Warning RollbackAbandoned")))
+
+		failing = false
+		target := revisionsOf("a-sha")[0]
+		target.Status.CompletedAt = &metav1.Time{Time: time.Now().Add(-time.Hour)}
+		Expect(k8sClient.Status().Update(ctx, &target)).To(Succeed())
+		reconcileOnce()
+		expectHolding("a-sha", "b-sha")
+	})
+
+	// Catches a second rollback while one is pending holding the first
+	// rollback's target: a request without its source rolls back from what
+	// the spec resolves to, not from status.desiredRevision.
+	It("holds the spec's commit when a second rollback replaces a pending one", func() {
+		reconcileOnce()
+		source = "b-sha"
+		reconcileOnce()
+		source = "x-sha"
+		reconcileOnce()
+		manual := application()
+		manual.Spec.Sync.Automatic = false
+		Expect(k8sClient.Update(ctx, manual)).To(Succeed())
+		requestRollback("b-sha", "x-sha")
+		reconcileOnce()
+		Expect(application().Status.DesiredRevision).To(Equal("b-sha"), "the pending rollback should wait for approval")
+
+		second := application()
+		setRollbackRequest(second, rollbackRequest{target: "a-sha"})
+		delete(second.Annotations, corev1alpha1.RollbackFromAnnotation)
+		delete(second.Annotations, corev1alpha1.RollbackKindAnnotation)
+		Expect(k8sClient.Update(ctx, second)).To(Succeed())
+		reconcileOnce()
+		Expect(application().GetAnnotations()).To(HaveKeyWithValue(corev1alpha1.RollbackFromAnnotation, "x-sha"))
+
+		target := revisionsOf("a-sha")[0]
+		approving := application()
+		approving.Annotations[corev1alpha1.ApprovedRevisionAnnotation] = target.Name
+		approving.Annotations[corev1alpha1.ApprovedByAnnotation] = "alice@example.com"
+		approving.Annotations[corev1alpha1.ApprovedAtAnnotation] = time.Now().UTC().Format(time.RFC3339)
+		approving.Annotations[corev1alpha1.ApprovedDigestAnnotation] = target.Status.Plan.Digest
+		Expect(k8sClient.Update(ctx, approving)).To(Succeed())
+		reconcileOnce()
+		Expect(deployed()).To(Equal("a-sha"))
+		expectHeld("x-sha", "ManualRollback")
+		for _, rev := range revisionsOf("b-sha") {
+			Expect(heldBy(&rev)).To(BeNil(), "the pending rollback's target was held")
+		}
+	})
+
+	// Catches a hold that froze the Application when its held commit was
+	// deployed again under another identity and the change was reverted.
+	It("lifts a hold when the held commit is deployed again", func() {
+		adopting := application()
+		adopting.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyAdopt
+		Expect(k8sClient.Update(ctx, adopting)).To(Succeed())
+		reconcileOnce()
+		source = "b-sha"
+		reconcileOnce()
+		requestRollback("a-sha", "b-sha")
+		reconcileOnce()
+		expectHolding("a-sha", "b-sha")
+
+		moved := application()
+		path := moved.Spec.Source.Path
+		moved.Spec.Source.Path = "apps/elsewhere"
+		Expect(k8sClient.Update(ctx, moved)).To(Succeed())
+		reconcileOnce()
+		Expect(deployed()).To(Equal("b-sha"), "an identity change should end the hold")
+
+		reverted := application()
+		reverted.Spec.Source.Path = path
+		Expect(k8sClient.Update(ctx, reverted)).To(Succeed())
+		live := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, live)).To(Succeed())
+		live.Data["key"] = "edited-by-hand"
+		Expect(k8sClient.Update(ctx, live)).To(Succeed())
+		reconcileOnce()
+		Expect(deployed()).To(Equal("b-sha"), "the reverted Application was not reconciled")
+		reconcileOnce()
+		app := application()
+		Expect(app.Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
+		Expect(ready().Status).To(Equal(metav1.ConditionTrue))
+		for _, rev := range revisionsOf("b-sha") {
+			Expect(heldBy(&rev)).To(BeNil())
+		}
+	})
+
+	// Catches drift of the held rollback target hidden as OutOfSync.
+	It("reports drift of the deployed revision while held", func() {
+		reconcileOnce()
+		source = "b-sha"
+		reconcileOnce()
+		requestRollback("a-sha", "b-sha")
+		reconcileOnce()
+		expectHolding("a-sha", "b-sha")
+
+		observing := application()
+		observing.Spec.Sync.SelfHeal = false
+		Expect(k8sClient.Update(ctx, observing)).To(Succeed())
+		live := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, live)).To(Succeed())
+		live.Data["key"] = "edited-by-hand"
+		Expect(k8sClient.Update(ctx, live)).To(Succeed())
+		reconcileOnce()
+		Expect(deployed()).To(Equal("edited-by-hand"))
+		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateDrifted))
+		Expect(ready().Reason).To(Equal("RolledBack"))
+	})
+
+	// Catches history retention deleting the held Revision, after which the
+	// held commit deployed again.
+	It("never deletes a held Revision for history", func() {
+		limited := application()
+		limited.Spec.History.Limit = ptr.To[int32](1)
+		limited.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyAdopt
+		Expect(k8sClient.Update(ctx, limited)).To(Succeed())
+		reconcileOnce()
+		// Retention keeps the newest Revisions by creation time, which has
+		// second precision.
+		time.Sleep(1100 * time.Millisecond)
+		source = "b-sha"
+		reconcileOnce()
+		requestRollback("a-sha", "b-sha")
+		reconcileOnce()
+		expectHeld("b-sha", "ManualRollback")
+		// Retention runs after an apply. Once the rollback target is newer
+		// than the held Revision, as when it is created again, a self-heal
+		// must not delete the held one either.
+		time.Sleep(1100 * time.Millisecond)
+		reconcileOnce()
+		live := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, live)).To(Succeed())
+		live.Data["key"] = "edited-by-hand"
+		Expect(k8sClient.Update(ctx, live)).To(Succeed())
+		reconcileOnce()
+		expectHeld("b-sha", "ManualRollback")
+		expectHolding("a-sha", "b-sha")
 	})
 
 	// Catches a hold that froze the Application: the deployed rollback target
@@ -411,8 +608,59 @@ func TestManualApprovalIgnoresAHeldRevision(t *testing.T) {
 	if approval, _ := manualApproval(app, revision, rolloutNotStarted); approval == nil {
 		t.Fatal("the approval of a Revision that is not held was ignored")
 	}
-	revision.Status.Conditions = []metav1.Condition{{Type: RolledBackCondition, Status: metav1.ConditionTrue, Reason: manualRollbackReason}}
+	revision.Status.Conditions = []metav1.Condition{{Type: corev1alpha1.RolledBackCondition, Status: metav1.ConditionTrue, Reason: manualRollbackReason}}
 	if approval, _ := manualApproval(app, revision, rolloutNotStarted); approval != nil {
 		t.Fatalf("a held Revision was approved: %+v", approval)
+	}
+}
+
+// Catches recordRollbackIntent writing the Application on every reconcile
+// although the request already records everything.
+func TestRecordRollbackIntentWritesOnlyChanges(t *testing.T) {
+	scheme := k8sruntime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	app := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}}
+	setRollbackRequest(app, rollbackRequest{target: "a-sha", from: "b-sha", kind: corev1alpha1.RollbackKindManual})
+	updates := 0
+	c := interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).WithObjects(app).Build(), interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			updates++
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+	r := &ApplicationReconciler{Client: c}
+	live := &corev1alpha1.Application{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(app), live); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || updates != 0 {
+		t.Fatalf("a complete request was written %d times: %v", updates, err)
+	}
+	delete(live.Annotations, corev1alpha1.RollbackKindAnnotation)
+	if req, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || updates != 1 || req.kind != corev1alpha1.RollbackKindManual {
+		t.Fatalf("a request without its kind: %d writes, %+v, %v", updates, req, err)
+	}
+}
+
+// Catches a Revision labelled with the Application's name but referring to
+// another Application being held, lifted, or deleted with it.
+func TestApplicationRevisionsRequireTheApplicationRef(t *testing.T) {
+	scheme := k8sruntime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	revision := func(name, application string) *corev1alpha1.Revision {
+		return &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"solder.io/application": "payments"}},
+			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: application}},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(revision("payments-a", "payments"), revision("search-a", "search")).Build()
+	r := &ApplicationReconciler{Client: c}
+	revisions, err := r.applicationRevisions(context.Background(), &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}})
+	if err != nil || len(revisions) != 1 || revisions[0].Name != "payments-a" {
+		t.Fatalf("revisions = %+v, %v", revisions, err)
 	}
 }

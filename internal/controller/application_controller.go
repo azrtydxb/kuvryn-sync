@@ -225,6 +225,17 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	request := rollbackRequestOf(application)
 	if request.active() {
+		if request.from == "" {
+			// A request without its source, such as a hand-set annotation,
+			// rolls back from what the spec resolves to now; the status may
+			// already name an earlier rollback's target.
+			desired, err := resolve(ref)
+			if err != nil {
+				r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
+				return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+			}
+			request.from = desired.Revision
+		}
 		if request, err = r.recordRollbackIntent(ctx, application, request); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -232,12 +243,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	resolved, err := resolve(ref)
 	if err != nil {
+		// A rollback request stands through a failed fetch, which is usually
+		// transient; a Repository change or poll reconciles it again.
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
-		if request.active() {
-			if err := r.abandonRollback(ctx, application, request, "its source revision could not be resolved"); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
 		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
@@ -257,7 +265,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if held := heldBy(revision); held != nil {
 		if request.active() {
 			// An explicit rollback to a held Revision deploys exactly it.
-			if err := r.liftHold(ctx, application, revision); err != nil {
+			if err := r.liftHold(ctx, application, revision, "a rollback to it"); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else if application.Status.DeployedRevision == resolved.Revision {
+			// The held commit runs again, deployed under another Revision
+			// identity that was then reverted; there is nothing left to hold
+			// it away from.
+			if err := r.liftHold(ctx, application, revision, "its commit being deployed again"); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -265,7 +280,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// deployed, never the held one, until a new commit arrives.
 			hold := &rollbackHold{desired: resolved.Revision, manual: held.Reason == manualRollbackReason}
 			deployed := application.Status.DeployedRevision
-			if deployed == "" || deployed == resolved.Revision {
+			if deployed == "" {
 				return ctrl.Result{}, r.reportHold(ctx, application, hold, previousHealth, previousState)
 			}
 			ctx = withHold(ctx, hold)
@@ -282,10 +297,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// previousPhase is the persisted phase, so notifications fire only on
 	// transitions rather than on every reconcile of a steady state.
 	previousPhase := revision.Status.Phase
-	if blocked := retryBlocked(application, revision); blocked != nil {
+	if blocked, exhausted := retryBlocked(application, revision); blocked != nil {
 		if request.active() {
-			// A rollback whose target may not be retried would otherwise pin
-			// the Application to it on every reconcile.
+			if !exhausted {
+				// The target failed and waits out its backoff; the request
+				// stands and the target is tried again after it.
+				return ctrl.Result{RequeueAfter: retryBackoff(revision)}, r.reportRetryBlocked(ctx, application, revision, *blocked)
+			}
+			// A rollback whose target may never be retried would otherwise
+			// pin the Application to it on every reconcile.
 			if err := r.abandonRollback(ctx, application, request, blocked.Message); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -947,21 +967,28 @@ func (r *ApplicationReconciler) updateRevisionStatus(ctx context.Context, revisi
 	return r.Status().Update(ctx, revision)
 }
 
-func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.Revision) *corev1alpha1.RevisionFailure {
+// retryBlocked returns why a failed Revision may not be retried yet, and
+// whether it never may: its maxAttempts are used up rather than a backoff
+// still running.
+func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.Revision) (*corev1alpha1.RevisionFailure, bool) {
 	if revision.Status.Phase != corev1alpha1.RevisionPhaseFailed || revision.Status.Failure == nil {
-		return nil
+		return nil, false
 	}
 	lastFailure := time.Time{}
 	if revision.Status.CompletedAt != nil {
 		lastFailure = revision.Status.CompletedAt.Time
 	}
-	// Back off exponentially from one second, capped at one minute.
-	backoff := min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
-	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), backoff)
+	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), retryBackoff(revision))
 	if decision.Allowed {
-		return nil
+		return nil, false
 	}
-	return &corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: decision.Reason, Retryable: false}
+	return &corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: decision.Reason, Retryable: false}, decision.Exhausted
+}
+
+// retryBackoff is how long a failed Revision waits before its next attempt:
+// exponentially from one second, capped at one minute.
+func retryBackoff(revision *corev1alpha1.Revision) time.Duration {
+	return min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
 }
 
 // reportRetryBlocked records on the Application that retries stopped, keeping
@@ -1313,11 +1340,14 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 }
 
 func (r *ApplicationReconciler) applyHistoryRetention(ctx context.Context, application *corev1alpha1.Application) error {
-	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	revisions, err := r.applicationRevisions(ctx, application)
+	if err != nil {
 		return err
 	}
-	retention := history.ApplyRetention(list.Items, history.LimitFor(*application, 20))
+	// A held Revision is never deleted, and does not count against the
+	// limit: deleting it would end the hold and deploy it again.
+	revisions = slices.DeleteFunc(revisions, func(rev corev1alpha1.Revision) bool { return heldBy(&rev) != nil })
+	retention := history.ApplyRetention(revisions, history.LimitFor(*application, 20))
 	for i := range retention.Delete {
 		rev := retention.Delete[i]
 		if err := r.Delete(ctx, &rev); client.IgnoreNotFound(err) != nil {
@@ -1352,10 +1382,13 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	rollbackQueued := false
 	rollbackMissing := false
 	if request := rollbackRequestOf(application); request.active() {
-		// The rollback's own target failed; retrying it would pin the
+		// The rollback's own target failed. A retryable failure is tried
+		// again within the target's retry budget; any other would pin the
 		// Application to a revision that does not deploy.
-		if err := r.abandonRollback(ctx, application, request, failure.Reason+": "+failure.Message); err != nil {
-			return err
+		if !failure.Retryable {
+			if err := r.abandonRollback(ctx, application, request, failure.Reason+": "+failure.Message); err != nil {
+				return err
+			}
 		}
 	} else if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback {
 		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
@@ -1389,11 +1422,11 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 }
 
 func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application *corev1alpha1.Application, current *corev1alpha1.Revision) (corev1alpha1.Revision, error) {
-	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	revisions, err := r.applicationRevisions(ctx, application)
+	if err != nil {
 		return corev1alpha1.Revision{}, err
 	}
-	return rollback.Target(*current, list.Items)
+	return rollback.Target(*current, revisions)
 }
 
 // validateHelmReleaseName returns an error when a Helm Application's release

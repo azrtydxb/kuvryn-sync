@@ -54,3 +54,28 @@ func TestUpsertDiscoveredApplicationRefusesAnApplicationAnotherControllerOwns(t 
 		t.Fatalf("spec was overwritten: %q", got.Spec.Source.Path)
 	}
 }
+
+// Catches a .solder.yaml starting a rollback: rollbacks come from people or
+// a failure policy, never from Git.
+func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
+	repository := &corev1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: "default"}}
+	app := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Annotations: map[string]string{
+		corev1alpha1.RollbackRevisionAnnotation: "a-sha",
+		corev1alpha1.RollbackFromAnnotation:     "b-sha",
+		corev1alpha1.RollbackKindAnnotation:     corev1alpha1.RollbackKindManual,
+		"team":                                  "payments",
+	}}}
+	app.Spec.Source.Render.Type = corev1alpha1.RenderTypeYAML
+	normalized, err := normalizeDiscoveredApplication(repository, solderConfigFileName, 0, app, map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation} {
+		if _, ok := normalized.Annotations[key]; ok {
+			t.Errorf("discovery kept %s", key)
+		}
+	}
+	if normalized.Annotations["team"] != "payments" {
+		t.Errorf("discovery dropped an ordinary annotation: %v", normalized.Annotations)
+	}
+}
