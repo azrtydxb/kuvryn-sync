@@ -370,7 +370,9 @@ var _ = Describe("Rollbacks", func() {
 
 		requestRollback("a-sha", "b-sha")
 		unreachable["a-sha"] = true
-		reconcileOnce()
+		result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(Equal(rollbackSourceRetry), "a failed fetch left the rollback without a scheduled retry")
 		Expect(application().GetAnnotations()).To(HaveKey(corev1alpha1.RollbackRevisionAnnotation), "a failed fetch abandoned the rollback")
 		unreachable["a-sha"] = false
 		reconcileOnce()

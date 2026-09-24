@@ -54,7 +54,8 @@ const (
 	RollbackKindAnnotation = "solder.io/rollback-kind"
 	// RollbackKindManual is a rollback a user requested.
 	RollbackKindManual = "manual"
-	// RollbackKindAutomatic is a rollback a rollback failure policy started.
+	// RollbackKindAutomatic is a rollback the failure policy started after a
+	// failed rollout.
 	RollbackKindAutomatic = "automatic"
 	// RolledBackCondition is True on a Revision a completed rollback
 	// replaced; Solder does not deploy it again.

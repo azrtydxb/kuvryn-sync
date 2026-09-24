@@ -66,3 +66,9 @@ Entry shape (unindented in real entries):
 - Class: mechanical
 - Missed by: test
 - Adaptation: `TestHelmReleaseNameSchemaMatchesRendering` reads the pattern from the generated CRD and checks it accepts and rejects the same names rendering does, including the empty default.
+
+## 2026-09-24 Copilot review of PR #11 — a rollback's failed fetch had no scheduled retry
+
+- Class: judgment
+- Missed by: rubric
+- Adaptation: REVIEW.md now asks, for every early return from Reconcile, what reconciles the object next; an unchanged status write triggers nothing. The rollback test asserts the bounded requeue.

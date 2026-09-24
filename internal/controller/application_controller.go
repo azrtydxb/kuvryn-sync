@@ -232,7 +232,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			desired, err := resolve(ref)
 			if err != nil {
 				r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
-				return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+				return ctrl.Result{RequeueAfter: rollbackSourceRetry}, r.updateApplicationStatus(ctx, application)
 			}
 			request.from = desired.Revision
 		}
@@ -244,9 +244,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	resolved, err := resolve(ref)
 	if err != nil {
 		// A rollback request stands through a failed fetch, which is usually
-		// transient; a Repository change or poll reconciles it again.
+		// transient, so retry it on a bounded interval: an unchanged status
+		// write triggers no new reconcile, and a Repository change may never
+		// come.
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
-		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+		result := ctrl.Result{}
+		if request.active() {
+			result.RequeueAfter = rollbackSourceRetry
+		}
+		return result, r.updateApplicationStatus(ctx, application)
 	}
 
 	// Drift of a finished rollout is reported without re-evaluating health, so

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -29,6 +30,10 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 )
+
+// rollbackSourceRetry is how often a rollback whose target cannot be fetched
+// is retried.
+const rollbackSourceRetry = time.Minute
 
 const (
 	// manualRollbackReason is the RolledBack reason for a rollback a user
