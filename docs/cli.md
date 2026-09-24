@@ -9,6 +9,10 @@ The controller manager binary also exposes small operator-facing CLI commands.
 When invoked with Kubernetes manager flags, it starts the controller. When
 invoked with a Solder subcommand, it talks to the current kubeconfig context.
 
+Every command that reads the cluster takes `-n` or `--namespace`. It defaults
+to `default`, not to the kubeconfig context's namespace. Flags may come before
+or after the arguments.
+
 ## Read commands
 
 List Applications:
@@ -129,6 +133,7 @@ solder diagnose payments -n default
 
 ```text
 payments: health Degraded, sync OutOfSync
+Ready: False: HealthFailure: One or more resources are degraded
 Failure: HealthFailure: One or more resources are degraded
 Causes (1):
 
@@ -189,6 +194,12 @@ solder help
 ```
 
 Lists every command. An unknown command prints the same list.
+
+```sh
+solder version
+```
+
+Prints the version.
 
 ## Install helper
 

@@ -170,7 +170,7 @@ spec:
 | `spec.sync.selfHeal`                      | Correct managed live drift.                                                                                                                                                                                                            |
 | `spec.sync.conflictPolicy`                | `fail` (default) stops on SSA ownership conflicts; `adopt` takes over the conflicting fields, listing each field and previous manager in the plan.                                                                                     |
 | `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.                                                                                                                                                                            |
-| `spec.strategy.failurePolicy.action`      | Failure action such as rollback.                                                                                                                                                                                                       |
+| `spec.strategy.failurePolicy.action`      | `pause` (default) holds the failed Revision; `rollback` returns to the previous healthy Revision.                                                                                                                                      |
 | `spec.strategy.failurePolicy.timeout`     | Bounds failure/health observation.                                                                                                                                                                                                     |
 | `spec.strategy.failurePolicy.maxAttempts` | Retry-loop protection.                                                                                                                                                                                                                 |
 | `spec.health.timeout`                     | Health observation timeout.                                                                                                                                                                                                            |
@@ -191,6 +191,7 @@ spec:
 | `status.managedKinds`       | Kinds Solder last applied; used to prune and watch managed objects of any kind.                        |
 | `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
 | `status.diagnosis`          | Up to 10 root causes of unhealthy managed resources; empty when the Application is Healthy.            |
+| `status.observedGeneration` | Latest `metadata.generation` processed.                                                                |
 | `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
 
 ### Diagnosis
@@ -378,8 +379,99 @@ Set exactly one of `semver`, `tagPattern`, or `digest`.
 | `status.previousRevision`                 | Prior healthy Revision when known.                                                                                                                    |
 | `status.approval`                         | Audit record of a manual approval: `approvedBy`, `approvedAt`, `planDigest`, and `desiredStateHash`, which lets one approval cover the whole rollout. |
 | `status.plan.digest`                      | Digest of the desired state and full redacted plan; approvals bind to it.                                                                             |
+| `status.chartDigest`                      | sha256 digest of the Helm chart archive pulled for `render.helm.chart`.                                                                               |
+| `status.hooks`                            | Up to 64 pre-sync and post-sync hooks run for this Revision, each with `resource`, `stage`, `state`, and `message`.                                   |
 | `status.failure`                          | Deterministic failure reason, message, resource, and retryability.                                                                                    |
 | `status.conditions`                       | Kubernetes Conditions for the attempt.                                                                                                                |
+
+## Conditions
+
+| Object      | Type                 | Meaning                                                                                                                                                          |
+| ----------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository  | `Ready`              | `True` with `FetchSucceeded` once the source resolves; `False` with the failure reason, such as `SourceFailure`, `AuthenticationFailure` or `ValidationFailure`. |
+| Repository  | `ImagesUpdated`      | Image write-back result: `True` with `UpToDate` or `Committed`, `False` with `UpdateFailed`, or `Disabled` when the manager runs without image write-back.       |
+| Application | `Ready`              | `False` with a [failure reason](#failure-reasons) when reconciliation fails.                                                                                     |
+| Application | `DependenciesReady`  | `True` with `DependenciesHealthy`; `False` with `DependencyNotReady` or `DependencyCycle`. Present only with `spec.dependsOn`.                                   |
+| Application | `NotificationsReady` | `True` with `SinksReady`; `False` with `SinkInvalid` when a sink or its Secret is missing or invalid.                                                            |
+| Revision    | `RolloutComplete`    | `False` with `RollingOut` while hooks and waves apply; `True` once every group is Healthy.                                                                       |
+| ImagePolicy | `Ready`              | `True` with `Selected` and the selected image; `False` with `ScanFailed`.                                                                                        |
+
+## Failure reasons
+
+`status.failure.reason` on a Revision, and the `Ready` condition reason on an
+Application, is one of these:
+
+| Reason                                   | Meaning                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `SourceFailure`, `AuthenticationFailure` | The Repository is missing, or the Git source could not be fetched or authenticated.                         |
+| `ServiceAccountRequired`                 | Neither `spec.serviceAccountName` nor `--default-service-account` is set.                                   |
+| `ServiceAccountFailure`                  | The service account could not be used.                                                                      |
+| `DecryptionFailure`                      | The SOPS key Secret is missing, unlabelled, or unreadable.                                                  |
+| `RenderFailure`                          | YAML, Kustomize or Helm rendering failed, including a Helm chart that could not be pulled.                  |
+| `ValidationFailure`                      | Desired objects are unsafe or invalid, such as a duplicate object, an unknown hook, or a foreign namespace. |
+| `PlanFailure`                            | Live state could not be read or the plan could not be built.                                                |
+| `ConflictFailure`                        | A Server-Side Apply ownership conflict under `conflictPolicy: fail`.                                        |
+| `ApplyFailure`                           | The API server refused an apply.                                                                            |
+| `PruneFailure`                           | A prune was refused, such as for a high-risk kind; see [Labels and annotations](#labels-and-annotations).   |
+| `Forbidden`                              | The Application's service account may not read, apply, or delete a resource.                                |
+| `HealthFailure`, `HookFailed`            | A managed resource or hook is Degraded; `status.diagnosis` explains why.                                    |
+| `TimeoutFailure`                         | Health was still Progressing when `spec.health.timeout` ran out.                                            |
+| `RollbackFailed`                         | Rollback was requested but no previous healthy Revision exists.                                             |
+| `RetryBlocked`                           | Retries stopped after `failurePolicy.maxAttempts`; the message keeps the last failure.                      |
+
+## Events
+
+Solder records Kubernetes Events on its own objects. Messages are redacted.
+
+| Object      | Reason                                      | Type    | When                                                                                      |
+| ----------- | ------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| Application | `PlanCreated`                               | Normal  | A Revision's plan was built.                                                              |
+| Application | `ApprovalRequired`                          | Normal  | The plan waits for manual approval.                                                       |
+| Application | `ApprovalStale`                             | Warning | The plan changed after it was approved; approve again.                                    |
+| Application | `DeploymentStarted`                         | Normal  | A rollout began applying.                                                                 |
+| Application | `DeploymentHealthy`                         | Normal  | Every managed resource is Healthy.                                                        |
+| Application | `Diagnosed`                                 | Warning | The root causes in `status.diagnosis` changed, or the Application became Degraded.        |
+| Application | `RollbackStarted`, `RollbackCompleted`      | both    | A failure triggered rollback, and the rollback finished.                                  |
+| Application | a [failure reason](#failure-reasons)        | Warning | A Revision failed, or retries stopped (`RetryBlocked`).                                   |
+| Application | `PruneInventoryIncomplete`                  | Warning | The service account may not list some managed kinds, so they are not pruned.              |
+| Application | `ManagedResourcesOrphaned`, `Forbidden`     | Warning | Deleting with `DeleteManagedResources` left objects the service account could not delete. |
+| Application | `InvalidHealthCheck`                        | Warning | A HealthCheck rule for a managed kind is invalid.                                         |
+| Application | `NotificationFailed`, `NotificationDropped` | Warning | A notification could not be delivered, or the queue was full.                             |
+| Repository  | `RepositoryReady`                           | Normal  | The source resolved.                                                                      |
+| Repository  | the `Ready` condition's failure reason      | Warning | The source could not be resolved or discovery failed.                                     |
+| Repository  | `ImagesUpdated`, `ImageUpdateFailed`        | both    | Image write-back committed a change, or failed.                                           |
+| ImagePolicy | `ImageSelected`                             | Normal  | A new image was selected.                                                                 |
+
+Every Application Event is also counted in `solder_lifecycle_events_total`.
+
+## Labels and annotations
+
+| Key                                               | On                           | Set by        | Meaning                                                                                                                            |
+| ------------------------------------------------- | ---------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `solder.io/application`                           | managed objects, Revisions   | Solder        | Owning Application name; prune and drift find managed objects by it.                                                               |
+| `solder.io/application-namespace`                 | managed objects              | Solder        | Owning Application namespace.                                                                                                      |
+| `solder.io/revision`                              | managed objects (annotation) | Solder        | Revision object that last applied it.                                                                                              |
+| `solder.io/prune: disabled`                       | managed objects (annotation) | you           | Never prune this object: a prune that would delete it fails with `PruneFailure`.                                                   |
+| `solder.io/hook`                                  | desired objects (annotation) | you           | `pre-sync`, `post-sync`, or `skip`; see [Sync hooks and waves](operations.md#sync-hooks-and-waves).                                |
+| `solder.io/sync-wave`                             | desired objects (annotation) | you           | Integer wave, default `0`.                                                                                                         |
+| `solder.io/repository`                            | discovered Applications      | Solder        | Repository that discovered the Application.                                                                                        |
+| `solder.io/discovered-from`                       | discovered Applications      | Solder        | `.solder.yaml` path the Application came from.                                                                                     |
+| `solder.io/approved-revision`                     | Application (annotation)     | you or CLI    | Revision approved for a manual sync; see [Manual approval](operations.md#manual-approval).                                         |
+| `solder.io/approve-digest`                        | Application (annotation)     | you or CLI    | Plan digest the approval is for; checked and never stored.                                                                         |
+| `solder.io/approved-by`, `-at`, `approved-digest` | Application (annotation)     | webhook       | Audit record of the approval; cannot be set by hand.                                                                               |
+| `solder.io/rollback-revision`                     | Application (annotation)     | CLI or Solder | Source revision to roll back to; set by `solder rollback` or a `rollback` failure policy, and removed once the rollback completes. |
+| `solder.io/reconcile-requested-at`                | Repository (annotation)      | receiver      | Requests an immediate fetch; set by the push webhook receiver.                                                                     |
+| `solder.io/git-credentials: "true"`               | Secret                       | you           | Allows the Secret as Git credentials.                                                                                              |
+| `solder.io/registry-credentials: "true"`          | Secret                       | you           | Allows the Secret as registry credentials for charts and ImagePolicies.                                                            |
+| `solder.io/decryption-key: "true"`                | Secret                       | you           | Allows the Secret as SOPS age keys.                                                                                                |
+
+High-risk kinds (Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
+PersistentVolumes, and Secrets) are never pruned during a sync, and neither is
+an object annotated `solder.io/prune: disabled`: with `spec.sync.prune`
+enabled, removing one from desired state fails the Revision with
+`PruneFailure`, naming the object, and nothing is deleted. Delete such an
+object by hand, or remove Solder's `solder.io/application` label from it,
+before removing it from Git.
 
 ## Invariants
 

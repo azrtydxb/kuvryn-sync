@@ -34,6 +34,9 @@ webhookReceiver:
 #       value: http://otel-collector.observability:4317
 extraEnv: []
 
+# Each replica caches Git checkouts and pulled Helm charts in an emptyDir at
+# /tmp, pruned hourly to what retained Revisions and Repositories still use.
+# Add an ephemeral-storage request and limit here if node disk is tight.
 resources:
   requests:
     cpu: 50m

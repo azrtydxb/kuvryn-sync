@@ -396,6 +396,27 @@ leaderElection: true
 Use at least two replicas for controller availability, while remembering that
 only the elected leader reconciles at any moment.
 
+## Manager flags and environment
+
+| Flag                                         | Default | Meaning                                                                                            |
+| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `--default-service-account`                  | empty   | Service account for Applications that set none; empty refuses them. Helm `defaultServiceAccount`.  |
+| `--drift-resync-interval`                    | `5m`    | Drift re-check for Applications with unwatched kinds; `0` disables it. Helm `driftResyncInterval`. |
+| `--webhook-receiver-bind-address`            | empty   | Push webhook receiver address, such as `:9292`; empty disables it. Helm `webhookReceiver.enabled`. |
+| `--leader-elect`                             | `false` | Leader election; the chart enables it. Helm `leaderElection`.                                      |
+| `--metrics-bind-address`                     | `0`     | Metrics address, such as `:8443`; `0` disables metrics. The chart and raw manifests use `:8443`.   |
+| `--metrics-secure`                           | `true`  | Serve metrics over HTTPS with authentication and authorization.                                    |
+| `--health-probe-bind-address`                | `:8081` | `/healthz` and `/readyz` address.                                                                  |
+| `--webhook-cert-path`, `--metrics-cert-path` | empty   | Directories holding the webhook and metrics certificates (`--*-cert-name`, `--*-cert-key`).        |
+| `--enable-http2`                             | `false` | Enable HTTP/2 for the metrics and webhook servers.                                                 |
+| `--zap-log-level`, `--zap-devel`             |         | controller-runtime logging options.                                                                |
+
+| Environment variable                                                 | Meaning                                                                                   |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ENABLE_WEBHOOKS=false`                                              | Disables the admission webhooks; see [Manual approval](#manual-approval) before using it. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`  | Turn on trace export; see [Metrics and tracing](#metrics-and-tracing).                    |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SDK_DISABLED` | Name the service (default `solder`), add resource attributes, or turn tracing off.        |
+
 ## Source cache
 
 Each replica keeps a bare clone of every Repository and a checkout of every
@@ -408,11 +429,33 @@ every commit ever rendered. Size the volume for that. Pulled Helm charts are
 cached beside the clones and removed once no render has used them for a day;
 every render of a Helm Application uses its chart.
 
+The chart's `emptyDir` has no size limit and counts against the node's
+ephemeral storage. On tight nodes, add an `ephemeral-storage` request and
+limit to the chart's `resources` value so the scheduler accounts for it; a
+Pod that exceeds its limit is evicted and starts with an empty cache, which
+Solder refills on the next fetch. Each prune is logged as
+`Pruned Git source cache` or `Pruned Helm chart cache` with the number of
+entries removed.
+
 ## Metrics and tracing
 
-Solder registers Prometheus collectors with bounded labels for reconciliation,
-plans, sync results, and health. Expose metrics using the generated service and
-your cluster's monitoring stack.
+Solder registers Prometheus collectors with bounded labels. Expose metrics
+using the generated service and your cluster's monitoring stack.
+
+| Metric                                          | Type      | Labels                                              |
+| ----------------------------------------------- | --------- | --------------------------------------------------- |
+| `solder_application_reconcile_total`            | counter   | `namespace`, `sync`, `health`, `phase`, `result`    |
+| `solder_application_reconcile_duration_seconds` | histogram | `namespace`, `sync`, `health`, `phase`, `result`    |
+| `solder_lifecycle_events_total`                 | counter   | `namespace`, `sync`, `health`, `phase`, `reason`    |
+| `solder_notification_deliveries_total`          | counter   | `type`, `result` (`delivered`, `failed`, `dropped`) |
+| `solder_webhook_receiver_requests_total`        | counter   | `result`                                            |
+| `solder_image_scans_total`                      | counter   | `result` (`success`, `error`)                       |
+
+`result` on the reconcile metrics is `success` or `error`; `reason` is the
+Event reason, such as `Diagnosed` or `HealthFailure`. The receiver's `result`
+is `accepted`, `ignored`, `ping`, `unauthorized`, `rate_limited`,
+`too_large`, `bad_request`, `repository_mismatch`, or `error`. The
+controller-runtime and Go runtime metrics are exported too.
 
 Tracing is off by default. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) on the manager and Solder exports an
