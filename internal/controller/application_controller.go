@@ -1041,6 +1041,9 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
 	results := []health.Result{}
+	// observed holds the live managed objects health was evaluated on, for
+	// diagnosis.
+	observed := []unstructured.Unstructured{}
 	pruned := false
 	// Every reconcile walks the groups from the start: re-applying a group
 	// that already converged is a no-op, and the walk stops at the first
@@ -1063,7 +1066,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 			}
 			if replacing {
-				return r.observe(ctx, application, revision, results, 2*time.Second)
+				return r.observe(ctx, tenant, application, revision, results, observed, 2*time.Second)
 			}
 		}
 		if len(pending) > 0 {
@@ -1072,7 +1075,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 			}
 		}
-		checked, err := groupHealth(ctx, tenant, evaluator, append(watched, pending...), hook)
+		checked, read, err := groupHealth(ctx, tenant, evaluator, append(watched, pending...), hook)
 		if err != nil {
 			failure := accessFailure(err, "HealthFailure", "Applied resources could not be read", true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -1082,6 +1085,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 		groupResults := append(done, checked...)
 		results = append(results, groupResults...)
+		observed = append(observed, read...)
 		for _, result := range groupResults {
 			if result.State != corev1alpha1.HealthStateDegraded {
 				continue
@@ -1091,10 +1095,11 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				failure = corev1alpha1.RevisionFailure{Reason: "HookFailed", Message: safeMessage(fmt.Errorf("%s hook %s/%s failed: %s", group.Stage, result.Resource.Kind, result.Resource.Name, result.Message), "A sync hook failed"), Retryable: true}
 			}
 			r.recordHealth(application, revision, results)
+			r.diagnose(ctx, tenant, application, results, observed, true)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		if health.Summary(groupResults).Progressing > 0 {
-			return r.observe(ctx, application, revision, results, 10*time.Second)
+			return r.observe(ctx, tenant, application, revision, results, observed, 10*time.Second)
 		}
 	}
 	if !pruned {
@@ -1112,10 +1117,12 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	return ctrl.Result{}, nil
 }
 
-// observe records that the rollout is still progressing and checks back
-// later, failing once the health timeout has passed.
-func (r *ApplicationReconciler) observe(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result, after time.Duration) (ctrl.Result, error) {
-	if application.Spec.Health.Timeout != nil && revision.Status.StartedAt != nil && time.Since(revision.Status.StartedAt.Time) > application.Spec.Health.Timeout.Duration {
+// observe records that the rollout is still progressing, and why, and checks
+// back later, failing once the health timeout has passed.
+func (r *ApplicationReconciler) observe(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result, observed []unstructured.Unstructured, after time.Duration) (ctrl.Result, error) {
+	timedOut := application.Spec.Health.Timeout != nil && revision.Status.StartedAt != nil && time.Since(revision.Status.StartedAt.Time) > application.Spec.Health.Timeout.Duration
+	r.diagnose(ctx, tenant, application, results, observed, timedOut)
+	if timedOut {
 		failure := corev1alpha1.RevisionFailure{Reason: "TimeoutFailure", Message: "Health observation timed out", Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
@@ -1153,19 +1160,21 @@ func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Cl
 }
 
 // groupHealth reads and evaluates the live state of one group's objects,
-// all of which Solder has applied. A missing object is not there yet and is
-// Progressing, except a hook: one that vanished before it was seen to
-// succeed has failed, since it is never applied twice.
-func groupHealth(ctx context.Context, tenant client.Client, evaluator health.Evaluator, objects []unstructured.Unstructured, hooks bool) ([]health.Result, error) {
+// all of which Solder has applied, and returns the live objects it read. A
+// missing object is not there yet and is Progressing, except a hook: one
+// that vanished before it was seen to succeed has failed, since it is never
+// applied twice.
+func groupHealth(ctx context.Context, tenant client.Client, evaluator health.Evaluator, objects []unstructured.Unstructured, hooks bool) ([]health.Result, []unstructured.Unstructured, error) {
 	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, objects)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	found := ordering.Apply(slices.Collect(maps.Values(liveResult.Found)))
 	results := make([]health.Result, 0, len(objects))
-	for _, obj := range ordering.Apply(slices.Collect(maps.Values(liveResult.Found))) {
+	for _, obj := range found {
 		result, err := evaluator.Evaluate(obj)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		results = append(results, result)
 	}
@@ -1176,7 +1185,7 @@ func groupHealth(ctx context.Context, tenant client.Client, evaluator health.Eva
 		}
 		results = append(results, result)
 	}
-	return results, nil
+	return results, found, nil
 }
 
 // replaceStaleHooks deletes hook objects left by an earlier Revision, so each
@@ -1208,6 +1217,7 @@ func replaceStaleHooks(ctx context.Context, tenant client.Client, hooks []unstru
 
 func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, healthyMessage string, transition bool) error {
 	status.CompleteHealthy(revision, application, metav1.Now())
+	application.Status.Diagnosis = nil
 	setRolloutComplete(revision, true)
 	if application.GetAnnotations()["solder.io/rollback-revision"] != "" {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRolledBack
