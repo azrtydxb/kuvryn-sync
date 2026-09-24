@@ -60,3 +60,9 @@ Entry shape (unindented in real entries):
 - Class: mechanical
 - Missed by: test
 - Adaptation: `TestCollectReadsThePodsABudgetCovers` pins that a managed PDB alone makes Collect read its Pods; the edge tests had built graphs from Pods handed in directly, never through Collect.
+
+## 2026-09-24 Copilot review of PR #9 — the releaseName pattern rejected the empty default
+
+- Class: mechanical
+- Missed by: test
+- Adaptation: `TestHelmReleaseNameSchemaMatchesRendering` reads the pattern from the generated CRD and checks it accepts and rejects the same names rendering does, including the empty default.
