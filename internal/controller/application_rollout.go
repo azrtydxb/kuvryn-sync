@@ -25,6 +25,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/health"
+	"github.com/azrtydxb/solder/internal/prune"
 	"github.com/azrtydxb/solder/internal/resource"
 )
 
@@ -53,6 +54,8 @@ type rolloutProgress struct {
 	// previousHealth is the Application health persisted before this
 	// reconcile.
 	previousHealth corev1alpha1.HealthState
+	// pruneSkipped are stale managed objects prune keeps rather than deletes.
+	pruneSkipped []prune.Rejected
 }
 
 // rolloutOf reads how far a Revision's rollout got. Revisions written before

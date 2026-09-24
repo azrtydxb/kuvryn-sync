@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -122,32 +123,85 @@ var _ = Describe("Application Controller", func() {
 		Expect(revision.Status.Plan.Summary.Delete).To(Equal(int32(1)))
 	})
 
-	It("rejects prune when a managed resource opts out", func() {
+	// Catches prune failing the whole rollout, or deleting, when a stale
+	// object opted out of prune or is of a high-risk kind.
+	It("skips opted-out and high-risk objects while pruning the rest", func() {
 		createRepository(ctx)
-		stale := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        "app-config",
-				Namespace:   "payments",
-				Labels:      map[string]string{"solder.io/application": resourceName},
-				Annotations: map[string]string{"solder.io/prune": "disabled"},
-			},
-			Data: map[string]string{"key": "stale"},
-		}
-		Expect(k8sClient.Create(ctx, stale)).To(Succeed())
+		managed := map[string]string{"solder.io/application": resourceName}
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "stale-config", Namespace: "payments", Labels: managed},
+			Data:       map[string]string{"key": "stale"},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments", Labels: managed, Annotations: map[string]string{"solder.io/prune": "disabled"}},
+			Data:       map[string]string{"key": "kept"},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "kept-secret", Namespace: "payments", Labels: managed},
+			StringData: map[string]string{"password": "super-secret"},
+		})).To(Succeed())
+		DeferCleanup(func() {
+			deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "stale-config", Namespace: "payments"}})
+			deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments"}})
+			deleteObject(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "kept-secret", Namespace: "payments"}})
+		})
 		resource := newApplication(resourceName, corev1alpha1.RenderTypeYAML)
 		resource.Spec.Sync.Automatic = true
 		resource.Spec.Sync.Prune = true
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
-		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{}, nil)
+		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		recorder := record.NewFakeRecorder(50)
+		controllerReconciler.Recorder = recorder
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
+		By("pruning only the eligible stale object")
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "stale-config", Namespace: "payments"}, &corev1.ConfigMap{}))).To(BeTrue())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-secret", Namespace: "payments"}, &corev1.Secret{})).To(Succeed())
+
+		By("completing the rollout Healthy")
 		revision := listApplicationRevisions(ctx, resourceName).Items[0]
-		Expect(revision.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseFailed))
-		Expect(revision.Status.Failure).NotTo(BeNil())
-		Expect(revision.Status.Failure.Reason).To(Equal("PruneFailure"))
+		Expect(revision.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(revision.Status.Failure).To(BeNil())
+		Expect(revision.Status.Plan.Summary.Delete).To(Equal(int32(1)))
+		warnings := map[string][]string{}
+		for _, planned := range revision.Status.Plan.Resources {
+			warnings[planned.Resource.Kind+"/"+planned.Resource.Name] = planned.Warnings
+			if planned.Resource.Name == "kept-config" || planned.Resource.Name == "kept-secret" {
+				Expect(planned.Action).To(Equal(corev1alpha1.PlanActionUnchanged))
+			}
+		}
+		Expect(warnings["ConfigMap/kept-config"]).To(ContainElement(ContainSubstring("prune skipped: prune disabled by solder.io/prune annotation")))
+		Expect(warnings["Secret/kept-secret"]).To(ContainElement(ContainSubstring("prune skipped: high-risk Secret")))
+		updated := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
+		Expect(updated.Status.ManagedKinds).To(ContainElement(corev1alpha1.ManagedKind{APIVersion: "v1", Kind: "Secret"}))
+
+		By("naming the skipped objects in one Warning Event")
+		skippedEvents := []string{}
+		for _, event := range drainEvents(recorder) {
+			if strings.Contains(event, "PruneSkipped") {
+				skippedEvents = append(skippedEvents, event)
+			}
+		}
+		Expect(skippedEvents).To(HaveLen(1))
+		Expect(skippedEvents[0]).To(HavePrefix("Warning PruneSkipped"))
+		Expect(skippedEvents[0]).To(ContainSubstring("payments/kept-config"))
+		Expect(skippedEvents[0]).To(ContainSubstring("payments/kept-secret"))
+		Expect(skippedEvents[0]).NotTo(ContainSubstring("super-secret"))
+
+		By("staying converged without retrying the skipped deletes")
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		steady := listApplicationRevisions(ctx, resourceName).Items[0]
+		Expect(steady.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(steady.Status.Plan.Summary.Delete).To(BeZero())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-secret", Namespace: "payments"}, &corev1.Secret{})).To(Succeed())
+		Expect(drainEvents(recorder)).NotTo(ContainElement(ContainSubstring("PruneSkipped")))
 	})
 
 	It("applies automatic syncs and records health", func() {

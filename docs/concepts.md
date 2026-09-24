@@ -144,6 +144,22 @@ the Application's `status.managedKinds` inventory, so objects of any kind are
 pruned, including after a controller restart. Destructive changes are
 represented in the plan before mutation.
 
+Prune skips, and never deletes, two kinds of managed resources:
+
+- resources annotated `solder.io/prune: "disabled"`, a per-resource opt-out;
+- high-risk kinds, whose deletion loses data or other workloads' state:
+  Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
+  PersistentVolumes and Secrets.
+
+Skipping is not a failure: the rest of the prune proceeds and the rollout
+completes. The plan lists each skipped resource as `Unchanged` with a warning
+saying why, and a `PruneSkipped` Warning Event names them. Skipped resources
+keep Solder's labels and stay in the inventory, so the plan shows them on
+every Revision without trying to delete them again, and putting one back in
+Git adopts it as before. Delete one by hand once it is no longer needed. With
+`deletionPolicy: DeleteManagedResources`, deleting the Application still
+deletes high-risk resources, and still keeps resources that opted out.
+
 ## Drift and self-heal
 
 Solder can detect live drift by comparing normalized live state to desired state.

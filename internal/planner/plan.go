@@ -216,13 +216,31 @@ func deleteWarnings(obj unstructured.Unstructured) []string {
 	warnings := []string{"delete action is destructive"}
 	ann := obj.GetAnnotations()
 	if ann["solder.io/prune"] == "disabled" {
-		warnings = append(warnings, "prune disabled by solder.io/prune annotation")
+		warnings = append(warnings, "prune disabled by solder.io/prune annotation; prune keeps it")
 	}
 	switch obj.GetKind() {
 	case "Namespace", "CustomResourceDefinition", "PersistentVolumeClaim", "PersistentVolume", "Secret":
-		warnings = append(warnings, "high-risk prune candidate requires policy approval")
+		warnings = append(warnings, "high-risk prune candidate; prune keeps it")
 	}
 	return warnings
+}
+
+// Keep records a managed object that desired state no longer declares but
+// prune keeps, such as one that opted out of prune, so the plan shows it and
+// why instead of a delete that never happens.
+func (p *Plan) Keep(obj unstructured.Unstructured, reason string) error {
+	id, err := resource.FromObject(obj)
+	if err != nil {
+		return err
+	}
+	p.Changes = append(p.Changes, Change{
+		ID:       id,
+		Action:   corev1alpha1.PlanActionUnchanged,
+		Warnings: []string{"no longer in desired state; prune skipped: " + reason},
+	})
+	slices.SortFunc(p.Changes, func(a, b Change) int { return cmp.Compare(a.ID.String(), b.ID.String()) })
+	p.Summary.Unchanged++
+	return nil
 }
 
 // detectConflicts reports changed fields another field manager owns, which

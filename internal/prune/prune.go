@@ -16,12 +16,17 @@ type Policy struct {
 	AllowHighRisk bool
 }
 
-// Plan splits live objects into eligible prune candidates and rejected resources with reasons.
+// Plan splits live objects into eligible prune candidates, objects prune
+// keeps on purpose, and objects it must not touch.
 func Plan(live []unstructured.Unstructured, policy Policy) Result {
 	result := Result{}
 	for _, obj := range live {
 		if reason := rejectReason(obj, policy); reason != "" {
 			result.Rejected = append(result.Rejected, Rejected{Object: obj, Reason: reason})
+			continue
+		}
+		if reason := skipReason(obj, policy); reason != "" {
+			result.Skipped = append(result.Skipped, Rejected{Object: obj, Reason: reason})
 			continue
 		}
 		result.Eligible = append(result.Eligible, obj)
@@ -33,10 +38,16 @@ func Plan(live []unstructured.Unstructured, policy Policy) Result {
 // Result describes prune eligibility without mutating cluster state.
 type Result struct {
 	Eligible []unstructured.Unstructured
+	// Skipped are managed objects prune keeps: they opted out with
+	// solder.io/prune: disabled, or are of a high-risk kind. Keeping them is
+	// not a failure.
+	Skipped []Rejected
+	// Rejected are objects Solder cannot show it manages, which must never
+	// be pruned.
 	Rejected []Rejected
 }
 
-// Rejected records why an object cannot be pruned.
+// Rejected records why an object is not pruned.
 type Rejected struct {
 	Object unstructured.Unstructured
 	Reason string
@@ -49,16 +60,22 @@ func rejectReason(obj unstructured.Unstructured, policy Policy) string {
 	if obj.GetLabels()[applier.ApplicationLabelKey] != policy.Application {
 		return "resource is not managed by this Application"
 	}
+	return ""
+}
+
+func skipReason(obj unstructured.Unstructured, policy Policy) string {
 	if obj.GetAnnotations()[PruneAnnotationKey] == "disabled" {
 		return "prune disabled by solder.io/prune annotation"
 	}
-	if highRisk(obj) && !policy.AllowHighRisk {
-		return fmt.Sprintf("high-risk %s prune requires policy approval", obj.GetKind())
+	if HighRisk(obj) && !policy.AllowHighRisk {
+		return fmt.Sprintf("high-risk %s is never pruned automatically", obj.GetKind())
 	}
 	return ""
 }
 
-func highRisk(obj unstructured.Unstructured) bool {
+// HighRisk reports kinds whose deletion loses data or other workloads'
+// state, which prune keeps rather than deletes.
+func HighRisk(obj unstructured.Unstructured) bool {
 	switch obj.GetKind() {
 	case "Namespace", "CustomResourceDefinition", "PersistentVolumeClaim", "PersistentVolume", "Secret":
 		return true

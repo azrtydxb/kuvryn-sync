@@ -18,7 +18,7 @@ Status: the all-gap closure pass has no remaining pending spec/backlog gaps trac
 - Deterministic planner and bounded/redacted `Revision.status.plan` persistence.
 - Exact manual approval by Revision object name.
 - SSA apply with pre-apply conflict failure for default fail policy.
-- Safe prune with opt-out/high-risk rejection.
+- Safe prune that skips, and never deletes, opted-out and high-risk resources.
 - Managed-resource watches for supported built-in kinds.
 - Drift detection and self-heal behavior through the Application reconcile path.
 - Bounded history retention for labeled Revisions.

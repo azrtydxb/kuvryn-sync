@@ -325,6 +325,11 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	liveObjects := slices.Collect(maps.Values(liveResult.Found))
 	managedStale := []unstructured.Unstructured{}
+	// pruneSkipped are stale managed objects prune keeps: they opted out or
+	// are high-risk. They stay out of the plan's deletes, so a Revision that
+	// only leaves them behind converges instead of retrying a delete that
+	// never happens, and they stay labelled, so Solder keeps tracking them.
+	var pruneSkipped []prune.Rejected
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
 		if err != nil {
@@ -332,11 +337,24 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
-		managedStale = staleManagedObjects(rendered, liveObjects, managed)
+		pruning := prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name})
+		pruneSkipped = pruning.Skipped
+		// Rejected objects stay candidates, so pruneStale refuses them.
+		managedStale = pruning.Eligible
+		for _, rejected := range pruning.Rejected {
+			managedStale = append(managedStale, rejected.Object)
+		}
 		liveObjects = append(liveObjects, managedStale...)
 	}
 
 	plan, err := planner.Build(planned, liveObjects)
+	if err == nil {
+		for _, kept := range pruneSkipped {
+			if err = plan.Keep(kept.Object, kept.Reason); err != nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -353,15 +371,19 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
-	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth}
+	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth, pruneSkipped: pruneSkipped}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		// A rollout in progress is not done just because nothing is left to
 		// apply: keep waiting until every group is Healthy.
 		if rollout == rolloutInProgress {
 			return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
 		}
-		application.Status.ManagedKinds = managedKinds(objectKinds(rendered))
+		application.Status.ManagedKinds = inventoryKinds(rendered, pruneSkipped)
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
+		if transition {
+			// Only once per Revision, not on every steady-state reconcile.
+			r.warnPruneSkipped(application, pruneSkipped)
+		}
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -1008,7 +1030,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "HealthChecks could not be read"), Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
-	application.Status.ManagedKinds = managedKinds(objectKinds(desired))
+	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruneSkipped)
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
 	results := []health.Result{}
@@ -1022,7 +1044,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	// per rollout, so one already applied is only watched, never re-applied.
 	for _, group := range ordering.Groups(desired) {
 		if group.Stage == ordering.StagePostSync && !pruned {
-			if failure := r.pruneStale(ctx, tenant, application, pruneCandidates); failure != nil {
+			if failure := r.pruneStale(ctx, tenant, application, pruneCandidates, progress.pruneSkipped); failure != nil {
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 			}
 			pruned = true
@@ -1074,7 +1096,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 	}
 	if !pruned {
-		if failure := r.pruneStale(ctx, tenant, application, pruneCandidates); failure != nil {
+		if failure := r.pruneStale(ctx, tenant, application, pruneCandidates, progress.pruneSkipped); failure != nil {
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 		}
 	}
@@ -1115,12 +1137,14 @@ func (r *ApplicationReconciler) recordHealth(application *corev1alpha1.Applicati
 	application.Status.Resources = summary
 }
 
-// pruneStale deletes managed objects no longer in desired state.
-func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, candidates []unstructured.Unstructured) *corev1alpha1.RevisionFailure {
+// pruneStale deletes managed objects no longer in desired state. Objects
+// prune keeps on purpose, skipped, are reported and never deleted.
+func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, candidates []unstructured.Unstructured, skipped []prune.Rejected) *corev1alpha1.RevisionFailure {
 	plan := prune.Plan(candidates, prune.Policy{Application: application.Name})
 	if len(plan.Rejected) > 0 {
 		return &corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(fmt.Errorf("%s", plan.Rejected[0].Reason), "Managed resource prune was rejected"), Retryable: false}
 	}
+	r.warnPruneSkipped(application, append(slices.Clone(skipped), plan.Skipped...))
 	for _, obj := range ordering.Prune(plan.Eligible) {
 		if err := tenant.Delete(ctx, obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
 			failure := accessFailure(err, "PruneFailure", "Managed resource prune failed", true)
@@ -1128,6 +1152,37 @@ func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Cl
 		}
 	}
 	return nil
+}
+
+// maxPruneSkippedNamed bounds how many skipped objects a PruneSkipped Event
+// names.
+const maxPruneSkippedNamed = 5
+
+// warnPruneSkipped emits one Warning Event naming the managed objects prune
+// kept although desired state no longer declares them.
+func (r *ApplicationReconciler) warnPruneSkipped(application *corev1alpha1.Application, skipped []prune.Rejected) {
+	if len(skipped) == 0 {
+		return
+	}
+	named := make([]string, 0, min(len(skipped), maxPruneSkippedNamed))
+	for _, kept := range skipped[:min(len(skipped), maxPruneSkippedNamed)] {
+		named = append(named, fmt.Sprintf("%s %s (%s)", kept.Object.GetKind(), client.ObjectKeyFromObject(&kept.Object), kept.Reason))
+	}
+	message := fmt.Sprintf("Prune kept %d managed resource(s) no longer in desired state: %s", len(skipped), strings.Join(named, ", "))
+	if more := len(skipped) - len(named); more > 0 {
+		message += fmt.Sprintf(", and %d more", more)
+	}
+	r.event(application, corev1.EventTypeWarning, "PruneSkipped", safeMessage(errors.New(message), "Prune kept managed resources"))
+}
+
+// inventoryKinds are the kinds recorded as managed: those of desired state
+// and those of objects prune kept, which stay tracked.
+func inventoryKinds(desired []unstructured.Unstructured, kept []prune.Rejected) []corev1alpha1.ManagedKind {
+	kinds := objectKinds(desired)
+	for _, obj := range kept {
+		kinds = append(kinds, obj.Object.GroupVersionKind())
+	}
+	return managedKinds(applier.UnionKinds(kinds))
 }
 
 // groupHealth reads and evaluates the live state of one group's objects,

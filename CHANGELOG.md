@@ -10,6 +10,14 @@
   validation ratcheting (before Kubernetes 1.30), rename it before deleting
   such an Application, or its finalizer cannot be removed. A `.solder.yaml`
   naming an invalid release fails discovery for its Repository.
+- Fixed: a stale managed resource annotated `solder.io/prune: "disabled"`, or
+  of a high-risk kind (Namespace, CustomResourceDefinition,
+  PersistentVolumeClaim, PersistentVolume, Secret), failed the whole rollout
+  with `PruneFailure`. Prune now skips such resources and never deletes them;
+  the rest of the prune proceeds and the rollout completes. The Revision plan
+  lists each skipped resource as `Unchanged` with a warning saying why, and a
+  `PruneSkipped` Warning Event names them. They keep Solder's labels and stay
+  in the inventory, and later Revisions do not try to delete them again.
 - Fixed: the Application `Ready` condition was only ever set to `False`, so a
   recovered Application kept a stale failure that `solder diagnose` printed.
   `Ready` now turns `True` with reason `Healthy` when a rollout completes

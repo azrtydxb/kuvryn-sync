@@ -20,16 +20,21 @@ func TestPlanOnlyPrunesManagedEligibleResources(t *testing.T) {
 	if len(result.Eligible) != 1 || result.Eligible[0].GetName() != "eligible" {
 		t.Fatalf("eligible = %#v", names(result.Eligible))
 	}
-	if len(result.Rejected) != 3 {
+	// Only an object Solder cannot show it manages is refused; the opt-out
+	// and the high-risk Secret are kept, which is not a failure.
+	if len(result.Rejected) != 1 || result.Rejected[0].Object.GetName() != "unmanaged" {
 		t.Fatalf("rejected = %#v", result.Rejected)
+	}
+	if len(result.Skipped) != 2 || result.Skipped[0].Object.GetName() != "optout" || result.Skipped[1].Object.GetName() != "db" {
+		t.Fatalf("skipped = %#v", result.Skipped)
 	}
 }
 
 func TestPlanAllowsHighRiskOnlyWhenPolicyAllowsIt(t *testing.T) {
 	secret := obj("v1", "Secret", "payments", "db")
 	secret.SetLabels(map[string]string{applier.ApplicationLabelKey: "payments"})
-	if got := Plan([]unstructured.Unstructured{secret}, Policy{Application: "payments"}); len(got.Eligible) != 0 {
-		t.Fatalf("secret should be rejected without high-risk approval")
+	if got := Plan([]unstructured.Unstructured{secret}, Policy{Application: "payments"}); len(got.Eligible) != 0 || len(got.Skipped) != 1 || len(got.Rejected) != 0 {
+		t.Fatalf("secret should be skipped without high-risk approval: %#v", got)
 	}
 	if got := Plan([]unstructured.Unstructured{secret}, Policy{Application: "payments", AllowHighRisk: true}); len(got.Eligible) != 1 {
 		t.Fatalf("secret should be eligible with high-risk approval")
