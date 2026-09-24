@@ -149,9 +149,12 @@ func cacheRoot(dir string) string {
 	return cmp.Or(dir, filepath.Join(os.TempDir(), defaultSourceCacheDir))
 }
 
+// chartCacheSubdir holds pulled Helm charts under the source cache root.
+const chartCacheSubdir = "charts"
+
 // chartCacheDir is where pulled Helm charts are cached, beside the Git cache.
 func chartCacheDir(dir string) string {
-	return filepath.Join(cacheRoot(dir), "charts")
+	return filepath.Join(cacheRoot(dir), chartCacheSubdir)
 }
 
 func (r *RepositoryReconciler) resolver() source.Resolver {

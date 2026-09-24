@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,8 +36,8 @@ const (
 	// resolved moments ago but is not yet recorded on a Revision.
 	cacheGracePeriod = time.Hour
 	// chartCacheMaxIdle is how long a pulled chart stays cached without a
-	// render using it. Every render of a Helm Application pulls, so charts in
-	// use are touched at least every drift resync.
+	// render using it. Every render of a Helm Application pulls its chart, and
+	// a chart pruned while idle is simply pulled again on the next render.
 	chartCacheMaxIdle = 24 * time.Hour
 )
 
@@ -47,8 +48,9 @@ func NewSourceCache() *gitcache.Cache {
 }
 
 // SourceCachePruner periodically removes Git checkouts that no Revision or
-// Repository refers to any more, and Helm charts no render has used for a day. Each replica has its own cache on local
-// disk, so every replica prunes, leader or not.
+// Repository refers to any more, and Helm charts no render has used for a
+// day. Each replica has its own cache on local disk, so every replica prunes,
+// leader or not.
 type SourceCachePruner struct {
 	Client client.Reader
 	Cache  *gitcache.Cache
@@ -67,23 +69,27 @@ func (p *SourceCachePruner) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := p.prune(ctx); err != nil {
-				logf.FromContext(ctx).Error(err, "Failed to prune the Git source cache")
+				logf.FromContext(ctx).Error(err, "Failed to prune the source cache")
 			}
 		}
 	}
 }
 
-// prune removes checkouts no Revision or Repository still needs.
+// prune removes checkouts no Revision or Repository still needs, and idle
+// charts. Charts are pruned even when the Git side cannot list its inputs.
 func (p *SourceCachePruner) prune(ctx context.Context) error {
-	keep, err := keptCommits(ctx, p.Client)
-	if err != nil {
-		return err
+	var err error
+	if keep, listErr := keptCommits(ctx, p.Client); listErr != nil {
+		err = listErr
+	} else {
+		var removed []string
+		removed, err = p.Cache.Prune(keep, time.Now().Add(-cacheGracePeriod))
+		if len(removed) > 0 {
+			logf.FromContext(ctx).Info("Pruned Git source cache", "removed", len(removed))
+		}
 	}
-	removed, err := p.Cache.Prune(keep, time.Now().Add(-cacheGracePeriod))
-	if len(removed) > 0 {
-		logf.FromContext(ctx).Info("Pruned Git source cache", "removed", len(removed))
-	}
-	charts, chartErr := helmrenderer.PruneCache(chartCacheDir(""), time.Now().Add(-chartCacheMaxIdle))
+	// Charts live beside the Git clones, under the shared cache's root.
+	charts, chartErr := helmrenderer.PruneCache(filepath.Join(p.Cache.Root, chartCacheSubdir), time.Now().Add(-chartCacheMaxIdle))
 	if len(charts) > 0 {
 		logf.FromContext(ctx).Info("Pruned Helm chart cache", "removed", len(charts))
 	}

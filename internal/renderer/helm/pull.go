@@ -145,7 +145,12 @@ func PruneCache(cacheDir string, olderThan time.Time) ([]string, error) {
 		lock, _ := pullLocks.LoadOrStore(dest, &sync.Mutex{})
 		lock.(*sync.Mutex).Lock()
 		info, err := os.Stat(dest)
-		if err == nil && info.ModTime().Before(olderThan) {
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			// Removed since it was listed; nothing to do.
+		case err != nil:
+			errs = append(errs, err)
+		case info.ModTime().Before(olderThan):
 			if err := os.RemoveAll(dest); err != nil {
 				errs = append(errs, err)
 			} else {

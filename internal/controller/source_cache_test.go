@@ -18,14 +18,21 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	gitcache "github.com/azrtydxb/solder/internal/source/git"
 )
 
 func TestKeptCommitsCoverRevisionsAndObservedCommits(t *testing.T) {
@@ -62,5 +69,34 @@ func TestKeptCommitsCoverRevisionsAndObservedCommits(t *testing.T) {
 	slices.Sort(commits)
 	if !slices.Equal(commits, []string{"c1", "c2", "c3"}) || len(keep) != 1 {
 		t.Fatalf("keep = %v, want platform.git with c1, c2, c3 only", keep)
+	}
+}
+
+func TestPrunerPrunesChartsWhenListingFails(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	failing := interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).Build(), interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return errors.New("apiserver unavailable")
+		},
+	})
+	cache := gitcache.NewCache(t.TempDir())
+	idle := filepath.Join(cache.Root, chartCacheSubdir, "idle-chart")
+	if err := os.MkdirAll(idle, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(idle, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (&SourceCachePruner{Client: failing, Cache: cache}).prune(context.Background())
+	if err == nil {
+		t.Fatal("a failed list was not reported")
+	}
+	if _, statErr := os.Stat(idle); !os.IsNotExist(statErr) {
+		t.Fatalf("idle chart survived a failed list: %v", statErr)
 	}
 }
