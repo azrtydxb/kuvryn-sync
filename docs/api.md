@@ -209,7 +209,7 @@ retries are blocked after a health failure (`HealthFailure`, `HookFailed` or
 | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `resource` | The resource at the root of the failure (`apiVersion`, `kind`, `namespace`, `name`), such as a missing Secret or a Pod.  |
 | `reason`   | A CamelCase word naming the failure, such as `MissingSecret`, `ImagePullBackOff`, `CrashLoopBackOff` or `Unschedulable`. |
-| `message`  | Redacted evidence, at most 1024 characters.                                                                              |
+| `message`  | Redacted evidence, at most 512 characters.                                                                               |
 | `chain`    | Up to 10 resources, from the unhealthy managed resource down to `resource`, both included.                               |
 
 A root cause shared by several resources, such as one missing Secret that

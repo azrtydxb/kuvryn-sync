@@ -3,6 +3,8 @@ package diagnosis
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/yaml"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/graph"
@@ -345,6 +348,30 @@ func TestFallbackCauseSaysWhatWasNotVisible(t *testing.T) {
 	want := "0/1 replicas available; not visible: could not list Pods: forbidden; could not list ReplicaSets: forbidden"
 	if !cause.Fallback || cause.Message != want {
 		t.Fatalf("cause = %+v, want message %q", cause, want)
+	}
+}
+
+func TestMessageBoundMatchesTheAPI(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "solder.io_applications.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crd := map[string]any{}
+	if err := yaml.Unmarshal(raw, &crd); err != nil {
+		t.Fatal(err)
+	}
+	versions, _, _ := unstructured.NestedSlice(crd, "spec", "versions")
+	if len(versions) == 0 {
+		t.Fatal("the CRD has no versions")
+	}
+	schema, _ := versions[0].(map[string]any)
+	limit, found, err := unstructured.NestedFieldNoCopy(schema, "schema", "openAPIV3Schema", "properties", "status", "properties",
+		"diagnosis", "items", "properties", "message", "maxLength")
+	if err != nil || !found {
+		t.Fatalf("status.diagnosis[].message has no maxLength: %v", err)
+	}
+	if fmt.Sprint(limit) != fmt.Sprint(MaxMessage) {
+		t.Fatalf("the API allows %v characters, diagnosis writes at most %d bytes", limit, MaxMessage)
 	}
 }
 

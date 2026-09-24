@@ -339,7 +339,7 @@ type DiagnosisCause struct {
 	// +kubebuilder:validation:Pattern=`^[A-Z][A-Za-z0-9]*$`
 	Reason string `json:"reason"`
 	// message is the redacted, bounded evidence for the failure.
-	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MaxLength=512
 	// +optional
 	Message string `json:"message,omitempty"`
 	// chain lists the resources from the unhealthy managed object down to the
