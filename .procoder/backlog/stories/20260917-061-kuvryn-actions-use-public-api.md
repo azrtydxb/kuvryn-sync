@@ -24,3 +24,7 @@ Kuvryn actions use public API.
 ## Closure Evidence
 
 - Closed after the all-gap closure pass: product paths now include controller-integrated render/plan/apply/prune/health/drift/retry/rollback handling, bounded metrics and optional OTel tracing, lifecycle Events, CLI operations, installer/CI polish, and regenerated API/manifests. Verification evidence is the final `make fmt test`, `procoder test`, `procoder lint`, `procoder security`, and `procoder check` gate run for this pass.
+
+## Superseded: Solder is universal
+
+Removed with `internal/contracts`: Solder is not built for a specific product integration. Actions go through the public API (`solder` CLI or annotations) for every client.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** the Revision `spec.provenance` field is removed, along with the
+  unused product-specific integration helpers. Solder integrates with any tool
+  through its public CRDs, status, Events, and CLI. Nothing in Solder read or
+  set the field; values stored on existing Revisions are dropped on their next
+  write.
 - Fixed: the Git source cache was never cleaned. Every commit Solder rendered
   stayed checked out on disk forever. Each replica now prunes, every hour,
   checkouts no Revision or Repository refers to and clones of deleted

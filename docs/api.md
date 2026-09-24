@@ -308,15 +308,14 @@ Set exactly one of `semver`, `tagPattern`, or `digest`.
 
 ### Spec fields
 
-| Field                            | Description                                                        |
-| -------------------------------- | ------------------------------------------------------------------ |
-| `spec.applicationRef.name`       | Application that owns this deployment attempt.                     |
-| `spec.source.repositoryRef.name` | Repository used for this attempt.                                  |
-| `spec.source.revision`           | Resolved source revision, usually a full Git commit SHA.           |
-| `spec.source.path`               | Rendered repository path.                                          |
-| `spec.source.render`             | Renderer configuration used for this attempt.                      |
-| `spec.provenance`                | Optional provider-neutral source, artifact, and pipeline evidence. |
-| `spec.desiredStateHash`          | Deterministic rendered-state fingerprint.                          |
+| Field                            | Description                                              |
+| -------------------------------- | -------------------------------------------------------- |
+| `spec.applicationRef.name`       | Application that owns this deployment attempt.           |
+| `spec.source.repositoryRef.name` | Repository used for this attempt.                        |
+| `spec.source.revision`           | Resolved source revision, usually a full Git commit SHA. |
+| `spec.source.path`               | Rendered repository path.                                |
+| `spec.source.render`             | Renderer configuration used for this attempt.            |
+| `spec.desiredStateHash`          | Deterministic rendered-state fingerprint.                |
 
 ### Status fields
 

@@ -30,7 +30,6 @@ Status: the all-gap closure pass has no remaining pending spec/backlog gaps trac
 - Prometheus-compatible bounded metrics and optional OpenTelemetry tracing wired into the manager.
 - CLI read/mutation/diagnostic/install commands.
 - Raw installer and Helm rendering targets, server-side installer validation target, and CI e2e image build/push flow without local developer Docker.
-- Public Dhole/Kuvryn/provenance/action contract helpers.
 - Deferred roadmap items are represented as design-compatible API room without adding mandatory CRDs, databases, brokers, UI, or scripting runtimes.
 
 ## Verification baseline

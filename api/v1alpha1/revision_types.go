@@ -24,10 +24,6 @@ type RevisionSpec struct {
 	ApplicationRef LocalObjectReference `json:"applicationRef"`
 	// source records the exact desired-state source used for this attempt.
 	Source RevisionSource `json:"source"`
-	// provenance optionally links this desired-state change to build artifacts
-	// and pipeline runs without coupling Solder to a specific CI system.
-	// +optional
-	Provenance *Provenance `json:"provenance,omitempty"`
 	// desiredStateHash is a deterministic fingerprint of rendered desired state.
 	// +optional
 	DesiredStateHash string `json:"desiredStateHash,omitempty"`
@@ -45,45 +41,6 @@ type RevisionSource struct {
 	Path string `json:"path,omitempty"`
 	// render records the render configuration used for this Revision.
 	Render RenderSpec `json:"render"`
-}
-
-// Provenance links a Revision to source, artifact, and pipeline evidence.
-type Provenance struct {
-	// source identifies the product source that produced the artifact.
-	// +optional
-	Source *SourceProvenance `json:"source,omitempty"`
-	// artifact identifies the immutable artifact promoted into desired state.
-	// +optional
-	Artifact *ArtifactProvenance `json:"artifact,omitempty"`
-	// pipeline identifies the pipeline run that promoted desired state.
-	// +optional
-	Pipeline *PipelineProvenance `json:"pipeline,omitempty"`
-}
-
-// SourceProvenance identifies product source code.
-type SourceProvenance struct {
-	// +optional
-	Repository string `json:"repository,omitempty"`
-	// +optional
-	Revision string `json:"revision,omitempty"`
-}
-
-// ArtifactProvenance identifies an immutable artifact.
-type ArtifactProvenance struct {
-	// +optional
-	Type string `json:"type,omitempty"`
-	// +optional
-	URI string `json:"uri,omitempty"`
-	// +optional
-	Digest string `json:"digest,omitempty"`
-}
-
-// PipelineProvenance identifies a provider-neutral pipeline run.
-type PipelineProvenance struct {
-	// +optional
-	Provider string `json:"provider,omitempty"`
-	// +optional
-	Run string `json:"run,omitempty"`
 }
 
 // RevisionStatus defines the observed state of Revision.
