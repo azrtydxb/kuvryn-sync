@@ -22,8 +22,8 @@ import (
 
 const defaultReleaseName = "solder"
 
-// ReleaseName returns the Helm release name rendering uses for an Application
-// whose spec names name: the name itself, or a default when it is empty.
+// ReleaseName returns the Helm release name rendering uses: name as given in
+// the Application's spec, or the default "solder" when name is empty.
 func ReleaseName(name string) string {
 	if name == "" {
 		return defaultReleaseName

@@ -21,12 +21,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	sigsyaml "sigs.k8s.io/yaml"
+
+	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 )
 
 // managerRules returns the rules of the manager ClusterRole in a manifest as
@@ -146,6 +150,60 @@ func TestGoVersionMatchesBuildImages(t *testing.T) {
 	for _, path := range []string{"Dockerfile", ".devcontainer/devcontainer.json"} {
 		if !strings.Contains(read(path), "golang:"+module) {
 			t.Errorf("%s does not use golang:%s, the Go version go.mod requires", path, module)
+		}
+	}
+}
+
+// The CRD must accept what rendering accepts: an empty releaseName means the
+// default, and the pattern must agree with Helm's rule.
+func TestHelmReleaseNameSchemaMatchesRendering(t *testing.T) {
+	contents, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "solder.io_applications.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crd := map[string]any{}
+	if err := sigsyaml.Unmarshal(contents, &crd); err != nil {
+		t.Fatal(err)
+	}
+	var find func(node any) string
+	find = func(node any) string {
+		switch value := node.(type) {
+		case map[string]any:
+			if props, ok := value["properties"].(map[string]any); ok {
+				if release, ok := props["releaseName"].(map[string]any); ok {
+					if pattern, ok := release["pattern"].(string); ok {
+						return pattern
+					}
+				}
+			}
+			for _, child := range value {
+				if found := find(child); found != "" {
+					return found
+				}
+			}
+		case []any:
+			for _, child := range value {
+				if found := find(child); found != "" {
+					return found
+				}
+			}
+		}
+		return ""
+	}
+	pattern := find(crd)
+	if pattern == "" {
+		t.Fatal("no releaseName pattern in the Application CRD")
+	}
+	schema := regexp.MustCompile(pattern)
+	for name, valid := range map[string]bool{"": true, "payments": true, "api.v2": true, "Payments": false, "-bad": false, "a_b": false} {
+		if got := schema.MatchString(name); got != valid {
+			t.Errorf("CRD pattern on %q = %v, want %v", name, got, valid)
+		}
+		app := &corev1alpha1.Application{Spec: corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{
+			Render: corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeHelm, Helm: &corev1alpha1.HelmRenderSpec{ReleaseName: name}},
+		}}}
+		if got := validateHelmReleaseName(app) == nil; got != valid {
+			t.Errorf("rendering accepts %q = %v, want %v", name, got, valid)
 		}
 	}
 }
