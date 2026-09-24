@@ -42,7 +42,7 @@ func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Read
 		return
 	}
 	g, objects := graph.Collect(ctx, tenant, application.DestinationNamespace(), observed)
-	causes := diagnosis.Build(diagnosis.Input{Results: results, Graph: g, Objects: objects})
+	causes := diagnosis.Build(ctx, diagnosis.Input{Results: results, Graph: g, Objects: objects})
 	next := diagnosis.Status(causes)
 	changed := !sameCauses(application.Status.Diagnosis, next)
 	application.Status.Diagnosis = next

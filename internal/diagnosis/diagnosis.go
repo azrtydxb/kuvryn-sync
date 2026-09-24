@@ -6,6 +6,7 @@
 package diagnosis
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -59,9 +60,25 @@ type Input struct {
 // Build returns, deterministically, at most MaxCauses root causes for the
 // unhealthy managed objects in in.Results, Degraded ones first. A root cause
 // that several objects share is reported once, with the first chain found.
-// An unhealthy object without deeper evidence is its own root cause.
-func Build(in Input) []Cause {
-	d := diagnoser{graph: in.Graph, objects: map[string]unstructured.Unstructured{}}
+// An unhealthy object without deeper evidence is its own root cause, and so
+// is every unhealthy object once ctx is done or the walk used up its budget.
+func Build(ctx context.Context, in Input) []Cause {
+	causes, _ := build(ctx, in, visitBudget)
+	return causes
+}
+
+// visitBudget bounds the nodes one Build explains: at most MaxChain depths
+// of every object Collect may read, times MaxCauses, which is far more than
+// a real Application needs.
+const visitBudget = MaxCauses * MaxChain * graph.CollectObjectLimit
+
+// build is Build with an explicit budget; it also returns how many nodes it
+// explained.
+func build(ctx context.Context, in Input, budget int) ([]Cause, int) {
+	d := &diagnoser{
+		ctx: ctx, graph: in.Graph, objects: map[string]unstructured.Unstructured{},
+		memo: map[memoKey][]Cause{}, active: map[string]bool{}, budget: budget,
+	}
 	for _, obj := range in.Objects {
 		if id, err := resource.FromObject(obj); err == nil {
 			d.objects[graph.Key(id)] = obj
@@ -79,7 +96,7 @@ func Build(in Input) []Cause {
 	out := []Cause{}
 	seen := map[string]bool{}
 	for _, result := range unhealthy {
-		causes := d.visit(result.Resource, nil)
+		causes := d.visit(result.Resource, 0)
 		if len(causes) == 0 {
 			reason := result.Reason
 			if reason == "" {
@@ -97,11 +114,11 @@ func Build(in Input) []Cause {
 			cause.Message = bound(redact.String(cause.Message))
 			out = append(out, cause)
 			if len(out) == MaxCauses {
-				return out
+				return out, d.visits
 			}
 		}
 	}
-	return out
+	return out, d.visits
 }
 
 // Status converts causes to their API form.
@@ -137,24 +154,53 @@ func rank(state corev1alpha1.HealthState) int {
 }
 
 type diagnoser struct {
+	ctx     context.Context
 	graph   graph.Graph
 	objects map[string]unstructured.Unstructured
+	// memo holds the causes below each node at each depth, so a node many
+	// paths reach is explained once rather than once per path.
+	memo map[memoKey][]Cause
+	// active holds the nodes on the current path, to cut cycles.
+	active  map[string]bool
+	visits  int
+	budget  int
+	stopped bool
 }
 
-// visit returns the root causes below id, reached along path.
-func (d diagnoser) visit(id resource.ID, path []resource.ID) []Cause {
-	for _, step := range path {
-		if graph.Key(step) == graph.Key(id) {
-			return nil
-		}
+type memoKey struct {
+	node  string
+	depth int
+}
+
+// visit returns the root causes below id, reached at depth, each with a
+// chain that starts at id. It stops walking once ctx is done or the budget
+// is used up.
+func (d *diagnoser) visit(id resource.ID, depth int) []Cause {
+	node := graph.Key(id)
+	key := memoKey{node: node, depth: depth}
+	if causes, ok := d.memo[key]; ok {
+		return causes
 	}
-	if len(path) == MaxChain {
+	if d.stopped || d.active[node] || depth == MaxChain {
 		return nil
 	}
-	path = append(slices.Clone(path), id)
-	node, ok := d.graph.Node(id)
-	if ok && node.Missing {
-		return []Cause{{Resource: id, Reason: "Missing" + id.Kind, Message: fmt.Sprintf("%s %s does not exist", id.Kind, id.QualifiedName()), Chain: path}}
+	d.visits++
+	if d.visits > d.budget || d.ctx.Err() != nil {
+		d.stopped = true
+		return nil
+	}
+	d.active[node] = true
+	causes := distinct(d.explain(id, depth))
+	delete(d.active, node)
+	d.memo[key] = causes
+	return causes
+}
+
+// explain returns the root causes below id, each with a chain that starts
+// at id.
+func (d *diagnoser) explain(id resource.ID, depth int) []Cause {
+	if node, ok := d.graph.Node(id); ok && node.Missing {
+		return leaf(id, "Missing"+id.Kind, fmt.Sprintf("%s %s does not exist", id.Kind, id.QualifiedName()))
 	}
 	obj, ok := d.objects[graph.Key(id)]
 	if !ok {
@@ -162,9 +208,9 @@ func (d diagnoser) visit(id resource.ID, path []resource.ID) []Cause {
 	}
 	switch {
 	case id.Group == "" && id.Kind == "Pod":
-		return d.pod(id, obj, path)
+		return d.pod(id, obj, depth)
 	case id.Group == "" && id.Kind == "PersistentVolumeClaim":
-		if causes := d.follow(id, path, graph.EdgeBinds); len(causes) > 0 {
+		if causes := d.follow(id, depth, graph.EdgeBinds); len(causes) > 0 {
 			return causes
 		}
 		if phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); phase == "Pending" {
@@ -172,28 +218,28 @@ func (d diagnoser) visit(id resource.ID, path []resource.ID) []Cause {
 			if class, _, _ := unstructured.NestedString(obj.Object, "spec", "storageClassName"); class != "" {
 				message += " with storage class " + class
 			}
-			return []Cause{{Resource: id, Reason: "ClaimPending", Message: message, Chain: path}}
+			return leaf(id, "ClaimPending", message)
 		}
 		return nil
 	case id.Group == "" && id.Kind == "Service":
-		if causes := d.follow(id, path, graph.EdgeSelects); len(causes) > 0 {
+		if causes := d.follow(id, depth, graph.EdgeSelects); len(causes) > 0 {
 			return causes
 		}
-		return d.endpoints(id, path)
+		return d.endpoints(id)
 	}
 	// Owned objects are the most specific evidence, then what the object
 	// needs, then its own status.
-	if causes := d.follow(id, path, graph.EdgeOwns); len(causes) > 0 {
+	if causes := d.follow(id, depth, graph.EdgeOwns); len(causes) > 0 {
 		return causes
 	}
-	if causes := d.follow(id, path, graph.EdgeUses, graph.EdgeMounts, graph.EdgeRunsAs, graph.EdgeRoutes, graph.EdgeScales, graph.EdgeSelects); len(causes) > 0 {
+	if causes := d.follow(id, depth, graph.EdgeUses, graph.EdgeMounts, graph.EdgeRunsAs, graph.EdgeRoutes, graph.EdgeScales, graph.EdgeSelects); len(causes) > 0 {
 		return causes
 	}
-	return ownEvidence(id, obj, path)
+	return ownEvidence(id, obj)
 }
 
 // follow visits the targets of id's required edges of the given types.
-func (d diagnoser) follow(id resource.ID, path []resource.ID, types ...graph.EdgeType) []Cause {
+func (d *diagnoser) follow(id resource.ID, depth int, types ...graph.EdgeType) []Cause {
 	out := []Cause{}
 	for _, edge := range d.graph.Out(id) {
 		if edge.Optional || !slices.Contains(types, edge.Type) {
@@ -204,14 +250,14 @@ func (d diagnoser) follow(id resource.ID, path []resource.ID, types ...graph.Edg
 			// cannot pull.
 			continue
 		}
-		out = append(out, d.visit(edge.To, path)...)
+		out = append(out, below(id, d.visit(edge.To, depth+1))...)
 	}
 	return out
 }
 
 // pod explains a Pod that is not running and ready: first by what it needs
 // and does not exist, then by its own status.
-func (d diagnoser) pod(id resource.ID, obj unstructured.Unstructured, path []resource.ID) []Cause {
+func (d *diagnoser) pod(id resource.ID, obj unstructured.Unstructured, depth int) []Cause {
 	if obj.GetDeletionTimestamp() != nil || podHealthy(obj) {
 		return nil
 	}
@@ -233,11 +279,11 @@ func (d diagnoser) pod(id resource.ID, obj unstructured.Unstructured, path []res
 		if ref := refs[edge.To.Kind+"/"+edge.To.Name]; ref.PullOnly && !pulling {
 			continue
 		}
-		for _, cause := range d.visit(edge.To, path) {
-			if evident && len(cause.Chain) == len(path)+1 {
+		for _, cause := range d.visit(edge.To, depth+1) {
+			if evident && len(cause.Chain) == 1 {
 				cause.Message += fmt.Sprintf("; Pod %s: %s: %s", id.Name, reason, message)
 			}
-			out = append(out, cause)
+			out = append(out, below(id, []Cause{cause})...)
 		}
 	}
 	if len(out) > 0 {
@@ -246,12 +292,46 @@ func (d diagnoser) pod(id resource.ID, obj unstructured.Unstructured, path []res
 	if !evident {
 		return nil
 	}
-	return []Cause{{Resource: id, Reason: reason, Message: message, Chain: path}}
+	return leaf(id, reason, message)
+}
+
+// leaf is a root cause at id.
+func leaf(id resource.ID, reason, message string) []Cause {
+	return []Cause{{Resource: id, Reason: reason, Message: message, Chain: []resource.ID{id}}}
+}
+
+// below returns causes with id prepended to copies of their chains.
+func below(id resource.ID, causes []Cause) []Cause {
+	out := make([]Cause, 0, len(causes))
+	for _, cause := range causes {
+		cause.Chain = append([]resource.ID{id}, cause.Chain...)
+		out = append(out, cause)
+	}
+	return out
+}
+
+// distinct drops causes with a root and reason seen before and keeps at
+// most MaxCauses, which is all Build can report.
+func distinct(causes []Cause) []Cause {
+	seen := map[string]bool{}
+	out := make([]Cause, 0, min(len(causes), MaxCauses))
+	for _, cause := range causes {
+		id := graph.Key(cause.Resource) + "#" + cause.Reason
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, cause)
+		if len(out) == MaxCauses {
+			break
+		}
+	}
+	return out
 }
 
 // endpoints reports a Service whose EndpointSlices hold no ready endpoint.
 // Without any EndpointSlice there is no evidence either way.
-func (d diagnoser) endpoints(id resource.ID, path []resource.ID) []Cause {
+func (d *diagnoser) endpoints(id resource.ID) []Cause {
 	slicesSeen, ready := 0, 0
 	for _, edge := range d.graph.Out(id) {
 		if edge.Type != graph.EdgeEndpoints {
@@ -274,28 +354,28 @@ func (d diagnoser) endpoints(id resource.ID, path []resource.ID) []Cause {
 	if slicesSeen == 0 || ready > 0 {
 		return nil
 	}
-	return []Cause{{Resource: id, Reason: "NoReadyEndpoints", Message: fmt.Sprintf("Service %s has no ready endpoints", id.Name), Chain: path}}
+	return leaf(id, "NoReadyEndpoints", fmt.Sprintf("Service %s has no ready endpoints", id.Name))
 }
 
 // ownEvidence reads failure from an object's own status conditions.
-func ownEvidence(id resource.ID, obj unstructured.Unstructured, path []resource.ID) []Cause {
+func ownEvidence(id resource.ID, obj unstructured.Unstructured) []Cause {
 	conditions := health.Conditions(obj)
 	if condition, ok := conditions["Failed"]; ok && condition.Status == "True" && id.Group == "batch" && id.Kind == "Job" {
 		message := condition.Message
 		if condition.Reason != "" {
 			message = condition.Reason + ": " + message
 		}
-		return []Cause{{Resource: id, Reason: "JobFailed", Message: "Job failed: " + message, Chain: path}}
+		return leaf(id, "JobFailed", "Job failed: "+message)
 	}
 	if condition, ok := conditions["ReplicaFailure"]; ok && condition.Status == "True" {
 		reason := condition.Reason
 		if reason == "" {
 			reason = "ReplicaFailure"
 		}
-		return []Cause{{Resource: id, Reason: reason, Message: condition.Message, Chain: path}}
+		return leaf(id, reason, condition.Message)
 	}
 	if condition, ok := conditions["Progressing"]; ok && condition.Status == "False" && condition.Reason == "ProgressDeadlineExceeded" {
-		return []Cause{{Resource: id, Reason: condition.Reason, Message: condition.Message, Chain: path}}
+		return leaf(id, condition.Reason, condition.Message)
 	}
 	return nil
 }

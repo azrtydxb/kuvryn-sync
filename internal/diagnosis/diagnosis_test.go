@@ -1,13 +1,16 @@
 package diagnosis
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/graph"
@@ -83,7 +86,7 @@ func unhealthy(objs ...unstructured.Unstructured) []health.Result {
 }
 
 func diagnose(results []health.Result, objects ...unstructured.Unstructured) []Cause {
-	return Build(Input{Results: results, Graph: graph.Build(objects), Objects: objects})
+	return Build(context.Background(), Input{Results: results, Graph: graph.Build(objects), Objects: objects})
 }
 
 func requireOne(t *testing.T, causes []Cause) Cause {
@@ -173,7 +176,7 @@ func TestReferencesThatCannotBeBlamed(t *testing.T) {
 		d, rs, p := workload(envFromSecret("db", false), waiting("CreateContainerConfigError", `secret "db" not found`, nil))
 		g := graph.Build([]unstructured.Unstructured{d, rs, p})
 		g.MarkUnreadable(idOf(object("v1", "Secret", "db", nil)))
-		cause := requireOne(t, Build(Input{Results: unhealthy(d), Graph: g, Objects: []unstructured.Unstructured{d, rs, p}}))
+		cause := requireOne(t, Build(context.Background(), Input{Results: unhealthy(d), Graph: g, Objects: []unstructured.Unstructured{d, rs, p}}))
 		if cause.Reason != "CreateContainerConfigError" || cause.Resource != idOf(p) {
 			t.Fatalf("cause = %+v", cause)
 		}
@@ -336,5 +339,72 @@ func TestStatusConvertsCauses(t *testing.T) {
 	}
 	if Status(nil) != nil {
 		t.Fatal("no causes must clear the status")
+	}
+}
+
+// layered returns layers of ConfigMaps in which every object lists every
+// object of the layer above as an owner, as a tenant could build them, so
+// the number of paths from the top grows exponentially with depth.
+func layered(width, depth int) []unstructured.Unstructured {
+	top := object("v1", "ConfigMap", "layer-0-0", nil)
+	objects := []unstructured.Unstructured{top}
+	above := []unstructured.Unstructured{top}
+	for layer := 1; layer <= depth; layer++ {
+		current := make([]unstructured.Unstructured, 0, width)
+		for i := range width {
+			obj := object("v1", "ConfigMap", fmt.Sprintf("layer-%d-%d", layer, i), nil)
+			owners := make([]metav1.OwnerReference, 0, len(above))
+			for _, owner := range above {
+				owners = append(owners, metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: owner.GetName(), UID: types.UID("uid-" + owner.GetName())})
+			}
+			obj.SetOwnerReferences(owners)
+			current = append(current, obj)
+		}
+		objects = append(objects, current...)
+		above = current
+	}
+	return objects
+}
+
+func TestLayeredOwnerFanOutIsExplainedOncePerNode(t *testing.T) {
+	const width, depth = 12, 9
+	objects := layered(width, depth)
+	results := []health.Result{{Resource: idOf(objects[0]), State: corev1alpha1.HealthStateDegraded, Reason: "Stalled"}}
+	done := make(chan struct{})
+	var causes []Cause
+	var visits int
+	go func() {
+		defer close(done)
+		causes, visits = build(context.Background(), Input{Results: results, Graph: graph.Build(objects), Objects: objects}, visitBudget)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("diagnosing a layered owner fan-out did not finish")
+	}
+	// Each node is explained at most once per depth it is reached at.
+	if limit := len(objects) * MaxChain; visits > limit {
+		t.Fatalf("explained %d nodes, want at most %d", visits, limit)
+	}
+	if len(causes) != 1 || !causes[0].Fallback {
+		t.Fatalf("causes = %+v", causes)
+	}
+}
+
+func TestWalkStopsAtItsBudgetAndOnCancellation(t *testing.T) {
+	objects := layered(3, 4)
+	in := Input{
+		Results: []health.Result{{Resource: idOf(objects[0]), State: corev1alpha1.HealthStateDegraded, Reason: "Stalled"}},
+		Graph:   graph.Build(objects), Objects: objects,
+	}
+	causes, visits := build(context.Background(), in, 5)
+	if visits > 6 || len(causes) != 1 || causes[0].Reason != "Stalled" {
+		t.Fatalf("visits=%d causes=%+v", visits, causes)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	causes, visits = build(cancelled, in, visitBudget)
+	if visits > 1 || len(causes) != 1 || causes[0].Reason != "Stalled" {
+		t.Fatalf("after cancellation visits=%d causes=%+v", visits, causes)
 	}
 }

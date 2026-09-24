@@ -73,6 +73,7 @@ type Graph struct {
 	Edges []Edge
 
 	index map[string]int
+	out   map[string][]Edge
 }
 
 // Build infers the common built-in relationships between objects. Objects
@@ -114,14 +115,7 @@ func (g Graph) Node(id resource.ID) (Node, bool) {
 
 // Out returns the edges leaving id, in graph order.
 func (g Graph) Out(id resource.ID) []Edge {
-	out := []Edge{}
-	key := Key(id)
-	for _, edge := range g.Edges {
-		if Key(edge.From) == key {
-			out = append(out, edge)
-		}
-	}
-	return out
+	return g.out[Key(id)]
 }
 
 // Missing returns the referenced objects that were not in the input.
@@ -413,6 +407,10 @@ func (b *builder) graph() Graph {
 		g.Edges = append(g.Edges, *edge)
 	}
 	sort.Slice(g.Edges, func(i, j int) bool { return edgeKey(g.Edges[i]) < edgeKey(g.Edges[j]) })
+	g.out = map[string][]Edge{}
+	for _, edge := range g.Edges {
+		g.out[Key(edge.From)] = append(g.out[Key(edge.From)], edge)
+	}
 	return g
 }
 
