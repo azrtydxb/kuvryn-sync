@@ -402,7 +402,9 @@ chart). Every hour it removes checkouts that no Revision or Repository still
 refers to, and clones of Repositories that no longer exist, once they have gone
 unused for an hour. Checkouts for Revisions kept by history retention stay, so
 the cache grows with `spec.history` and the number of Repositories, not with
-every commit ever rendered. Size the volume for that.
+every commit ever rendered. Size the volume for that. Pulled Helm charts are
+cached beside the clones and removed once no render has used them for a day;
+every render of a Helm Application uses its chart.
 
 ## Metrics and tracing
 

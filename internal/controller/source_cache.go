@@ -18,12 +18,14 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	helmrenderer "github.com/azrtydxb/solder/internal/renderer/helm"
 	gitcache "github.com/azrtydxb/solder/internal/source/git"
 )
 
@@ -32,6 +34,10 @@ const (
 	// cacheGracePeriod covers renders still reading a checkout that was
 	// resolved moments ago but is not yet recorded on a Revision.
 	cacheGracePeriod = time.Hour
+	// chartCacheMaxIdle is how long a pulled chart stays cached without a
+	// render using it. Every render of a Helm Application pulls, so charts in
+	// use are touched at least every drift resync.
+	chartCacheMaxIdle = 24 * time.Hour
 )
 
 // NewSourceCache returns the Git cache the Repository and Application
@@ -41,7 +47,7 @@ func NewSourceCache() *gitcache.Cache {
 }
 
 // SourceCachePruner periodically removes Git checkouts that no Revision or
-// Repository refers to any more. Each replica has its own cache on local
+// Repository refers to any more, and Helm charts no render has used for a day. Each replica has its own cache on local
 // disk, so every replica prunes, leader or not.
 type SourceCachePruner struct {
 	Client client.Reader
@@ -77,7 +83,11 @@ func (p *SourceCachePruner) prune(ctx context.Context) error {
 	if len(removed) > 0 {
 		logf.FromContext(ctx).Info("Pruned Git source cache", "removed", len(removed))
 	}
-	return err
+	charts, chartErr := helmrenderer.PruneCache(chartCacheDir(""), time.Now().Add(-chartCacheMaxIdle))
+	if len(charts) > 0 {
+		logf.FromContext(ctx).Info("Pruned Helm chart cache", "removed", len(charts))
+	}
+	return errors.Join(err, chartErr)
 }
 
 // keptCommits maps each Repository's URL to the commits that must stay

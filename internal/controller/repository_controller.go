@@ -149,6 +149,11 @@ func cacheRoot(dir string) string {
 	return cmp.Or(dir, filepath.Join(os.TempDir(), defaultSourceCacheDir))
 }
 
+// chartCacheDir is where pulled Helm charts are cached, beside the Git cache.
+func chartCacheDir(dir string) string {
+	return filepath.Join(cacheRoot(dir), "charts")
+}
+
 func (r *RepositoryReconciler) resolver() source.Resolver {
 	if r.SourceResolver != nil {
 		return r.SourceResolver
