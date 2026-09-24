@@ -167,3 +167,49 @@ spec:
 
 The controller records rollback transitions in Revision status and emits
 lifecycle Events.
+
+## Diagnosis down to PersistentVolumes
+
+The `admin` role bound in the destination namespace lets diagnosis read what
+it needs there. PersistentVolumes are cluster-scoped, so following a claim to
+its volume needs a ClusterRole:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: solder-diagnosis-volumes
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: payments-deployer-volumes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: solder-diagnosis-volumes
+subjects:
+  - kind: ServiceAccount
+    name: payments-deployer
+    namespace: default
+```
+
+```sh
+solder diagnose payments -n default
+solder graph payments -n default -o dot | dot -Tsvg > payments.svg
+```
+
+## Tracing with Helm
+
+```yaml
+# values.yaml
+extraEnv:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://otel-collector.observability:4317
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: deployment.environment=prod
+```

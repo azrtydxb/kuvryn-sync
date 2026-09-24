@@ -231,6 +231,16 @@ A healthy automatic sync usually ends with:
 - Application `.status.health.state: Healthy`
 - Revision `.status.phase: Healthy`
 
+If the Application stays Progressing or turns Degraded, ask Solder why:
+
+```sh
+solder diagnose payments -n default
+```
+
+It prints the chain from the unhealthy resource down to the root cause, such
+as a missing Secret or an image that cannot be pulled. See
+[Reading a diagnosis](troubleshooting.md#reading-a-diagnosis).
+
 ## 6. Try an update
 
 Push a change to the Git path, then wait for polling or force a reconcile by

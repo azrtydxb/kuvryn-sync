@@ -23,7 +23,19 @@ Common causes:
 - image from a different release than the chart or manifests, which exits on
   an unknown flag such as `--drift-resync-interval`;
 - read-only filesystem without a writable `/tmp` mount;
+- Pod evicted for ephemeral storage, when the source cache outgrows the node;
+  see [Source cache](operations.md#source-cache);
 - RBAC denied for managed resources.
+
+## No traces arrive
+
+Tracing is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the manager container; with
+Helm, set it through `extraEnv`. Solder exports over OTLP gRPC only, usually
+port 4317, not OTLP HTTP on 4318. A plain-text collector needs
+`OTEL_EXPORTER_OTLP_INSECURE=true` or an `http://` endpoint. Export failures
+appear in the manager log as `Failed to export traces`. See
+[Metrics and tracing](operations.md#metrics-and-tracing).
 
 ## Repository is Failed
 
@@ -93,19 +105,21 @@ between are how one leads to the other, such as the ReplicaSet and Pod between
 a Deployment and a missing Secret. Fix the last entry; the others recover on
 their own.
 
-| Reason                                      | Root resource       | What to check                                                                                            |
-| ------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------- |
-| `MissingSecret`, `MissingConfigMap`         | the missing object  | Create it, or fix the name in the Pod template; mark the reference `optional: true` if it may be absent. |
-| `MissingPersistentVolumeClaim`              | the missing claim   | Create the claim or fix `claimName`.                                                                     |
-| `MissingServiceAccount`                     | the missing account | Create the account or fix `serviceAccountName`.                                                          |
-| `ImagePullBackOff`, `ErrImagePull`          | the Pod             | The image name and tag, and the pull Secret; a missing pull Secret is reported as `MissingSecret`.       |
-| `CrashLoopBackOff`                          | the Pod             | The last exit code in the message, then `kubectl logs --previous`.                                       |
-| `CreateContainerConfigError`                | the Pod             | A key missing from a ConfigMap or Secret that exists.                                                    |
-| `Unschedulable`                             | the Pod             | Requests, node selectors, taints, and quotas named in the message.                                       |
-| `ClaimPending`                              | the claim           | The storage class and its provisioner.                                                                   |
-| `NoReadyEndpoints`                          | the Service         | Whether its selector matches ready Pods.                                                                 |
-| `JobFailed`, `OOMKilled`, `ContainerFailed` | the Job or its Pod  | The Job's Pods and their logs.                                                                           |
-| `FailedCreate`, `ProgressDeadlineExceeded`  | the workload        | The workload's conditions: quotas, admission, or a rollout that stopped progressing.                     |
+| Reason                                             | Root resource       | What to check                                                                                                                             |
+| -------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `MissingSecret`, `MissingConfigMap`                | the missing object  | Create it, or fix the name in the Pod template; mark the reference `optional: true` if it may be absent.                                  |
+| `MissingPersistentVolumeClaim`                     | the missing claim   | Create the claim or fix `claimName`.                                                                                                      |
+| `MissingServiceAccount`                            | the missing account | Create the account or fix `serviceAccountName`.                                                                                           |
+| `ImagePullBackOff`, `ErrImagePull`                 | the Pod             | The image name and tag, and the pull Secret; a missing pull Secret is reported as `MissingSecret`.                                        |
+| `CrashLoopBackOff`                                 | the Pod             | The last exit code in the message, then `kubectl logs --previous`.                                                                        |
+| `CreateContainerConfigError`                       | the Pod             | A key missing from a ConfigMap or Secret that exists.                                                                                     |
+| `Unschedulable`                                    | the Pod             | Requests, node selectors, taints, and quotas named in the message.                                                                        |
+| `ClaimPending`                                     | the claim           | The storage class and its provisioner.                                                                                                    |
+| `NoReadyEndpoints`                                 | the Service         | Whether its selector matches ready Pods.                                                                                                  |
+| `JobFailed`, `OOMKilled`, `ContainerFailed`        | the Job or its Pod  | The Job's Pods and their logs.                                                                                                            |
+| `PodFailed`, or the Pod's reason such as `Evicted` | the Pod             | The Pod's status message: eviction, node pressure, or deadline.                                                                           |
+| `FailedCreate`, `ProgressDeadlineExceeded`         | the workload        | The workload's conditions: quotas, admission, or a rollout that stopped progressing. `FailedCreate` is the usual `ReplicaFailure` reason. |
+| `Missing<Kind>` for any other kind                 | the missing object  | A referenced object, such as a Service behind an Ingress, that does not exist.                                                            |
 
 A cause whose chain is only the managed resource itself means Solder found no
 deeper evidence; its reason is the resource's health verdict, such as
