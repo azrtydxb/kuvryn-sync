@@ -288,6 +288,14 @@ type ApplicationStatus struct {
 	// resources summarizes managed resource health.
 	// +optional
 	Resources ResourceHealthSummary `json:"resources,omitempty"`
+	// diagnosis explains why the Application is not Healthy: each cause names
+	// the resource at the root of a failure and the chain of resources from
+	// an unhealthy managed object down to it. It is empty when the
+	// Application is Healthy.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	Diagnosis []DiagnosisCause `json:"diagnosis,omitempty"`
 	// managedKinds lists the kinds Solder last applied for this Application.
 	// Pruning and drift watches use it to find managed objects of any kind,
 	// including after a controller restart.
@@ -317,6 +325,29 @@ type ApplicationHealthStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Progressing;Healthy;Degraded;Suspended
 	// +optional
 	State HealthState `json:"state,omitempty"`
+}
+
+// DiagnosisCause is one root cause of an unhealthy Application.
+type DiagnosisCause struct {
+	// resource is the resource at the root of the failure, such as a missing
+	// Secret or a Pod whose container cannot start.
+	Resource ResourceRef `json:"resource"`
+	// reason is a CamelCase word naming the failure, such as MissingSecret,
+	// ImagePullBackOff or Unschedulable.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[A-Z][A-Za-z0-9]*$`
+	Reason string `json:"reason"`
+	// message is the redacted, bounded evidence for the failure.
+	// +kubebuilder:validation:MaxLength=1024
+	// +optional
+	Message string `json:"message,omitempty"`
+	// chain lists the resources from the unhealthy managed object down to the
+	// root cause, both included.
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=10
+	Chain []ResourceRef `json:"chain"`
 }
 
 // ManagedKind identifies a kind of object Solder manages for an Application.
