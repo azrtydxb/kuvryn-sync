@@ -29,9 +29,15 @@ Solder focuses on the product path that matters for day-two operations:
 - Server-Side Apply is used for mutations; ownership conflicts fail by default,
   and `adopt` takes fields over deliberately when migrating from Flux or Argo CD.
 - `Revision` CRDs keep bounded, redacted, auditable plan and rollout history.
+- Unhealthy Applications explain themselves: Solder walks the live resource
+  graph down to the root cause, such as a missing Secret or an image pull
+  failure, records it in `status.diagnosis`, and `solder diagnose` and
+  `solder graph` print it.
+- Prometheus metrics and, when an OTLP endpoint is configured,
+  OpenTelemetry traces of every Application reconcile.
 
 > Status: alpha (`solder.io/v1alpha1`). The MVP is functional and covered by
-> controller, CLI, contract, and product-path e2e tests, but the API may still
+> controller, CLI, and product-path e2e tests, but the API may still
 > change before a stable release.
 
 ## Documentation
@@ -49,6 +55,7 @@ Start with:
 - [Operations](docs/operations.md)
 - [Security model](docs/security.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Upgrade notes](docs/upgrade.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Quickstart
@@ -127,6 +134,7 @@ Then inspect state:
 kubectl get repositories.solder.io,applications.solder.io,revisions.solder.io
 solder apps -n default
 solder plan payments -n default
+solder diagnose payments -n default
 ```
 
 ## Project layout
@@ -135,7 +143,8 @@ solder plan payments -n default
 cmd/                    controller manager entry point and CLI dispatch
 api/v1alpha1/           public Kubernetes API types
 internal/controller/    controller-runtime reconcilers
-internal/               source, renderer, plan, apply, health, drift, ops packages
+internal/               source, renderer, plan, apply, health, drift, graph,
+                        diagnosis, ops packages
 config/                 CRDs, RBAC, manager manifests, samples
 docs/                   GitHub Pages documentation
 charts/solder/          alpha Helm chart
@@ -144,6 +153,9 @@ solder-full-spec.md     product and engineering specification
 ```
 
 ## Development
+
+Building from source needs Go 1.26 or later. The repository's devcontainer
+provides it; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Generate CRDs and deepcopy code:
 

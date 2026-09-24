@@ -44,6 +44,9 @@
   `OTEL_*` variables. Before, nothing installed a tracer provider, so the documented
   tracing produced nothing. Span errors are redacted like status messages. The
   Helm chart gains `extraEnv` to pass the variables.
+- Credentials in URLs, such as `https://user:token@host/`, are now redacted
+  from status messages, Events, CLI output, and spans. Before, only
+  `password=...` style assignments and bearer tokens were.
 
 ## 0.2.0
 

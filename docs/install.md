@@ -13,7 +13,10 @@ chart. Both paths install the same CRDs and controller.
 - Kubernetes cluster.
 - `kubectl` with cluster-admin permission for CRD installation.
 - `helm` if using the chart.
-- Network access from the controller Pod to configured Git remotes.
+- Network access from the controller Pod to configured Git remotes, and to
+  chart repositories, registries, notification sinks, and an OTLP collector
+  if you use them.
+- Go 1.26 or later only to build Solder from source.
 - [cert-manager](https://cert-manager.io). Solder serves two admission
   webhooks over TLS with a certificate cert-manager issues and injects: a
   validating webhook for HealthChecks and a mutating webhook that records who
@@ -76,6 +79,21 @@ The raw manifests name it `solder-controller-manager` instead.
 kubectl -n solder-system rollout status deployment/solder-solder
 kubectl api-resources --api-group=solder.io
 ```
+
+### Chart values
+
+| Value                     | Default                               | Meaning                                                                                                                                           |
+| ------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`        | `ghcr.io/azrtydxb/solder`             | Manager image.                                                                                                                                    |
+| `image.tag`               | `v<appVersion>`                       | Override only with an image built from the same commit as the chart.                                                                              |
+| `image.pullPolicy`        | `IfNotPresent`                        | Image pull policy.                                                                                                                                |
+| `replicaCount`            | `2`                                   | Manager replicas; only the leader reconciles.                                                                                                     |
+| `leaderElection`          | `true`                                | Passes `--leader-elect`.                                                                                                                          |
+| `defaultServiceAccount`   | `""`                                  | Service account used by Applications that set none; empty refuses them. See [Security model](security.md#rbac-and-service-account-impersonation). |
+| `driftResyncInterval`     | `5m`                                  | How often Applications with unwatched kinds are re-checked for drift; `0` disables it.                                                            |
+| `webhookReceiver.enabled` | `false`                               | Serves push webhooks on the Service `<release>-solder-receiver`. See [Push webhooks](operations.md#push-webhooks).                                |
+| `extraEnv`                | `[]`                                  | Extra manager environment variables, such as the `OTEL_*` tracing settings. See [Metrics and tracing](operations.md#metrics-and-tracing).         |
+| `resources`               | 50m/128Mi requests, 500m/512Mi limits | Manager container resources. Add `ephemeral-storage` to account for the source cache; see [Source cache](operations.md#source-cache).             |
 
 ## Git credentials
 

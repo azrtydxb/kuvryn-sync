@@ -16,6 +16,13 @@ self-heal, pruning, rollback, sync waves and hooks, notifications, SOPS,
 image automation, and Repository-driven Application discovery from
 `.solder.yaml` files, without a database, broker, or mandatory UI.
 
+When an Application is not Healthy, Solder walks its live resource graph down
+to the root cause, such as a missing Secret or a crash-looping Pod, and
+records the chain in `status.diagnosis`; `solder diagnose` and `solder graph`
+print it. The Helm chart and raw manifests expose Prometheus metrics on `:8443`
+(the manager's own default leaves them off), and OpenTelemetry traces are
+exported over OTLP once an endpoint is configured.
+
 The first public API is intentionally compact:
 
 - **Repository**: where desired state comes from.
@@ -51,7 +58,7 @@ Optional companions: **HealthCheck** (CEL health rules for a kind),
 - Server-Side Apply is the mutation mechanism; conflicts fail by default.
 - Each Application changes only what its service account may change.
 - Secret material is redacted from status, plans, logs, CLI output, Events,
-  metrics, and diagnostics.
+  metrics, traces, and diagnostics.
 - History is bounded so status remains operator-friendly.
 - Rollback is normal reconciliation against a previous healthy Revision, not a
   special side channel.

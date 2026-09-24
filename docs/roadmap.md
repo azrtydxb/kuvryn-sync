@@ -21,8 +21,15 @@ OCI desired-state bundles can be added as another Repository source type with im
 
 ## Policy and supply chain
 
-Policy, signature, SBOM, and provenance checks should run after render/plan and before apply. They must consume redacted plan and provenance data and must not require exposing Secret values.
+Policy, signature, SBOM, and build-attestation checks should run after render/plan and before apply. They must consume the redacted plan and the recorded source identity (commit, chart digest) and must not require exposing Secret values.
 
 ## AI explanations
 
-AI remains an optional explanation layer over redacted plans, health, drift, and diagnosis. It must not be required for reconciliation and must never receive Secret values by default.
+AI remains an optional explanation layer over redacted plans, health, drift, and the deterministic `status.diagnosis` Solder already records. It must not be required for reconciliation and must never receive Secret values by default.
+
+## Delivered since 0.2.0
+
+The live resource graph and root-cause diagnosis (`status.diagnosis`,
+`solder diagnose`, `solder graph`) and OpenTelemetry trace export over OTLP
+are no longer deferred; they ship in the next release. See the
+[changelog](https://github.com/azrtydxb/solder/blob/main/CHANGELOG.md).

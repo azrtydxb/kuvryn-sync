@@ -15,8 +15,14 @@ surfaces while still giving operators useful plans, events, and diagnostics.
   Repository chooses both the Git URL and the Secret; without the label, any
   Secret in the namespace could be sent to an arbitrary Git server.
 - Secret values are not copied into Repository, Application, or Revision specs.
-- Plan, status, log, Event, metrics, and CLI paths use centralized redaction.
+- Plan, status, log, Event, metrics, trace, and CLI paths use centralized
+  redaction. It removes `password=`-style assignments, bearer tokens, and
+  credentials embedded in URLs (`https://user:token@host` becomes
+  `https://REDACTED@host`).
 - Desired Secret manifests are treated as sensitive even when rendered from Git.
+- Diagnosis reads Secrets, ConfigMaps, and ServiceAccounts as metadata only,
+  so their data never reaches `status.diagnosis`; container messages it quotes
+  are redacted and cut to 512 characters.
 
 ## Server-Side Apply ownership
 
@@ -46,6 +52,13 @@ reason `Forbidden`. Kinds the service account may not list are left out of
 pruning and reported with a `PruneInventoryIncomplete` Warning Event. The
 service account is part of the Revision identity, so switching an Application
 to an account with the right permissions starts a fresh Revision.
+
+Diagnosis also reads as the Application's service account: the Pods,
+ReplicaSets, and EndpointSlices below managed resources and the objects they
+refer to. It never widens what Solder can see, and a read the account may not
+make only makes the diagnosis shallower. See
+[Diagnosis permissions](operations.md#diagnosis-permissions). `solder graph`
+reads with the caller's own kubeconfig credentials instead.
 
 An Application may name any service account in its own namespace. Creating
 Applications in a namespace is therefore as powerful as the most privileged
@@ -132,6 +145,9 @@ Besides the Kubernetes API, the controller makes outbound connections to:
   an Application's `render.helm.chart`, to pull the pinned chart.
 - Container registries of ImagePolicies, to list tags.
 - NotificationSink endpoints, which must be `https` URLs.
+- The OTLP trace collector, only when `OTEL_EXPORTER_OTLP_ENDPOINT` or
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set. Spans carry redacted error
+  messages and no Application names.
 
 It accepts inbound connections on the admission webhook port (9443), the
 metrics port (8443), the health probe port (8081), and, only when the manager
