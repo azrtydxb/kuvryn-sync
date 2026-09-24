@@ -10,6 +10,9 @@
   validation ratcheting (before Kubernetes 1.30), rename it before deleting
   such an Application, or its finalizer cannot be removed. A `.solder.yaml`
   naming an invalid release fails discovery for its Repository.
+- Fixed: `solder version` always printed `solder development`. Builds now embed
+  the version: the Git tag for a release image, `sha-<commit>` otherwise, and
+  `dev` for a plain `go build`. The manager logs it once at startup.
 - Applications explain why they are not Healthy. When a managed resource is
   unhealthy, Solder builds a graph of its live ReplicaSets, Pods,
   EndpointSlices and the ConfigMaps, Secrets, claims, volumes and

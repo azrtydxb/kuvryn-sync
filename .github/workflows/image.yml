@@ -55,12 +55,29 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: echo "branch=${REF_NAME//[^a-zA-Z0-9_.-]/-}" >> "$GITHUB_OUTPUT"
 
+      # The binary reports this version: the tag on a release, the commit
+      # otherwise.
+      - name: Compute the build version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            echo "version=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=sha-${SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           platforms: linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.branch }}
             ghcr.io/${{ github.repository }}:sha-${{ github.sha }}

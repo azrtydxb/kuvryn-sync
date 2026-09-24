@@ -11,6 +11,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/planoutput"
+	"github.com/azrtydxb/solder/internal/version"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -89,7 +90,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 	case "resume":
 		err = runSuspend(ctx, args[1:], stdout, stderr, false)
 	case "version":
-		_, _ = fmt.Fprintln(stdout, "solder development")
+		_, _ = fmt.Fprintln(stdout, "solder", version.Version)
 		return true, 0
 	case "help":
 		_, _ = fmt.Fprint(stdout, Usage)
