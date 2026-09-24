@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Breaking:** `spec.source.render.helm.releaseName` must follow Helm's naming
+  rule, a lowercase DNS subdomain of at most 53 characters, and the CRD
+  enforces it. Applications whose release name broke the rule never rendered,
+  because Helm refused the name. They now fail with `ValidationFailure` before
+  any Revision is created; rename the release. On clusters without CRD
+  validation ratcheting (before Kubernetes 1.30), rename it before deleting
+  such an Application, or its finalizer cannot be removed. A `.solder.yaml`
+  naming an invalid release fails discovery for its Repository.
 - Applications explain why they are not Healthy. When a managed resource is
   unhealthy, Solder builds a graph of its live ReplicaSets, Pods,
   EndpointSlices and the ConfigMaps, Secrets, claims, volumes and

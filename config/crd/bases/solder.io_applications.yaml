@@ -251,9 +251,11 @@ spec:
                                 - version
                               type: object
                             releaseName:
-                              description:
-                                releaseName is the Helm release name used
-                                for template rendering.
+                              description: |-
+                                releaseName is the Helm release name used for template rendering. Like
+                                Helm, it must be a lowercase DNS subdomain of at most 53 characters.
+                              maxLength: 53
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
                             values:
                               description:

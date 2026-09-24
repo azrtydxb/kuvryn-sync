@@ -22,6 +22,15 @@ import (
 
 const defaultReleaseName = "solder"
 
+// ReleaseName returns the Helm release name rendering uses for an Application
+// whose spec names name: the name itself, or a default when it is empty.
+func ReleaseName(name string) string {
+	if name == "" {
+		return defaultReleaseName
+	}
+	return name
+}
+
 // Renderer renders a chart like `helm template`, without a helm binary and
 // without contacting the cluster or any chart or values URL.
 type Renderer struct{}
@@ -65,10 +74,7 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 	install := action.NewInstall(action.NewConfiguration())
 	install.DryRunStrategy = action.DryRunClient
 	install.Replace = true
-	install.ReleaseName = input.ReleaseName
-	if install.ReleaseName == "" {
-		install.ReleaseName = defaultReleaseName
-	}
+	install.ReleaseName = ReleaseName(input.ReleaseName)
 	install.Namespace = input.Namespace
 	rendered, err := install.RunWithContext(ctx, chrt, values)
 	if err != nil {
