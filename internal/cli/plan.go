@@ -12,6 +12,7 @@ import (
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/planoutput"
 	"github.com/azrtydxb/solder/internal/version"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -289,6 +290,9 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 	if rev.Spec.ApplicationRef.Name != app.Name {
 		return fmt.Errorf("revision %s belongs to application %q, not %q", rev.Name, rev.Spec.ApplicationRef.Name, app.Name)
 	}
+	if rolledBack(rev) {
+		return fmt.Errorf("Revision %s was replaced by a rollback; push a new commit or delete the Revision", rev.Name)
+	}
 	digest := rev.Status.Plan.Digest
 	if digest == "" {
 		return fmt.Errorf("revision %s has no plan to approve yet", rev.Name)
@@ -313,7 +317,7 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 
 func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs, namespace := newFlagSet("solder rollback", stderr)
-	revisionName := fs.String("revision", "", "Revision object to roll back to; defaults to latest healthy")
+	revisionName := fs.String("revision", "", "Revision object to roll back to; defaults to the newest known-good one not desired or deployed")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -324,43 +328,91 @@ func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err != nil {
 		return err
 	}
+	return rollback(ctx, c, *namespace, fs.Arg(0), *revisionName, stdout)
+}
+
+// rollback requests a rollback of application to the named Revision, or by
+// default to the newest known-good one. It records the source revision rolled
+// back from, which the controller holds once the rollback completes.
+func rollback(ctx context.Context, c client.Client, namespace, application, revisionName string, stdout io.Writer) error {
 	app := &corev1alpha1.Application{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: fs.Arg(0)}, app); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
 		return err
 	}
-	target := *revisionName
+	// The desired revision is what reconciling would deploy next, so it is
+	// what the rollback must hold; the deployed one is replaced anyway and
+	// only deploys again if it is also desired.
+	from := app.Status.DesiredRevision
+	if from == "" {
+		from = app.Status.DeployedRevision
+	}
+	if from == "" {
+		return fmt.Errorf("application %q has not resolved a revision yet; nothing to roll back from", app.Name)
+	}
+	target := revisionName
 	if target == "" {
 		var list corev1alpha1.RevisionList
-		if err := c.List(ctx, &list, client.InNamespace(*namespace)); err != nil {
+		if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 			return err
 		}
-		var newest *corev1alpha1.Revision
-		for i := range list.Items {
-			rev := &list.Items[i]
-			if rev.Spec.ApplicationRef.Name != app.Name || rev.Status.Phase != corev1alpha1.RevisionPhaseHealthy {
-				continue
-			}
-			if newest == nil || newer(rev.ObjectMeta, newest.ObjectMeta) {
-				newest = rev
-			}
+		var err error
+		if target, err = defaultRollbackTarget(app, list.Items); err != nil {
+			return err
 		}
-		if newest != nil {
-			target = newest.Name
-		}
-	}
-	if target == "" {
-		return fmt.Errorf("no healthy Revision found for application %q", app.Name)
 	}
 	rev := &corev1alpha1.Revision{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: target}, rev); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: target}, rev); err != nil {
 		return err
 	}
-	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "solder.io/rollback-revision", rev.Spec.Source.Revision)
+	if rev.Spec.ApplicationRef.Name != app.Name {
+		return fmt.Errorf("revision %s belongs to application %q, not %q", rev.Name, rev.Spec.ApplicationRef.Name, app.Name)
+	}
+	if rev.Spec.Source.Revision == from && !rolledBack(rev) {
+		return fmt.Errorf("revision %s is the desired revision %s; roll back to an earlier one", rev.Name, from)
+	}
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackRevisionAnnotation, rev.Spec.Source.Revision)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackFromAnnotation, from)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackKindAnnotation, corev1alpha1.RollbackKindManual)
 	if err := c.Update(ctx, app); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
+	if rolledBack(rev) {
+		_, _ = fmt.Fprintf(stdout, "revision %s was replaced by an earlier rollback; rolling back to it lifts that hold\n", rev.Name)
+	}
+	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s), holding %s once it completes\n", app.Name, rev.Name, rev.Spec.Source.Revision, from)
 	return nil
+}
+
+// rolledBack reports a Revision a completed rollback replaced.
+func rolledBack(rev *corev1alpha1.Revision) bool {
+	return apimeta.IsStatusConditionTrue(rev.Status.Conditions, corev1alpha1.RolledBackCondition)
+}
+
+// defaultRollbackTarget names the newest known-good Revision of app, Healthy
+// or deployed by an earlier rollback, whose source revision is neither the
+// desired nor the deployed one: rolling back to either would change nothing.
+// Revisions created in the same second are ordered by name.
+func defaultRollbackTarget(app *corev1alpha1.Application, revisions []corev1alpha1.Revision) (string, error) {
+	var newest *corev1alpha1.Revision
+	for i := range revisions {
+		rev := &revisions[i]
+		if rev.Spec.ApplicationRef.Name != app.Name {
+			continue
+		}
+		if rev.Status.Phase != corev1alpha1.RevisionPhaseHealthy && rev.Status.Phase != corev1alpha1.RevisionPhaseRolledBack {
+			continue
+		}
+		if source := rev.Spec.Source.Revision; source == app.Status.DeployedRevision || source == app.Status.DesiredRevision {
+			continue
+		}
+		if newest == nil || newer(rev.ObjectMeta, newest.ObjectMeta) {
+			newest = rev
+		}
+	}
+	if newest == nil {
+		return "", fmt.Errorf("no Healthy or RolledBack Revision of application %q other than the desired and deployed revisions to roll back to", app.Name)
+	}
+	return newest.Name, nil
 }
 
 func runDrift(ctx context.Context, args []string, stdout, stderr io.Writer) error {

@@ -36,6 +36,14 @@
   named by Helm `valuesFrom` does not end it. A rollback whose target cannot be
   resolved, rendered, deployed, or retried is abandoned with a
   `RollbackAbandoned` Warning Event instead of pinning the Application.
+- Fixed: `solder rollback` without `--revision` picked the newest Healthy
+  Revision, usually the one already deployed, so it did nothing. It now picks
+  the newest Revision that is Healthy or was deployed by an earlier rollback,
+  whose source revision is neither the desired nor the deployed one, ordered by
+  creation time and then name, and fails when there is none. It records the
+  desired revision as the one rolled back from, refuses a Revision of another
+  Application, and says when rolling back to a held Revision lifts its hold.
+  `solder approve` refuses a Revision a rollback replaced.
 - Fixed: a Revision status write from a stale copy could overwrite newer
   status. Writes are now checked against the resourceVersion they were read
   at, and a conflict retries the reconcile.

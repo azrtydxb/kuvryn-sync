@@ -20,7 +20,9 @@ Core commands use Kubernetes CRDs directly:
 - `solder diagnose <application>` prints the latest deterministic failure and
   the causal chains in `status.diagnosis`.
 - `solder graph <application>` prints the live resource graph as JSON or DOT.
-- `solder rollback <application>` requests rollback to a healthy Revision.
+- `solder rollback <application>` requests rollback to the newest known-good
+  Revision other than the desired and deployed ones, and holds the revision
+  rolled back from.
 
 Application, Repository, and Revision status remain the public integration API.
 Mutation helpers update public CRDs and require exact Revision approval where

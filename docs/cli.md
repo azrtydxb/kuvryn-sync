@@ -101,7 +101,9 @@ you review `solder plan` again. Running it again after an `ApprovalStale`
 Event re-approves the new plan. The approval is recorded under your own
 Kubernetes identity; see [Manual approval](operations.md#manual-approval).
 
-Request rollback to the latest healthy Revision:
+Request rollback to the newest known-good Revision, Healthy or deployed by an
+earlier rollback, whose source revision is neither the desired nor the deployed
+one. The command fails when there is none:
 
 ```sh
 solder rollback payments -n default
@@ -112,6 +114,12 @@ Request rollback to a specific Revision object:
 ```sh
 solder rollback payments -n default --revision payments-abc123
 ```
+
+The command records the desired revision as the one rolled back from. Once the
+rollback completes, that revision is held: it is not deployed again, even with
+automatic sync, until a new commit arrives. Rolling back explicitly to a held
+Revision lifts its hold. The target must belong to the Application. `solder
+approve` refuses a held Revision. See [Rollback](concepts.md#rollback).
 
 Suspend or resume reconciliation:
 
