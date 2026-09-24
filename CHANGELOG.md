@@ -19,12 +19,32 @@
   `PruneSkipped` Warning Event names them once per attempt. They keep Solder's
   labels and stay in the inventory, and later Revisions do not try to delete
   them again.
+- Fixed: a completed rollback did not last. After an automatic rollback the
+  failed Revision was left `RollingBack` and deployed again on the next
+  reconcile; after a manual rollback with automatic sync, the current commit
+  was deployed again, and a rollout still in progress resumed. A rollback now
+  records its target, the source revision it rolls back from, and its kind in
+  the `solder.io/rollback-revision`, `solder.io/rollback-from` and
+  `solder.io/rollback-kind` annotations. Once it completes, every Revision of
+  the rolled-back-from revision, in any phase, is marked `Failed` with a
+  `RolledBack` condition (`ManualRollback` or `RollbackCompleted`) and is not
+  deployed or approved again. The Application keeps reconciling the rollback
+  target, observing its health and self-healing drift, with sync `OutOfSync`
+  and `Ready=False/RolledBack`. The hold ends with a new commit, a change to
+  `spec.source.path`, `spec.source.render` or the service account, deleting
+  the held Revision, or an explicit rollback to it; a new value in a Secret
+  named by Helm `valuesFrom` does not end it. A rollback whose target cannot be
+  resolved, rendered, deployed, or retried is abandoned with a
+  `RollbackAbandoned` Warning Event instead of pinning the Application.
+- Fixed: a Revision status write from a stale copy could overwrite newer
+  status. Writes are now checked against the resourceVersion they were read
+  at, and a conflict retries the reconcile.
 - Fixed: the Application `Ready` condition was only ever set to `False`, so a
   recovered Application kept a stale failure that `solder diagnose` printed.
   `Ready` now turns `True` with reason `Healthy` when a rollout completes
   Synced and Healthy, and `False` with the failure's reason whenever a rollout
-  fails, not only when reconciliation stops before planning. After an
-  automatic rollback it is `False` with reason `RolledBack`. `Ready` is left as
+  fails, not only when reconciliation stops before planning. While a completed
+  rollback holds, it is `False` with reason `RolledBack`. `Ready` is left as
   it was during drift without self-heal, suspension, approval and dependency
   waits, and rollouts in progress, so it reports the last completed rollout.
 - Behaviour change: an Application that another Application manages, such as

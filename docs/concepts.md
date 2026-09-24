@@ -177,10 +177,38 @@ Applications that manage other kinds are re-checked every
 
 ## Rollback
 
-Rollback chooses a previous healthy Revision, records rollback intent on the
-Application, and runs normal reconciliation against that prior source revision.
-This preserves the same validation, planning, apply, health, and event behavior
-as a forward sync.
+A rollback records its intent on the Application: the source revision to roll
+back to, the source revision it rolls back from, and whether it is manual
+(`solder rollback`) or automatic (a `rollback` failure policy). Solder then
+runs normal reconciliation against the target, with the same validation,
+planning, apply, health, and event behavior as a forward sync.
+
+When the rollback completes, it holds. Every Revision of the source revision
+rolled back from, in any phase, is marked `Failed` with a `RolledBack`
+condition (reason `ManualRollback` or `RollbackCompleted`), and Solder does not
+deploy it again. The Application keeps running the target: Solder still
+reconciles it, observing its health, reporting drift, and self-healing when
+`spec.sync.selfHeal` is set, while sync stays `OutOfSync` against the held
+desired revision and `Ready` is `False` with reason `RolledBack`. An approval
+of a held Revision is ignored.
+
+The hold is keyed on the commit and the Revision identity. It ends when:
+
+- a new commit arrives, creating a new Revision;
+- `spec.source.path`, `spec.source.render` or the service account changes,
+  which also creates a new Revision for the same commit: a changed spec is new
+  desired state, so it deploys;
+- you delete the held Revision, which Solder then creates afresh;
+- you roll back to the held Revision explicitly, with
+  `solder rollback --revision`, which lifts its hold and deploys it.
+
+A change that keeps the Revision identity, such as a new value in a Secret
+named by Helm `valuesFrom`, does not end the hold.
+
+A rollback that cannot reach its target, because the target fails to resolve,
+render, or deploy, or may no longer be retried, is abandoned: Solder removes
+the request, emits a `RollbackAbandoned` Warning Event, and reconciles the
+desired revision again, so a request never pins the Application.
 
 ## Events, metrics, and tracing
 

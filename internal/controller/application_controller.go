@@ -171,7 +171,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if application.Status.Sync.State == "" {
 			application.Status.Sync.State = corev1alpha1.SyncStateUnknown
 		}
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	// The CRD refuses an invalid Helm release name, but an Application stored
@@ -179,7 +179,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Revision. Report it once instead of retrying a Create that cannot work.
 	if err := validateHelmReleaseName(application); err != nil {
 		r.markApplicationFailure(application, "ValidationFailure", err.Error())
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	tenant, err := r.tenantClient(application)
@@ -189,7 +189,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			reason = "ServiceAccountRequired"
 		}
 		r.markApplicationFailure(application, reason, safeMessage(err, "Application service account could not be used"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	repository := &corev1alpha1.Repository{}
@@ -197,40 +197,48 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.Get(ctx, repoKey, repository); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.markApplicationFailure(application, "SourceFailure", "Referenced Repository was not found")
-			return ctrl.Result{}, r.Status().Update(ctx, application)
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 		}
 		return ctrl.Result{}, err
 	}
 	if repository.Spec.Type != "" && repository.Spec.Type != corev1alpha1.RepositoryTypeGit {
 		r.markApplicationFailure(application, "SourceFailure", "Only Git repositories are supported")
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	if repository.Spec.Git == nil {
 		r.markApplicationFailure(application, "SourceFailure", "Git repository configuration is required")
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	credentials, err := (&RepositoryReconciler{Client: r.Client}).loadGitCredentials(ctx, repository)
 	if err != nil {
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source authentication failed"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
-	ref := strings.TrimSpace(application.Spec.Source.Revision)
-	if rollbackRef := strings.TrimSpace(application.GetAnnotations()["solder.io/rollback-revision"]); rollbackRef != "" {
-		ref = rollbackRef
+	resolve := func(ref string) (source.ResolvedSource, error) {
+		return r.resolver().Resolve(ctx, source.GitRepository{URL: repository.Spec.Git.URL, Revision: ref, Auth: credentials})
 	}
+	ref := strings.TrimSpace(application.Spec.Source.Revision)
 	if ref == "" {
 		ref = repository.Spec.Git.Revision
 	}
-	resolved, err := r.resolver().Resolve(ctx, source.GitRepository{
-		URL:      repository.Spec.Git.URL,
-		Revision: ref,
-		Auth:     credentials,
-	})
+	request := rollbackRequestOf(application)
+	if request.active() {
+		if request, err = r.recordRollbackIntent(ctx, application, request); err != nil {
+			return ctrl.Result{}, err
+		}
+		ref = request.target
+	}
+	resolved, err := resolve(ref)
 	if err != nil {
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		if request.active() {
+			if err := r.abandonRollback(ctx, application, request, "its source revision could not be resolved"); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	// Drift of a finished rollout is reported without re-evaluating health, so
@@ -246,11 +254,42 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if held := heldBy(revision); held != nil {
+		if request.active() {
+			// An explicit rollback to a held Revision deploys exactly it.
+			if err := r.liftHold(ctx, application, revision); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			// A completed rollback holds: keep reconciling the revision it
+			// deployed, never the held one, until a new commit arrives.
+			hold := &rollbackHold{desired: resolved.Revision, manual: held.Reason == manualRollbackReason}
+			deployed := application.Status.DeployedRevision
+			if deployed == "" || deployed == resolved.Revision {
+				return ctrl.Result{}, r.reportHold(ctx, application, hold, previousHealth, previousState)
+			}
+			ctx = withHold(ctx, hold)
+			if resolved, err = resolve(deployed); err != nil {
+				r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
+				return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+			}
+			if revision, err = r.ensureRevision(ctx, application, resolved.Revision); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 	metricPhase = revision.Status.Phase
 	// previousPhase is the persisted phase, so notifications fire only on
 	// transitions rather than on every reconcile of a steady state.
 	previousPhase := revision.Status.Phase
 	if blocked := retryBlocked(application, revision); blocked != nil {
+		if request.active() {
+			// A rollback whose target may not be retried would otherwise pin
+			// the Application to it on every reconcile.
+			if err := r.abandonRollback(ctx, application, request, blocked.Message); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return ctrl.Result{}, r.reportRetryBlocked(ctx, application, revision, *blocked)
 	}
 	// Whether a rollout is finished comes from the Revision, not from its
@@ -394,7 +433,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.Status().Update(ctx, application); err != nil {
+		if err := r.updateApplicationStatus(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Application drifted from its deployed Revision", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
@@ -409,7 +448,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	approval, stale := manualApproval(application, revision, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
@@ -420,7 +459,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.Status().Update(ctx, application); err != nil {
+		if err := r.updateApplicationStatus(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
 		if stale {
@@ -447,7 +486,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // the one it was given for: new desired objects need a fresh approval.
 func manualApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, stale bool) {
 	annotations := application.GetAnnotations()
-	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name {
+	// A Revision a rollback replaced is never deployed on an approval.
+	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name || heldBy(revision) != nil {
 		return nil, false
 	}
 	approvedBy := annotations[corev1alpha1.ApprovedByAnnotation]
@@ -900,18 +940,11 @@ func conflictFailure(plan planner.Plan) *corev1alpha1.RevisionFailure {
 	return nil
 }
 
+// updateRevisionStatus writes revision's status against the resourceVersion
+// it was read at: a write based on a stale copy conflicts and the reconcile
+// is retried, instead of overwriting newer status.
 func (r *ApplicationReconciler) updateRevisionStatus(ctx context.Context, revision *corev1alpha1.Revision) error {
-	latest := &corev1alpha1.Revision{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(revision), latest); err != nil {
-		return err
-	}
-	latest.Status = revision.Status
-	if err := r.Status().Update(ctx, latest); err != nil {
-		return err
-	}
-	revision.Status = latest.Status
-	revision.ResourceVersion = latest.ResourceVersion
-	return nil
+	return r.Status().Update(ctx, revision)
 }
 
 func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.Revision) *corev1alpha1.RevisionFailure {
@@ -947,7 +980,7 @@ func (r *ApplicationReconciler) reportRetryBlocked(ctx context.Context, applicat
 		application.Status.Diagnosis = diagnosed
 	}
 	r.event(application, corev1.EventTypeWarning, blocked.Reason, message)
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application *corev1alpha1.Application) error {
@@ -1121,7 +1154,7 @@ func (r *ApplicationReconciler) observe(ctx context.Context, tenant client.Clien
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: after}, r.Status().Update(ctx, application)
+	return ctrl.Result{RequeueAfter: after}, r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) recordHealth(application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result) {
@@ -1245,20 +1278,27 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 	status.CompleteHealthy(revision, application, metav1.Now())
 	application.Status.Diagnosis = nil
 	setRolloutComplete(revision, true)
-	if application.GetAnnotations()["solder.io/rollback-revision"] != "" {
+	if request := rollbackRequestOf(application); request.active() {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRolledBack
 		application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
-		annotations := application.GetAnnotations()
-		delete(annotations, "solder.io/rollback-revision")
-		application.SetAnnotations(annotations)
+		// The request is removed only once every replaced Revision is held,
+		// so a conflict on either write retries the same marking.
+		if err := r.holdReplaced(ctx, application, revision, request); err != nil {
+			return err
+		}
+		clearRollbackRequest(application)
 		if err := r.updateKeepingStatus(ctx, application); err != nil {
 			return err
 		}
-		setReady(application, metav1.ConditionFalse, "RolledBack", "Application was rolled back to an earlier Revision after a failure")
+		setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(!request.automatic()))
 		r.event(application, corev1.EventTypeNormal, "RollbackCompleted", "Application rollback completed")
 		if transition {
 			r.notify(ctx, application, revision, corev1alpha1.NotificationRolledBack, "Application rollback completed")
 		}
+	} else if hold := holdFrom(ctx); hold != nil {
+		// The deployed rollback target is healthy, but the desired revision
+		// is held and not deployed.
+		setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(hold.manual))
 	} else {
 		setReady(application, metav1.ConditionTrue, "Healthy", "Application is Synced and Healthy")
 		r.event(application, corev1.EventTypeNormal, "DeploymentHealthy", healthyMessage)
@@ -1269,7 +1309,7 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) applyHistoryRetention(ctx context.Context, application *corev1alpha1.Application) error {
@@ -1311,9 +1351,15 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	now := metav1.Now()
 	rollbackQueued := false
 	rollbackMissing := false
-	if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback && application.GetAnnotations()["solder.io/rollback-revision"] == "" {
+	if request := rollbackRequestOf(application); request.active() {
+		// The rollback's own target failed; retrying it would pin the
+		// Application to a revision that does not deploy.
+		if err := r.abandonRollback(ctx, application, request, failure.Reason+": "+failure.Message); err != nil {
+			return err
+		}
+	} else if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback {
 		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
-			metav1.SetMetaDataAnnotation(&application.ObjectMeta, "solder.io/rollback-revision", target.Spec.Source.Revision)
+			setRollbackRequest(application, rollbackRequest{target: target.Spec.Source.Revision, from: revision.Spec.Source.Revision, kind: corev1alpha1.RollbackKindAutomatic})
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.updateKeepingStatus(ctx, application); err != nil {
@@ -1339,7 +1385,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application *corev1alpha1.Application, current *corev1alpha1.Revision) (corev1alpha1.Revision, error) {

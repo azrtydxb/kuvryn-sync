@@ -162,11 +162,12 @@ spec:
     failurePolicy:
       action: rollback
       timeout: 5m
-      maxAttempts: 2
 ```
 
-The controller records rollback transitions in Revision status and emits
-lifecycle Events.
+A failure rolls back to the previous healthy Revision at once and holds the
+failed one until a new commit arrives, so `maxAttempts` matters only when there
+is nothing to roll back to. The controller records rollback transitions in
+Revision status and emits lifecycle Events; see [Rollback](concepts.md#rollback).
 
 ## Diagnosis down to PersistentVolumes
 

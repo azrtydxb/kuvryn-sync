@@ -119,7 +119,6 @@ applications:
         failurePolicy:
           action: rollback
           timeout: 5m
-          maxAttempts: 2
       health:
         timeout: 5m
       history:
