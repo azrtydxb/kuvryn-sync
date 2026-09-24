@@ -28,14 +28,14 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	if policy != corev1alpha1.ConflictPolicyFail && policy != corev1alpha1.ConflictPolicyAdopt {
 		return fmt.Errorf("unsupported conflict policy %q", policy)
 	}
-	options := []client.PatchOption{client.FieldOwner(FieldManager)}
+	options := []client.ApplyOption{client.FieldOwner(FieldManager)}
 	if policy == corev1alpha1.ConflictPolicyAdopt {
 		options = append(options, client.ForceOwnership)
 	}
 	for i := range desired {
 		obj := desired[i].DeepCopy()
 		MarkManaged(obj, application, a.ApplicationNamespace, revision)
-		if err := a.Client.Patch(ctx, obj, client.Apply, options...); err != nil {
+		if err := a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), options...); err != nil {
 			return err
 		}
 	}

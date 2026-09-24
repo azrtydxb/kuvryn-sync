@@ -42,7 +42,7 @@ var _ = Describe("Adopting fields owned by another manager", func() {
 		ensureNamespace(ctx, "payments")
 		createRepository(ctx)
 		foreign := configMapObject("payments", "theirs")
-		Expect(k8sClient.Patch(ctx, &foreign, client.Apply, client.FieldOwner("argocd-application-controller"))).To(Succeed())
+		Expect(k8sClient.Apply(ctx, client.ApplyConfigurationFromUnstructured(&foreign), client.FieldOwner("argocd-application-controller"))).To(Succeed())
 	})
 
 	AfterEach(func() {

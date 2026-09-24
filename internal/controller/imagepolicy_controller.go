@@ -128,6 +128,8 @@ func (r *ImagePolicyReconciler) scan(ctx context.Context, policy *corev1alpha1.I
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImagePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
+		// The deprecated core recorder stays: the events.k8s.io recorder merges
+		// events that differ only in message; see .procoder/todo.
 		r.Recorder = mgr.GetEventRecorderFor("imagepolicy-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).

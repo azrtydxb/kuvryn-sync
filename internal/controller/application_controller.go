@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	chartutil "helm.sh/helm/v4/pkg/chart/v2/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -170,6 +171,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if application.Status.Sync.State == "" {
 			application.Status.Sync.State = corev1alpha1.SyncStateUnknown
 		}
+		return ctrl.Result{}, r.Status().Update(ctx, application)
+	}
+
+	// The CRD refuses an invalid Helm release name, but an Application stored
+	// before that rule keeps it, and the Revision CRD would then refuse every
+	// Revision. Report it once instead of retrying a Create that cannot work.
+	if err := validateHelmReleaseName(application); err != nil {
+		r.markApplicationFailure(application, "ValidationFailure", err.Error())
 		return ctrl.Result{}, r.Status().Update(ctx, application)
 	}
 
@@ -1283,6 +1292,24 @@ func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application 
 	return rollback.Target(*current, list.Items)
 }
 
+// validateHelmReleaseName returns an error when a Helm Application's release
+// name, or the default used in its place, breaks Helm's naming rule.
+func validateHelmReleaseName(application *corev1alpha1.Application) error {
+	render := application.Spec.Source.Render
+	if render.Type != corev1alpha1.RenderTypeHelm {
+		return nil
+	}
+	name := ""
+	if render.Helm != nil {
+		name = render.Helm.ReleaseName
+	}
+	name = helmrenderer.ReleaseName(name)
+	if err := chartutil.ValidateReleaseName(name); err != nil {
+		return fmt.Errorf("helm release name %q is not valid: it must be a lowercase DNS subdomain of at most 53 characters; rename the release", name)
+	}
+	return nil
+}
+
 // markApplicationFailure records a failure that stopped reconciliation
 // before health was observed, clearing a diagnosis that no longer explains
 // the Application.
@@ -1389,6 +1416,8 @@ func managedObjectToApplication(_ context.Context, obj client.Object) []reconcil
 // SetupWithManager sets up the controller with the Manager.
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
+		// The deprecated core recorder stays: the events.k8s.io recorder merges
+		// events that differ only in message; see .procoder/todo.
 		r.Recorder = mgr.GetEventRecorderFor("application-controller")
 	}
 	built, err := ctrl.NewControllerManagedBy(mgr).

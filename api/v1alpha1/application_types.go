@@ -156,7 +156,11 @@ type RenderSpec struct {
 
 // HelmRenderSpec configures Helm rendering.
 type HelmRenderSpec struct {
-	// releaseName is the Helm release name used for template rendering.
+	// releaseName is the Helm release name used for template rendering. Like
+	// Helm, it must be a lowercase DNS subdomain of at most 53 characters.
+	// Empty means the default, solder.
+	// +kubebuilder:validation:MaxLength=53
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$`
 	// +optional
 	ReleaseName string `json:"releaseName,omitempty"`
 	// valuesFiles are repository-relative values files.

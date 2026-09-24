@@ -247,6 +247,8 @@ func (r *RepositoryReconciler) event(repository *corev1alpha1.Repository, eventT
 // SetupWithManager sets up the controller with the Manager.
 func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
+		// The deprecated core recorder stays: the events.k8s.io recorder merges
+		// events that differ only in message; see .procoder/todo.
 		r.Recorder = mgr.GetEventRecorderFor("repository-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).

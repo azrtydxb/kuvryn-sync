@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	"github.com/azrtydxb/solder/internal/renderer"
 	"github.com/azrtydxb/solder/internal/source"
 )
 
@@ -137,6 +138,20 @@ func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
 
 func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, configPath string) ([]corev1alpha1.Application, bool, error) {
 	path := filepath.Join(workspace, filepath.FromSlash(configPath))
+	// solderConfigPaths checks the path lexically, and the Git cache refuses
+	// links out of a checkout. The file and the directories above it are still
+	// repository content, so check the resolved path too: a link out would have
+	// the controller create Applications from any file on its filesystem.
+	inside, err := renderer.Within(workspace, path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, true, fmt.Errorf("could not resolve %s: %w", configPath, err)
+	}
+	if !inside {
+		return nil, true, fmt.Errorf("%s resolves outside the repository; Solder config files and links to them must stay inside it", configPath)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -55,11 +55,11 @@ func TestApplyForcesOwnershipOnlyWhenAdopting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for policy, wantForce := range map[corev1alpha1.ConflictPolicy]bool{corev1alpha1.ConflictPolicyFail: false, corev1alpha1.ConflictPolicyAdopt: true} {
-		var got client.PatchOptions
+		var got client.ApplyOptions
 		c := interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).Build(), interceptor.Funcs{
-			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
 				got.ApplyOptions(opts)
-				return c.Patch(ctx, obj, patch, opts...)
+				return c.Apply(ctx, obj, opts...)
 			},
 		})
 		if err := (Applier{Client: c}).Apply(context.Background(), "payments", "abc123", []unstructured.Unstructured{configMap("settings", "one")}, policy); err != nil {
