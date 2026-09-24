@@ -61,8 +61,8 @@ func TestSpanErrorsAreRedacted(t *testing.T) {
 	}
 	for _, event := range spans[0].Events() {
 		for _, attr := range event.Attributes {
-			if strings.Contains(attr.Value.Emit(), "hunter2") {
-				t.Fatalf("span event leaks the secret: %s", attr.Value.Emit())
+			if strings.Contains(attr.Value.String(), "hunter2") {
+				t.Fatalf("span event leaks the secret: %s", attr.Value.String())
 			}
 		}
 	}

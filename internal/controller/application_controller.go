@@ -1389,6 +1389,8 @@ func managedObjectToApplication(_ context.Context, obj client.Object) []reconcil
 // SetupWithManager sets up the controller with the Manager.
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
+		// The deprecated core recorder stays: the events.k8s.io recorder merges
+		// events that differ only in message; see .procoder/todo.
 		r.Recorder = mgr.GetEventRecorderFor("application-controller")
 	}
 	built, err := ctrl.NewControllerManagedBy(mgr).
