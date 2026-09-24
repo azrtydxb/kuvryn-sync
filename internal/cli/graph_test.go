@@ -282,6 +282,31 @@ func TestDiagnoseReturnsRevisionReadErrors(t *testing.T) {
 	}
 }
 
+// Catches the failure printed twice: a rollout failure also sets Ready to the
+// same reason and message.
+func TestDiagnosePrintsARolloutFailureOnce(t *testing.T) {
+	failure := &corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: "One or more resources are degraded"}
+	app := corev1alpha1.Application{
+		ObjectMeta: metav1.ObjectMeta{Name: "payments"},
+		Status: corev1alpha1.ApplicationStatus{
+			Health:     corev1alpha1.ApplicationHealthStatus{State: corev1alpha1.HealthStateDegraded},
+			Sync:       corev1alpha1.ApplicationSyncStatus{State: corev1alpha1.SyncStateOutOfSync},
+			Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionFalse, Reason: failure.Reason, Message: failure.Message}},
+		},
+	}
+	want := "payments: health Degraded, sync OutOfSync\nFailure: HealthFailure: One or more resources are degraded\n"
+	if out := RenderDiagnosis(app, failure); out != want {
+		t.Fatalf("output = %q, want %q", out, want)
+	}
+
+	// A Ready condition saying something else is still shown.
+	app.Status.Conditions[0].Reason, app.Status.Conditions[0].Message = "RetryBlocked", "maxAttempts 1 reached"
+	want = "payments: health Degraded, sync OutOfSync\nReady: False: RetryBlocked: maxAttempts 1 reached\nFailure: HealthFailure: One or more resources are degraded\n"
+	if out := RenderDiagnosis(app, failure); out != want {
+		t.Fatalf("output = %q, want %q", out, want)
+	}
+}
+
 func TestDiagnoseWithoutFailure(t *testing.T) {
 	out := RenderDiagnosis(corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}, nil)
 	if out != "payments: health Unknown, sync Unknown\nNo failure or unhealthy resource recorded\n" {

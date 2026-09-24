@@ -123,9 +123,11 @@ solder resume payments -n default
 ## Diagnosis
 
 Explain why an Application is not Healthy. The command prints the `Ready`
-condition when it is `False`, such as a `SourceFailure`, the latest Revision
-failure, and every cause recorded in `status.diagnosis`, each with its chain
-from the unhealthy managed resource down to the root cause:
+condition when it is `False`, such as a `SourceFailure` or `RetryBlocked`, the
+latest Revision failure, and every cause recorded in `status.diagnosis`, each
+with its chain from the unhealthy managed resource down to the root cause. When
+`Ready` repeats the Revision failure's reason and message, it is printed once,
+as the failure:
 
 ```sh
 solder diagnose payments -n default
@@ -133,7 +135,6 @@ solder diagnose payments -n default
 
 ```text
 payments: health Degraded, sync OutOfSync
-Ready: False: HealthFailure: One or more resources are degraded
 Failure: HealthFailure: One or more resources are degraded
 Causes (1):
 
