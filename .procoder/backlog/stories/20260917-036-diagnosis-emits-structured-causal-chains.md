@@ -40,15 +40,19 @@ status, Events and CLI.
 
 - `internal/diagnosis/diagnosis.go`: `Build` descends from each unhealthy
   managed object to leaf evidence (container waiting reasons, with the last
-  termination for `CrashLoopBackOff`; `Unschedulable`; a Pending claim; a
-  missing ConfigMap, Secret, claim or ServiceAccount; a Service without ready
+  termination reason and exit code for `CrashLoopBackOff` but never the
+  container's own output; `Unschedulable`; a Pending claim; a missing
+  ConfigMap, Secret, claim or ServiceAccount; a Service without ready
   endpoints; a failed Job) and returns at most 10 deduplicated causes, each
   with root resource, CamelCase reason, redacted bounded message and chain.
+  The walk is memoized per node and depth, bounded by a visit budget, and
+  stops when its context is done.
 - Status: `status.diagnosis` on Application (`api/v1alpha1/application_types.go`,
   `DiagnosisCause`), set by `ApplicationReconciler.diagnose`
-  (`internal/controller/application_diagnosis.go`) and cleared when Healthy.
+  (`internal/controller/application_diagnosis.go`), cleared when Healthy and
+  on failures that are not about health, and kept across a rollback request.
 - Events: a `Diagnosed` Warning Event names the first cause when the set of
-  causes changes.
+  causes changes or the Application newly becomes Degraded.
 - CLI: `solder diagnose` prints the chains (`RenderDiagnosis`,
   `internal/cli/graph.go`).
 - Tests: `internal/diagnosis/diagnosis_test.go` covers each evidence type,
@@ -56,5 +60,9 @@ status, Events and CLI.
   diagnosis" (`internal/controller/application_diagnosis_test.go`) shows a
   Degraded Deployment diagnosed as Deployment, ReplicaSet, Pod, missing
   Secret; `TestDiagnoseEmitsAnEventWhenCausesChangeOrTheApplicationDegrades` and
-  `TestDiagnosePrintsChains` cover Events and CLI. Each was checked to fail
-  with the code it covers removed.
+  `TestDiagnosePrintsChains` cover Events and CLI;
+  `TestLayeredOwnerFanOutIsExplainedOncePerNode` and
+  `TestWalkStopsAtItsBudgetAndOnCancellation` bound the walk;
+  `TestDiagnosisIsClearedByFailuresOutsideHealth` and
+  `TestRollbackKeepsTheStatusThisReconcileComputed` cover status upkeep. Each
+  was checked to fail with the code it covers removed.

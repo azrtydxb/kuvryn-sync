@@ -48,7 +48,8 @@ Rebuilt on 2026-09-24 and wired into the controller and CLI.
   result and skips objects without an identity.
 - `internal/graph/collect.go`: `Collect` reads the live descendants and
   references of an Application's managed objects, bounded, treating
-  Forbidden and other read failures as not visible.
+  Forbidden and other read failures as not visible and recording failed lists
+  in `Graph.Unread`.
 - Tests: `internal/graph/graph_test.go` has one test per edge family
   (`TestOwnerReferencesLinkOwnersToOwnedObjects`,
   `TestServiceLinksEndpointSlicesPodsAndWorkloads`,
@@ -57,5 +58,5 @@ Rebuilt on 2026-09-24 and wired into the controller and CLI.
   `TestPodSpecReferencesConfigurationAndIdentity`), missing-node marking
   (`TestMissingNodesAndPresentReferences`) and
   `TestUnknownKindsAndInvalidObjectsNeverFail`;
-  `internal/graph/collect_test.go` covers bounded collection and Forbidden
-  reads. Each was checked to fail with the code it covers removed.
+  `internal/graph/collect_test.go` covers bounded collection, including
+  `TestCollectBoundsEndpointSliceLists`, and Forbidden reads. Each was checked to fail with the code it covers removed.
