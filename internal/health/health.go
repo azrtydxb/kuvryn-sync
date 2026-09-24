@@ -33,6 +33,11 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 		if generation > 0 && observed < generation {
 			return progressing(result, "GenerationPending", "controller has not observed latest generation"), nil
 		}
+		// Like kstatus, a Deployment that stopped making progress has failed
+		// rather than still being on its way.
+		if condition, ok := statusConditions(obj)["Progressing"]; ok && condition.status == "False" && condition.reason == "ProgressDeadlineExceeded" {
+			return Result{Resource: id, State: corev1alpha1.HealthStateDegraded, Reason: "ProgressDeadlineExceeded", Message: condition.message}, nil
+		}
 		if available < desired {
 			return progressing(result, "ReplicasUnavailable", fmt.Sprintf("%d/%d replicas available", available, desired)), nil
 		}
@@ -86,6 +91,7 @@ func generic(result Result, obj unstructured.Unstructured) Result {
 
 type condition struct {
 	status  string
+	reason  string
 	message string
 }
 
@@ -99,9 +105,10 @@ func statusConditions(obj unstructured.Unstructured) map[string]condition {
 		}
 		kind, _ := entry["type"].(string)
 		status, _ := entry["status"].(string)
+		reason, _ := entry["reason"].(string)
 		message, _ := entry["message"].(string)
 		if kind != "" {
-			out[kind] = condition{status: status, message: message}
+			out[kind] = condition{status: status, reason: reason, message: message}
 		}
 	}
 	return out
