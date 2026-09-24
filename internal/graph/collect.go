@@ -21,7 +21,7 @@ const (
 	// reads.
 	CollectObjectLimit = 500
 	// CollectSelectorLimit bounds the label selectors whose ReplicaSets and
-	// Pods are listed.
+	// Pods are listed, and the Services whose EndpointSlices are.
 	CollectSelectorLimit = 20
 	// CollectListLimit bounds the objects one list request returns.
 	CollectListLimit = 100
@@ -48,7 +48,7 @@ func Collect(ctx context.Context, reader client.Reader, namespace string, manage
 	services := []string{}
 	for _, obj := range managed {
 		gvk := obj.GroupVersionKind()
-		if gvk.Group == "" && gvk.Kind == "Service" {
+		if gvk.Group == "" && gvk.Kind == "Service" && len(services) < CollectSelectorLimit {
 			services = append(services, obj.GetName())
 		}
 		if selector := podSelector(obj); selector != nil && len(selectors) < CollectSelectorLimit {

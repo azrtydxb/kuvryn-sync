@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -145,4 +146,27 @@ func toUnstructured(t *testing.T, obj any) unstructured.Unstructured {
 		t.Fatal(err)
 	}
 	return unstructured.Unstructured{Object: raw}
+}
+
+func TestCollectBoundsEndpointSliceLists(t *testing.T) {
+	managed := make([]unstructured.Unstructured, 0, CollectSelectorLimit+5)
+	for i := range CollectSelectorLimit + 5 {
+		managed = append(managed, toUnstructured(t, &corev1.Service{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("svc-%d", i), Namespace: "payments", UID: types.UID(fmt.Sprintf("s%d", i))},
+		}))
+	}
+	lists := 0
+	tenant := interceptor.NewClient(fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build(), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if u, ok := list.(*unstructured.UnstructuredList); ok && u.GetKind() == "EndpointSliceList" {
+				lists++
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+	Collect(context.Background(), tenant, "payments", managed)
+	if lists != CollectSelectorLimit {
+		t.Fatalf("listed EndpointSlices %d times, want %d", lists, CollectSelectorLimit)
+	}
 }
