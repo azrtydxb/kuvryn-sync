@@ -1,5 +1,10 @@
 # Image URL to use all building/pushing image targets
 IMG ?= solder:latest
+# VERSION is embedded in the binary and printed by `solder version`: the Git
+# tag of the checkout, or sha-<short commit> when HEAD is not tagged, either
+# suffixed -dirty when the working tree has changes.
+VERSION ?= $(shell git describe --tags --exact-match --dirty 2>/dev/null || echo "sha-$$(git describe --always --dirty --exclude='*' 2>/dev/null || echo unknown)")
+LDFLAGS ?= -X github.com/azrtydxb/solder/internal/version.Version=$(VERSION)
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -134,11 +139,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags "$(LDFLAGS)" -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run -ldflags "$(LDFLAGS)" ./cmd/main.go
 
 BUILDKIT_ADDR ?=
 BUILDKIT_PLATFORM ?= linux/arm64
@@ -147,12 +152,12 @@ BUILDKIT_OUTPUT ?= type=image,name=$(IMG),push=false
 .PHONY: buildkit-build
 buildkit-build: ## Build manager image through a remote BuildKit service; set BUILDKIT_ADDR.
 	@test -n "$(BUILDKIT_ADDR)" || { echo "Set BUILDKIT_ADDR, for example tcp://buildkit.example.com:1234"; exit 1; }
-	buildctl --addr $(BUILDKIT_ADDR) build --frontend dockerfile.v0 --local context=. --local dockerfile=. --opt platform=$(BUILDKIT_PLATFORM) --output $(BUILDKIT_OUTPUT)
+	buildctl --addr $(BUILDKIT_ADDR) build --frontend dockerfile.v0 --local context=. --local dockerfile=. --opt platform=$(BUILDKIT_PLATFORM) --opt build-arg:VERSION=$(VERSION) --output $(BUILDKIT_OUTPUT)
 
 # Docker targets are retained for external CI compatibility.
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg VERSION=$(VERSION) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -171,7 +176,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name solder-builder
 	$(CONTAINER_TOOL) buildx use solder-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg VERSION=$(VERSION) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm solder-builder
 	rm Dockerfile.cross
 

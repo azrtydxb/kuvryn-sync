@@ -98,8 +98,12 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		return app, fmt.Errorf("%s application %q names service account %q but Repository %q pins %q", configPath, app.Name, name, repository.Name, pinned)
 	}
 	app.Spec.ServiceAccountName = pinned
-	// Approvals come from people through the admission webhook, never from Git.
-	for _, key := range []string{corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation} {
+	// Approvals come from people through the admission webhook, and
+	// rollbacks from people or a failure policy, never from Git.
+	for _, key := range []string{
+		corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation,
+		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
+	} {
 		delete(app.Annotations, key)
 	}
 	return app, nil

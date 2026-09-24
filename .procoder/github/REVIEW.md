@@ -36,6 +36,9 @@ Check every hunk for:
   it now sits in; a claim true for one workflow is often false for the next.
 - A fix for a finding: search the diff for every other instance of the same
   pattern (the same loop shape, the same early return) and fix those too.
+- Every early return from a reconcile: what reconciles the object next? An
+  unchanged status write triggers nothing, so a waiting state needs a
+  RequeueAfter or a watch that will fire.
 - Prose and markdown: code spans unbroken, lists formatted, wording that
   says what the code actually does.
 

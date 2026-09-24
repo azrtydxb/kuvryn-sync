@@ -91,6 +91,12 @@ kubectl describe app <application> -n <namespace>
 kubectl get events -n <namespace> --sort-by=.lastTimestamp
 ```
 
+The Application's `Ready` condition is `False` with the reason of the last
+failure until a rollout completes Synced and Healthy again, when it turns
+`True` with reason `Healthy`. While a completed rollback holds, it is `False`
+with reason `RolledBack` until a new commit arrives; see
+[Rollback](concepts.md#rollback) for every way a hold ends.
+
 `solder diagnose` prints the root causes Solder recorded in
 `status.diagnosis`; see [Reading a diagnosis](#reading-a-diagnosis). Health
 timeouts are controlled by `spec.health.timeout` and failure behavior by

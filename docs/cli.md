@@ -101,7 +101,9 @@ you review `solder plan` again. Running it again after an `ApprovalStale`
 Event re-approves the new plan. The approval is recorded under your own
 Kubernetes identity; see [Manual approval](operations.md#manual-approval).
 
-Request rollback to the latest healthy Revision:
+Request rollback to the newest known-good Revision, Healthy or deployed by an
+earlier rollback, whose source revision is neither the desired nor the deployed
+one. The command fails when there is none:
 
 ```sh
 solder rollback payments -n default
@@ -113,6 +115,12 @@ Request rollback to a specific Revision object:
 solder rollback payments -n default --revision payments-abc123
 ```
 
+The command records the desired revision as the one rolled back from. Once the
+rollback completes, that revision is held: it is not deployed again, even with
+automatic sync, until a new commit arrives. Rolling back explicitly to a held
+Revision lifts its hold. The target must belong to the Application. `solder
+approve` refuses a held Revision. See [Rollback](concepts.md#rollback).
+
 Suspend or resume reconciliation:
 
 ```sh
@@ -123,9 +131,11 @@ solder resume payments -n default
 ## Diagnosis
 
 Explain why an Application is not Healthy. The command prints the `Ready`
-condition when it is `False`, such as a `SourceFailure`, the latest Revision
-failure, and every cause recorded in `status.diagnosis`, each with its chain
-from the unhealthy managed resource down to the root cause:
+condition when it is `False`, such as a `SourceFailure` or `RetryBlocked`, the
+latest Revision failure, and every cause recorded in `status.diagnosis`, each
+with its chain from the unhealthy managed resource down to the root cause. When
+`Ready` repeats the Revision failure's reason and message, it is printed once,
+as the failure:
 
 ```sh
 solder diagnose payments -n default
@@ -133,7 +143,6 @@ solder diagnose payments -n default
 
 ```text
 payments: health Degraded, sync OutOfSync
-Ready: False: HealthFailure: One or more resources are degraded
 Failure: HealthFailure: One or more resources are degraded
 Causes (1):
 

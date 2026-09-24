@@ -171,7 +171,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if application.Status.Sync.State == "" {
 			application.Status.Sync.State = corev1alpha1.SyncStateUnknown
 		}
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	// The CRD refuses an invalid Helm release name, but an Application stored
@@ -179,7 +179,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Revision. Report it once instead of retrying a Create that cannot work.
 	if err := validateHelmReleaseName(application); err != nil {
 		r.markApplicationFailure(application, "ValidationFailure", err.Error())
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	tenant, err := r.tenantClient(application)
@@ -189,7 +189,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			reason = "ServiceAccountRequired"
 		}
 		r.markApplicationFailure(application, reason, safeMessage(err, "Application service account could not be used"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	repository := &corev1alpha1.Repository{}
@@ -197,40 +197,62 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.Get(ctx, repoKey, repository); err != nil {
 		if apierrors.IsNotFound(err) {
 			r.markApplicationFailure(application, "SourceFailure", "Referenced Repository was not found")
-			return ctrl.Result{}, r.Status().Update(ctx, application)
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 		}
 		return ctrl.Result{}, err
 	}
 	if repository.Spec.Type != "" && repository.Spec.Type != corev1alpha1.RepositoryTypeGit {
 		r.markApplicationFailure(application, "SourceFailure", "Only Git repositories are supported")
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	if repository.Spec.Git == nil {
 		r.markApplicationFailure(application, "SourceFailure", "Git repository configuration is required")
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
 	credentials, err := (&RepositoryReconciler{Client: r.Client}).loadGitCredentials(ctx, repository)
 	if err != nil {
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source authentication failed"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 
-	ref := strings.TrimSpace(application.Spec.Source.Revision)
-	if rollbackRef := strings.TrimSpace(application.GetAnnotations()["solder.io/rollback-revision"]); rollbackRef != "" {
-		ref = rollbackRef
+	resolve := func(ref string) (source.ResolvedSource, error) {
+		return r.resolver().Resolve(ctx, source.GitRepository{URL: repository.Spec.Git.URL, Revision: ref, Auth: credentials})
 	}
+	ref := strings.TrimSpace(application.Spec.Source.Revision)
 	if ref == "" {
 		ref = repository.Spec.Git.Revision
 	}
-	resolved, err := r.resolver().Resolve(ctx, source.GitRepository{
-		URL:      repository.Spec.Git.URL,
-		Revision: ref,
-		Auth:     credentials,
-	})
+	request := rollbackRequestOf(application)
+	if request.active() {
+		if request.from == "" {
+			// A request without its source, such as a hand-set annotation,
+			// rolls back from what the spec resolves to now; the status may
+			// already name an earlier rollback's target.
+			desired, err := resolve(ref)
+			if err != nil {
+				r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
+				return ctrl.Result{RequeueAfter: rollbackSourceRetry}, r.updateApplicationStatus(ctx, application)
+			}
+			request.from = desired.Revision
+		}
+		if request, err = r.recordRollbackIntent(ctx, application, request); err != nil {
+			return ctrl.Result{}, err
+		}
+		ref = request.target
+	}
+	resolved, err := resolve(ref)
 	if err != nil {
+		// A rollback request stands through a failed fetch, which is usually
+		// transient, so retry it on a bounded interval: an unchanged status
+		// write triggers no new reconcile, and a Repository change may never
+		// come.
 		r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		result := ctrl.Result{}
+		if request.active() {
+			result.RequeueAfter = rollbackSourceRetry
+		}
+		return result, r.updateApplicationStatus(ctx, application)
 	}
 
 	// Drift of a finished rollout is reported without re-evaluating health, so
@@ -246,11 +268,54 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if held := heldBy(revision); held != nil {
+		if request.active() {
+			// An explicit rollback to a held Revision deploys exactly it.
+			if err := r.liftHold(ctx, application, revision, "a rollback to it"); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else if application.Status.DeployedRevision == resolved.Revision {
+			// The held commit runs again, deployed under another Revision
+			// identity that was then reverted; there is nothing left to hold
+			// it away from.
+			if err := r.liftHold(ctx, application, revision, "its commit being deployed again"); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			// A completed rollback holds: keep reconciling the revision it
+			// deployed, never the held one, until a new commit arrives.
+			hold := &rollbackHold{desired: resolved.Revision, manual: held.Reason == manualRollbackReason}
+			deployed := application.Status.DeployedRevision
+			if deployed == "" {
+				return ctrl.Result{}, r.reportHold(ctx, application, hold, previousHealth, previousState)
+			}
+			ctx = withHold(ctx, hold)
+			if resolved, err = resolve(deployed); err != nil {
+				r.markApplicationFailure(application, failureReason(err, "SourceFailure"), safeMessage(err, "Application source resolution failed"))
+				return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+			}
+			if revision, err = r.ensureRevision(ctx, application, resolved.Revision); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 	metricPhase = revision.Status.Phase
 	// previousPhase is the persisted phase, so notifications fire only on
 	// transitions rather than on every reconcile of a steady state.
 	previousPhase := revision.Status.Phase
-	if blocked := retryBlocked(application, revision); blocked != nil {
+	if blocked, exhausted := retryBlocked(application, revision); blocked != nil {
+		if request.active() {
+			if !exhausted {
+				// The target failed and waits out its backoff; the request
+				// stands and the target is tried again after it.
+				return ctrl.Result{RequeueAfter: retryBackoff(revision)}, r.reportRetryBlocked(ctx, application, revision, *blocked)
+			}
+			// A rollback whose target may never be retried would otherwise
+			// pin the Application to it on every reconcile.
+			if err := r.abandonRollback(ctx, application, request, blocked.Message); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return ctrl.Result{}, r.reportRetryBlocked(ctx, application, revision, *blocked)
 	}
 	// Whether a rollout is finished comes from the Revision, not from its
@@ -264,7 +329,10 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	now := metav1.Now()
-	if revision.Status.Phase == "" || revision.Status.Phase == corev1alpha1.RevisionPhasePending || revision.Status.Phase == corev1alpha1.RevisionPhaseFailed {
+	// A new attempt is the first plan of a Revision or a retry after it
+	// failed; approval waits, rollout progress and self-heal are not.
+	newAttempt := revision.Status.Phase == "" || revision.Status.Phase == corev1alpha1.RevisionPhasePending || revision.Status.Phase == corev1alpha1.RevisionPhaseFailed
+	if newAttempt {
 		revision.Status.Attempts++
 	}
 	status.StartPlanning(revision, application, now)
@@ -324,7 +392,11 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	liveObjects := slices.Collect(maps.Values(liveResult.Found))
-	managedStale := []unstructured.Unstructured{}
+	// pruning splits stale managed objects. Skipped ones, which opted out or
+	// are high-risk, stay out of the plan's deletes, so a Revision that only
+	// leaves them behind converges instead of retrying a delete that never
+	// happens, and they stay labelled, so Solder keeps tracking them.
+	var pruning prune.Result
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
 		if err != nil {
@@ -332,11 +404,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
-		managedStale = staleManagedObjects(rendered, liveObjects, managed)
-		liveObjects = append(liveObjects, managedStale...)
+		pruning = prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name})
+		liveObjects = append(liveObjects, pruning.Eligible...)
 	}
 
 	plan, err := planner.Build(planned, liveObjects)
+	if err == nil {
+		err = plan.Keep(keptObjects(pruning.Skipped))
+	}
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -353,14 +428,19 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
-	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth}
+	if newAttempt {
+		// Once per attempt: a rollout walks its groups again on every
+		// reconcile, and self-heal keeps the same Revision.
+		r.warnPruneSkipped(application, pruning.Skipped)
+	}
+	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth, pruning: pruning}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		// A rollout in progress is not done just because nothing is left to
 		// apply: keep waiting until every group is Healthy.
 		if rollout == rolloutInProgress {
-			return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
+			return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 		}
-		application.Status.ManagedKinds = managedKinds(objectKinds(rendered))
+		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
@@ -379,7 +459,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.Status().Update(ctx, application); err != nil {
+		if err := r.updateApplicationStatus(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Application drifted from its deployed Revision", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
@@ -394,7 +474,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, r.Status().Update(ctx, application)
+		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	approval, stale := manualApproval(application, revision, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
@@ -405,7 +485,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.Status().Update(ctx, application); err != nil {
+		if err := r.updateApplicationStatus(ctx, application); err != nil {
 			return ctrl.Result{}, err
 		}
 		if stale {
@@ -419,7 +499,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !application.Spec.Sync.Automatic {
 		revision.Status.Approval = approval
 	}
-	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
+	return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 }
 
 // manualApproval returns the approval recorded for exactly this Revision and
@@ -432,7 +512,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // the one it was given for: new desired objects need a fresh approval.
 func manualApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, stale bool) {
 	annotations := application.GetAnnotations()
-	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name {
+	// A Revision a rollback replaced is never deployed on an approval.
+	if annotations[corev1alpha1.ApprovedRevisionAnnotation] != revision.Name || heldBy(revision) != nil {
 		return nil, false
 	}
 	approvedBy := annotations[corev1alpha1.ApprovedByAnnotation]
@@ -885,35 +966,35 @@ func conflictFailure(plan planner.Plan) *corev1alpha1.RevisionFailure {
 	return nil
 }
 
+// updateRevisionStatus writes revision's status against the resourceVersion
+// it was read at: a write based on a stale copy conflicts and the reconcile
+// is retried, instead of overwriting newer status.
 func (r *ApplicationReconciler) updateRevisionStatus(ctx context.Context, revision *corev1alpha1.Revision) error {
-	latest := &corev1alpha1.Revision{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(revision), latest); err != nil {
-		return err
-	}
-	latest.Status = revision.Status
-	if err := r.Status().Update(ctx, latest); err != nil {
-		return err
-	}
-	revision.Status = latest.Status
-	revision.ResourceVersion = latest.ResourceVersion
-	return nil
+	return r.Status().Update(ctx, revision)
 }
 
-func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.Revision) *corev1alpha1.RevisionFailure {
+// retryBlocked returns why a failed Revision may not be retried yet, and
+// whether it never may: its maxAttempts are used up rather than a backoff
+// still running.
+func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.Revision) (*corev1alpha1.RevisionFailure, bool) {
 	if revision.Status.Phase != corev1alpha1.RevisionPhaseFailed || revision.Status.Failure == nil {
-		return nil
+		return nil, false
 	}
 	lastFailure := time.Time{}
 	if revision.Status.CompletedAt != nil {
 		lastFailure = revision.Status.CompletedAt.Time
 	}
-	// Back off exponentially from one second, capped at one minute.
-	backoff := min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
-	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), backoff)
+	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), retryBackoff(revision))
 	if decision.Allowed {
-		return nil
+		return nil, false
 	}
-	return &corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: decision.Reason, Retryable: false}
+	return &corev1alpha1.RevisionFailure{Reason: "RetryBlocked", Message: decision.Reason, Retryable: false}, decision.Exhausted
+}
+
+// retryBackoff is how long a failed Revision waits before its next attempt:
+// exponentially from one second, capped at one minute.
+func retryBackoff(revision *corev1alpha1.Revision) time.Duration {
+	return min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
 }
 
 // reportRetryBlocked records on the Application that retries stopped, keeping
@@ -932,7 +1013,7 @@ func (r *ApplicationReconciler) reportRetryBlocked(ctx context.Context, applicat
 		application.Status.Diagnosis = diagnosed
 	}
 	r.event(application, corev1.EventTypeWarning, blocked.Reason, message)
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application *corev1alpha1.Application) error {
@@ -991,7 +1072,7 @@ func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructur
 	return stale
 }
 
-func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured, progress rolloutProgress) (ctrl.Result, error) {
+func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired []unstructured.Unstructured, progress rolloutProgress) (ctrl.Result, error) {
 	// A retry after a failure is a new attempt; anything else in progress is
 	// the same deployment carrying on.
 	resuming := progress.state == rolloutInProgress && progress.previousPhase != corev1alpha1.RevisionPhaseFailed
@@ -1008,7 +1089,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "HealthChecks could not be read"), Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
-	application.Status.ManagedKinds = managedKinds(objectKinds(desired))
+	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruning.Skipped)
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
 	results := []health.Result{}
@@ -1022,7 +1103,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	// per rollout, so one already applied is only watched, never re-applied.
 	for _, group := range ordering.Groups(desired) {
 		if group.Stage == ordering.StagePostSync && !pruned {
-			if failure := r.pruneStale(ctx, tenant, application, pruneCandidates); failure != nil {
+			if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 			}
 			pruned = true
@@ -1074,7 +1155,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 	}
 	if !pruned {
-		if failure := r.pruneStale(ctx, tenant, application, pruneCandidates); failure != nil {
+		if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 		}
 	}
@@ -1106,7 +1187,7 @@ func (r *ApplicationReconciler) observe(ctx context.Context, tenant client.Clien
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: after}, r.Status().Update(ctx, application)
+	return ctrl.Result{RequeueAfter: after}, r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) recordHealth(application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result) {
@@ -1115,19 +1196,59 @@ func (r *ApplicationReconciler) recordHealth(application *corev1alpha1.Applicati
 	application.Status.Resources = summary
 }
 
-// pruneStale deletes managed objects no longer in desired state.
-func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, candidates []unstructured.Unstructured) *corev1alpha1.RevisionFailure {
-	plan := prune.Plan(candidates, prune.Policy{Application: application.Name})
-	if len(plan.Rejected) > 0 {
-		return &corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(fmt.Errorf("%s", plan.Rejected[0].Reason), "Managed resource prune was rejected"), Retryable: false}
+// pruneStale deletes the stale managed objects prune may delete. Objects it
+// keeps were reported when the attempt was planned.
+func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, pruning prune.Result) *corev1alpha1.RevisionFailure {
+	if len(pruning.Rejected) > 0 {
+		return &corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(errors.New(pruning.Rejected[0].Reason), "Managed resource prune was rejected"), Retryable: false}
 	}
-	for _, obj := range ordering.Prune(plan.Eligible) {
+	for _, obj := range pruning.Eligible {
 		if err := tenant.Delete(ctx, obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
 			failure := accessFailure(err, "PruneFailure", "Managed resource prune failed", true)
 			return &failure
 		}
 	}
 	return nil
+}
+
+// keptObjects converts prune's skipped objects for the plan.
+func keptObjects(skipped []prune.Rejected) []planner.Kept {
+	kept := make([]planner.Kept, 0, len(skipped))
+	for _, obj := range skipped {
+		kept = append(kept, planner.Kept{Object: obj.Object, Reason: obj.Reason})
+	}
+	return kept
+}
+
+// maxPruneSkippedNamed bounds how many skipped objects a PruneSkipped Event
+// names.
+const maxPruneSkippedNamed = 5
+
+// warnPruneSkipped emits one Warning Event naming the managed objects prune
+// kept although desired state no longer declares them.
+func (r *ApplicationReconciler) warnPruneSkipped(application *corev1alpha1.Application, skipped []prune.Rejected) {
+	if len(skipped) == 0 {
+		return
+	}
+	named := make([]string, 0, min(len(skipped), maxPruneSkippedNamed))
+	for _, kept := range skipped[:min(len(skipped), maxPruneSkippedNamed)] {
+		named = append(named, fmt.Sprintf("%s %s (%s)", kept.Object.GetKind(), client.ObjectKeyFromObject(&kept.Object), kept.Reason))
+	}
+	message := fmt.Sprintf("Prune kept %d managed resource(s) no longer in desired state: %s", len(skipped), strings.Join(named, ", "))
+	if more := len(skipped) - len(named); more > 0 {
+		message += fmt.Sprintf(", and %d more", more)
+	}
+	r.event(application, corev1.EventTypeWarning, "PruneSkipped", safeMessage(errors.New(message), "Prune kept managed resources"))
+}
+
+// inventoryKinds are the kinds recorded as managed: those of desired state
+// and those of objects prune kept, which stay tracked.
+func inventoryKinds(desired []unstructured.Unstructured, kept []prune.Rejected) []corev1alpha1.ManagedKind {
+	kinds := objectKinds(desired)
+	for _, obj := range kept {
+		kinds = append(kinds, obj.Object.GroupVersionKind())
+	}
+	return managedKinds(applier.UnionKinds(kinds))
 }
 
 // groupHealth reads and evaluates the live state of one group's objects,
@@ -1190,20 +1311,29 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 	status.CompleteHealthy(revision, application, metav1.Now())
 	application.Status.Diagnosis = nil
 	setRolloutComplete(revision, true)
-	if application.GetAnnotations()["solder.io/rollback-revision"] != "" {
+	if request := rollbackRequestOf(application); request.active() {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRolledBack
 		application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
-		annotations := application.GetAnnotations()
-		delete(annotations, "solder.io/rollback-revision")
-		application.SetAnnotations(annotations)
+		// The request is removed only once every replaced Revision is held,
+		// so a conflict on either write retries the same marking.
+		if err := r.holdReplaced(ctx, application, revision, request); err != nil {
+			return err
+		}
+		clearRollbackRequest(application)
 		if err := r.updateKeepingStatus(ctx, application); err != nil {
 			return err
 		}
+		setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(!request.automatic()))
 		r.event(application, corev1.EventTypeNormal, "RollbackCompleted", "Application rollback completed")
 		if transition {
 			r.notify(ctx, application, revision, corev1alpha1.NotificationRolledBack, "Application rollback completed")
 		}
+	} else if hold := holdFrom(ctx); hold != nil {
+		// The deployed rollback target is healthy, but the desired revision
+		// is held and not deployed.
+		setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(hold.manual))
 	} else {
+		setReady(application, metav1.ConditionTrue, "Healthy", "Application is Synced and Healthy")
 		r.event(application, corev1.EventTypeNormal, "DeploymentHealthy", healthyMessage)
 		if transition {
 			r.notify(ctx, application, revision, corev1alpha1.NotificationHealthy, healthyMessage)
@@ -1212,15 +1342,18 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) applyHistoryRetention(ctx context.Context, application *corev1alpha1.Application) error {
-	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	revisions, err := r.applicationRevisions(ctx, application)
+	if err != nil {
 		return err
 	}
-	retention := history.ApplyRetention(list.Items, history.LimitFor(*application, 20))
+	// A held Revision is never deleted, and does not count against the
+	// limit: deleting it would end the hold and deploy it again.
+	revisions = slices.DeleteFunc(revisions, func(rev corev1alpha1.Revision) bool { return heldBy(&rev) != nil })
+	retention := history.ApplyRetention(revisions, history.LimitFor(*application, 20))
 	for i := range retention.Delete {
 		rev := retention.Delete[i]
 		if err := r.Delete(ctx, &rev); client.IgnoreNotFound(err) != nil {
@@ -1254,9 +1387,18 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	now := metav1.Now()
 	rollbackQueued := false
 	rollbackMissing := false
-	if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback && application.GetAnnotations()["solder.io/rollback-revision"] == "" {
+	if request := rollbackRequestOf(application); request.active() {
+		// The rollback's own target failed. A retryable failure is tried
+		// again within the target's retry budget; any other would pin the
+		// Application to a revision that does not deploy.
+		if !failure.Retryable {
+			if err := r.abandonRollback(ctx, application, request, failure.Reason+": "+failure.Message); err != nil {
+				return err
+			}
+		}
+	} else if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback {
 		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
-			metav1.SetMetaDataAnnotation(&application.ObjectMeta, "solder.io/rollback-revision", target.Spec.Source.Revision)
+			setRollbackRequest(application, rollbackRequest{target: target.Spec.Source.Revision, from: revision.Spec.Source.Revision, kind: corev1alpha1.RollbackKindAutomatic})
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.updateKeepingStatus(ctx, application); err != nil {
@@ -1267,6 +1409,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 		}
 	}
 	status.Fail(revision, application, now, failure)
+	setReady(application, metav1.ConditionFalse, failure.Reason, failure.Message)
 	if !healthFailure(failure.Reason) {
 		application.Status.Diagnosis = nil
 	}
@@ -1281,15 +1424,15 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
 		return err
 	}
-	return r.Status().Update(ctx, application)
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application *corev1alpha1.Application, current *corev1alpha1.Revision) (corev1alpha1.Revision, error) {
-	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	revisions, err := r.applicationRevisions(ctx, application)
+	if err != nil {
 		return corev1alpha1.Revision{}, err
 	}
-	return rollback.Target(*current, list.Items)
+	return rollback.Target(*current, revisions)
 }
 
 // validateHelmReleaseName returns an error when a Helm Application's release
@@ -1319,9 +1462,22 @@ func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1
 	application.Status.State = corev1alpha1.HealthStateDegraded
 	application.Status.Health.State = corev1alpha1.HealthStateDegraded
 	application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
+	setReady(application, metav1.ConditionFalse, reason, message)
+}
+
+// ReadyCondition is the Application condition that is True after the last
+// rollout completed Synced and Healthy, and False after a failure or an
+// automatic rollback. Drift without self-heal, suspension, dependency and
+// approval waits, and rollouts in progress leave it as it was.
+const ReadyCondition = "Ready"
+
+// setReady records the Ready condition. Its transition time moves only when
+// the status flips, and a fixed message per reason keeps steady-state
+// reconciles from rewriting it.
+func setReady(application *corev1alpha1.Application, state metav1.ConditionStatus, reason, message string) {
 	apimeta.SetStatusCondition(&application.Status.Conditions, metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionFalse,
+		Type:               ReadyCondition,
+		Status:             state,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: application.Generation,

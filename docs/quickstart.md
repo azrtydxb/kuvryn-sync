@@ -185,7 +185,6 @@ applications:
         failurePolicy:
           action: rollback
           timeout: 5m
-          maxAttempts: 2
       health:
         timeout: 5m
       history:
@@ -250,7 +249,8 @@ health, and updates status.
 
 ## 7. Roll back
 
-Roll back to the latest healthy Revision:
+Roll back to the newest known-good Revision that is neither desired nor
+deployed; the rollback holds until a new commit arrives:
 
 ```sh
 solder rollback payments -n default

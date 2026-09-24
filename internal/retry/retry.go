@@ -17,7 +17,11 @@ type State struct {
 // Decision records whether another attempt may start.
 type Decision struct {
 	Allowed bool
-	Reason  string
+	// Exhausted reports that maxAttempts is reached, so no later attempt is
+	// allowed either; a blocked Decision that is not exhausted waits out a
+	// backoff.
+	Exhausted bool
+	Reason    string
 }
 
 // Decide prevents retry loops for a failed desired revision.
@@ -27,7 +31,7 @@ func Decide(policy corev1alpha1.FailurePolicy, state State, now time.Time, backo
 		maxAttempts = *policy.MaxAttempts
 	}
 	if state.Attempts >= maxAttempts {
-		return Decision{Reason: fmt.Sprintf("maxAttempts %d reached for desired revision %s", maxAttempts, state.DesiredRevision)}
+		return Decision{Exhausted: true, Reason: fmt.Sprintf("maxAttempts %d reached for desired revision %s", maxAttempts, state.DesiredRevision)}
 	}
 	if backoff > 0 && !state.LastFailureAt.IsZero() && now.Before(state.LastFailureAt.Add(backoff)) {
 		return Decision{Reason: "backoff window has not elapsed"}

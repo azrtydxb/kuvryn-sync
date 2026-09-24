@@ -77,7 +77,10 @@ func RenderDiagnosis(app corev1alpha1.Application, failure *corev1alpha1.Revisio
 	_, _ = fmt.Fprintf(&b, "%s: health %s, sync %s\n", app.Name, orUnknown(string(app.Status.Health.State)), orUnknown(string(app.Status.Sync.State)))
 	ready := apimeta.FindStatusCondition(app.Status.Conditions, "Ready")
 	notReady := ready != nil && ready.Status == metav1.ConditionFalse
-	if notReady {
+	// A rollout failure sets Ready to the same reason and message as the
+	// Revision failure printed next, so it is shown once.
+	repeatsFailure := notReady && failure != nil && ready.Reason == failure.Reason && ready.Message == failure.Message
+	if notReady && !repeatsFailure {
 		_, _ = fmt.Fprintf(&b, "Ready: False: %s: %s\n", ready.Reason, redact.String(ready.Message))
 	}
 	if failure != nil {

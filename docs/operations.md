@@ -20,7 +20,9 @@ Core commands use Kubernetes CRDs directly:
 - `solder diagnose <application>` prints the latest deterministic failure and
   the causal chains in `status.diagnosis`.
 - `solder graph <application>` prints the live resource graph as JSON or DOT.
-- `solder rollback <application>` requests rollback to a healthy Revision.
+- `solder rollback <application>` requests rollback to the newest known-good
+  Revision other than the desired and deployed ones, and holds the revision
+  rolled back from.
 
 Application, Repository, and Revision status remain the public integration API.
 Mutation helpers update public CRDs and require exact Revision approval where
@@ -511,7 +513,9 @@ kubectl get revisions.solder.io -n <namespace>
 
 Solder emits lifecycle Events and writes Conditions for readiness, failure, and
 rollout states. A `Diagnosed` Warning Event names the first root cause each
-time the set of causes in `status.diagnosis` changes.
+time the set of causes in `status.diagnosis` changes. A `PruneSkipped` Warning
+Event names the managed resources prune kept, up to five, once per attempt at a
+Revision that leaves them out of desired state; see [Apply and prune](concepts.md#apply-and-prune).
 
 ## Diagnosis permissions
 

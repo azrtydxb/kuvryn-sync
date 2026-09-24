@@ -19,12 +19,7 @@ Solder is **not “Argo CD rewritten.”** It rethinks GitOps around a small Go 
 The name is literal: solder sticks things together. Solder joins desired state in Git to actual state in Kubernetes and continuously keeps that connection intact.
 
 ```text
-DHOLE
-CI/CD Pipeline Orchestrator
-       |
-       | build / test / scan / sign
-       v
- Immutable Artifact
+ Any CI system or person
        |
        | promote desired state
        v
@@ -47,26 +42,11 @@ CI/CD Pipeline Orchestrator
             |
             v
        Kubernetes
-            |
-            v
-+-----------------------+
-|        KUVRYN         |
-|-----------------------|
-| See                   |
-| Understand            |
-| Diagnose              |
-| Operate               |
-| Optional AI           |
-+-----------------------+
 ```
 
-The boundaries are deliberate:
+The boundary is deliberate: **Solder** owns desired state -> running state -> continuous reconciliation. Building artifacts, promoting desired state, and visualizing or operating clusters belong to other tools, which integrate with Solder only through its public interfaces (see section 23).
 
-- **Dhole:** source code -> verified immutable artifact -> desired-state promotion.
-- **Solder:** desired state -> running state -> continuous reconciliation.
-- **Kuvryn:** running state -> visualization, understanding, diagnosis and operations.
-
-All three products MUST remain independently useful.
+Solder MUST be universal: useful on its own and with any CI system, UI or operations tool, and never built for one specific product.
 
 ---
 
@@ -85,7 +65,7 @@ All three products MUST remain independently useful.
 11. Kubernetes relationships form an application dependency graph.
 12. Failure handling and rollback are first-class.
 13. AI is optional and never participates in correctness-critical reconciliation.
-14. Design integration contracts for Dhole and Kuvryn from the beginning.
+14. Design product-neutral integration surfaces from the beginning: public CRDs, status, Events, metrics and CLI.
 15. Avoid CRD sprawl.
 16. Prefer immutable artifact digests.
 17. Default to conservative, explainable behavior over magic.
@@ -120,7 +100,7 @@ Solder should provide:
 - structured logging;
 - CLI;
 - optional OpenTelemetry;
-- stable Dhole/Kuvryn integration contracts.
+- stable, product-neutral integration surfaces for any tool.
 
 ### Initial non-goals
 
@@ -386,20 +366,6 @@ spec:
 
   source:
     revision: 8c51af2
-
-  provenance:
-    source:
-      repository: github.com/acme/payments
-      revision: 9a71bc2
-
-    artifact:
-      type: container
-      uri: registry.example.com/payments
-      digest: sha256:abc123
-
-    pipeline:
-      provider: dhole
-      run: "4821"
 
 status:
   phase: Healthy
@@ -725,7 +691,7 @@ The graph powers:
 3. prune ordering;
 4. health propagation;
 5. deterministic root-cause analysis;
-6. Kuvryn integration;
+6. external tools, through the public API;
 7. optional AI explanation.
 
 Graph inference MUST tolerate incomplete relationships and unknown/custom resources.
@@ -765,7 +731,7 @@ Health output MUST be structured so the same result can drive:
 - Application status;
 - CLI output;
 - Kubernetes Events;
-- Kuvryn visualization;
+- external visualization tools;
 - optional AI explanation.
 
 Future custom health rules may be declarative. Do not embed an unrestricted scripting runtime in the initial version.
@@ -1008,7 +974,6 @@ internal/
 
   rollback/
   history/
-  provenance/
 
   kube/
   events/
@@ -1250,196 +1215,53 @@ Later consumers may include:
         +----------+----------+
         |          |          |
         v          v          v
-      Dhole      Kuvryn    Webhook/Event Sink
+    CI systems  UIs and    Webhook/Event Sink
+                operations
+                tools
 ```
 
 Do not require a message broker for the initial implementation.
 
 ---
 
-## 23. Dhole Integration Contract
+## 23. Integrations
 
-### Architectural rule
+Solder is universal. It has no integration built for a specific product, and any tool, whether a CI system, a UI, an operations tool or a script, integrates through the same public surfaces:
 
-**Dhole does not deploy Kubernetes workloads directly when Solder is used.**
+- **CRDs:** create and change Repositories and Applications, and read Revisions, with ordinary Kubernetes API calls and RBAC;
+- **status:** Application sync and health state, conditions such as `Ready`, the deployed and desired revisions, and the diagnosis; Revision phase, plan, health and failure;
+- **Events:** the Kubernetes Events of the event model in section 22;
+- **metrics:** Prometheus metrics for reconciles, Revisions and lifecycle events;
+- **CLI:** `solder` commands, some of which print JSON for machines.
 
-Dhole owns:
+A CI system that promotes desired state commits to Git and, if it wants the result, watches the Revision for that commit until it is Healthy or Failed. It does not push deployment commands into the cluster.
 
-```text
-CODE -> VERIFIED ARTIFACT
-```
-
-Solder owns:
-
-```text
-DESIRED STATE -> RUNNING STATE
-```
-
-A normal pipeline:
-
-```text
-Source Commit
-   |
-   v
-Dhole
-   |
-   +-> Build
-   +-> Unit Test
-   +-> Integration Test
-   +-> Security Scan
-   +-> SBOM
-   +-> Sign
-   +-> Push immutable image
-   |
-   v
-Update environment Git repository
-   |
-   v
-Solder detects revision
-   |
-   +-> Plan
-   +-> Apply
-   +-> Observe
-   +-> Health
-   |
-   v
-Dhole optionally observes deployment result
-```
-
-### Immutable artifact promotion
-
-Dhole should promote:
+Promotions should reference immutable artifacts:
 
 ```text
 registry.example.com/payments@sha256:abc123
 ```
 
-rather than relying on:
+rather than mutable tags:
 
 ```text
 payments:latest
 ```
 
-### Provenance
-
-Revision supports generic optional provenance:
-
-```yaml
-provenance:
-  source:
-    repository: github.com/acme/payments
-    revision: 9a71bc2
-
-  artifact:
-    type: container
-    uri: registry.example.com/payments
-    digest: sha256:abc123
-
-  pipeline:
-    provider: dhole
-    run: "4821"
-```
-
-The structure MUST remain provider-neutral so Jenkins, GitHub Actions, GitLab CI and others can use it.
-
-### Dhole waiting for Solder
-
-Later, a Dhole pipeline may expose:
-
-```text
-Build                 PASS
-Unit Tests            PASS
-Security Scan         PASS
-Push Artifact         PASS
-Promote Desired State PASS
-
-Solder Deployment
-  Plan                PASS
-  Apply               PASS
-  Rollout             PASS
-  Health              PASS
-  Stable              PASS
-```
-
-Dhole observes Solder Revision state. It does not push deployment commands into the cluster.
-
-### End-to-end provenance
-
-The combined system should eventually answer:
-
-```text
-Running Pod
-  -> ReplicaSet
-  -> Deployment
-  -> Solder Revision
-  -> desired-state Git commit
-  -> immutable image digest
-  -> Dhole pipeline run
-  -> source-code commit
-```
-
-This lineage is a core strategic capability.
-
 ---
 
-## 24. Kuvryn Integration Contract
+## 24. Integration Boundaries
 
-Solder has no mandatory UI.
+Solder has no mandatory UI, and nothing in Solder depends on a particular integrating product.
 
-Kuvryn should discover Solder through its CRDs and optionally through a future Go/API integration.
+External tools:
 
-Potential Kuvryn GitOps section:
+- MUST use Solder's public Kubernetes API, never private controller internals;
+- perform actions such as plan, approve, sync, rollback, suspend and resume through the same CRD fields and annotations the CLI uses, under their own RBAC;
+- read state from status, Events and metrics rather than from logs;
+- are optional: Solder behaves the same whether or not any tool is watching.
 
-```text
-Kuvryn
-  |
-  +-- Applications
-  +-- GitOps
-      |
-      +-- Applications
-      +-- Revisions
-      +-- Plans
-      +-- Drift
-      +-- Deployments
-      +-- Rollbacks
-      +-- Resource Graph
-      +-- Deployment Provenance
-```
-
-Example user journey:
-
-```text
-payments-api Pod
-
-Application
-  payments
-
-Image
-  sha256:abc123
-
-Source
-  commit 9a71bc2
-
-Dhole
-  pipeline #4821
-  build PASS
-  tests PASS
-  scan PASS
-  signed PASS
-
-Solder
-  revision #192
-  plan: 1 resource changed
-  deployment: 2m18s
-  status: Healthy
-
-Kubernetes
-  Deployment/payments-api
-    -> ReplicaSet/789d77
-       -> Pod/x29ds
-```
-
-Kuvryn may offer actions such as plan, approve sync, rollback, suspend and resume, but these should use Solder's public Kubernetes API rather than private controller internals.
+New integration needs are met by extending these public surfaces for every consumer, not by adding product-specific fields, controllers or code paths.
 
 ---
 
@@ -1463,7 +1285,7 @@ Solder produces structured evidence:
 }
 ```
 
-Kuvryn or another consumer can ask an LLM to explain:
+Any consumer can ask an LLM to explain:
 
 ```text
 The deployment cannot start because the new revision references
@@ -1820,7 +1642,7 @@ spec:
     digest: sha256:...
 ```
 
-This fits well with immutable promotion and Dhole provenance.
+This fits well with immutable artifact promotion.
 
 Git remains the first implementation priority.
 
@@ -1831,8 +1653,6 @@ Git remains the first implementation priority.
 Potential sinks:
 
 - generic webhook;
-- Dhole;
-- Kuvryn;
 - Slack/Teams adapters through external systems;
 - CloudEvents-compatible endpoint;
 - OpenTelemetry events.
@@ -1999,7 +1819,7 @@ Future policies may verify:
 - SBOM reference exists;
 - artifact originated from an allowed pipeline.
 
-Dhole can produce these artifacts. Solder can eventually enforce declarative policy before deployment.
+CI systems can produce these artifacts. Solder can eventually enforce declarative policy before deployment.
 
 Keep verification adapters separate from the core planner.
 
@@ -2073,7 +1893,7 @@ Developer commits:
 9a71bc2 Fix payment timeout
 ```
 
-Dhole:
+The CI system:
 
 ```text
 Pipeline #4821
@@ -2090,7 +1910,7 @@ Artifact:
 registry.example.com/payments@sha256:abc123
 ```
 
-Dhole updates environment Git:
+The CI system updates environment Git:
 
 ```yaml
 image:
@@ -2132,7 +1952,7 @@ Observe
 Healthy
 ```
 
-Kuvryn can then display the full lineage:
+Any tool reading Solder's status can then follow the lineage:
 
 ```text
 Pod
@@ -2140,7 +1960,6 @@ Pod
  -> Deployment
  -> Solder Revision 21d83ab
  -> Artifact sha256:abc123
- -> Dhole Pipeline #4821
  -> Source Commit 9a71bc2
 ```
 
@@ -2240,8 +2059,6 @@ A useful MVP should include only enough to prove Solder's architectural advantag
 
 - web UI;
 - AI;
-- full Dhole plugin;
-- full Kuvryn UI;
 - progressive delivery;
 - multi-cluster;
 - OCI source;
@@ -2344,13 +2161,11 @@ Success criterion: failed deployments can deterministically return to the last h
 - Helm chart;
 - upgrade tests.
 
-### Phase 8 — Integration Contracts
+### Phase 8 — Integration Surfaces
 
-- generic provenance;
 - typed lifecycle events;
-- Dhole observer contract;
-- Kuvryn discovery/API contract;
-- end-to-end source-to-Pod lineage.
+- stable status, Events and metrics for any external tool;
+- documented public API for observers and operators.
 
 ---
 
@@ -2418,7 +2233,7 @@ These requirements are mandatory unless deliberately changed in the architecture
 - silently delete resources;
 - make Application deletion cascade workloads by default;
 - implement GitOps as CI pushing kubectl commands;
-- tightly couple core code to Dhole or Kuvryn;
+- build product-specific integrations into Solder;
 - use mutable image tags as the recommended production pattern.
 
 ---
@@ -2548,33 +2363,13 @@ Small control plane
 + clean CI and operations integration
 ```
 
-The project should resist becoming a monolithic platform. Rich visualization belongs naturally in Kuvryn. Pipeline orchestration belongs naturally in Dhole.
+The project should resist becoming a monolithic platform. Rich visualization and pipeline orchestration belong in other tools, which integrate through Solder's public surfaces.
 
 Solder remains the focused, trustworthy reconciliation layer between desired state and Kubernetes.
 
 ---
 
-## 58. Product Family
-
-```text
-DHOLE
-Build it.
-
-   |
-   v
-
-SOLDER
-Deploy it.
-Keep it that way.
-
-   |
-   v
-
-KUVRYN
-See it.
-Understand it.
-Operate it.
-```
+## 58. Positioning
 
 Solder's standalone positioning:
 
@@ -2594,7 +2389,7 @@ It watches desired state, renders it, shows exactly what will change, reconciles
 
 It runs as a small Kubernetes operator without requiring Redis, PostgreSQL or a mandatory UI.
 
-Use Solder by itself through Kubernetes and its CLI, connect it to Dhole for CI/CD provenance and deployment observation, or use Kuvryn for rich visualization and operations.
+Use Solder by itself through Kubernetes and its CLI, or connect any CI system, UI or operations tool through its public CRDs, status, Events and metrics.
 
 **GitOps that sticks.**
 
@@ -2608,9 +2403,9 @@ When making future design decisions, use this test:
 
 If yes, it may belong in Solder.
 
-If it primarily builds/tests artifacts, it probably belongs in **Dhole**.
+If it primarily builds or tests artifacts, it probably belongs in a CI system.
 
-If it primarily visualizes, explains or provides broad cluster operations, it probably belongs in **Kuvryn**.
+If it primarily visualizes, explains or provides broad cluster operations, it probably belongs in a separate tool built on Solder's public API.
 
 If it can be implemented using standard Kubernetes mechanisms without adding another service, prefer the Kubernetes-native solution.
 

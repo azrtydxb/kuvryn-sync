@@ -40,6 +40,28 @@ const (
 	ApprovedDigestAnnotation = "solder.io/approved-digest"
 )
 
+// Rollback request annotations on an Application. `solder rollback` and a
+// rollback failure policy set all three; Solder removes them once the
+// rollback completes or is abandoned.
+const (
+	// RollbackRevisionAnnotation is the source revision to roll back to.
+	RollbackRevisionAnnotation = "solder.io/rollback-revision"
+	// RollbackFromAnnotation is the source revision rolled back from. Once
+	// the rollback completes, every Revision of that source revision is held:
+	// Solder does not deploy it again until a new commit arrives.
+	RollbackFromAnnotation = "solder.io/rollback-from"
+	// RollbackKindAnnotation is RollbackKindManual or RollbackKindAutomatic.
+	RollbackKindAnnotation = "solder.io/rollback-kind"
+	// RollbackKindManual is a rollback a user requested.
+	RollbackKindManual = "manual"
+	// RollbackKindAutomatic is a rollback the failure policy started after a
+	// failed rollout.
+	RollbackKindAutomatic = "automatic"
+	// RolledBackCondition is True on a Revision a completed rollback
+	// replaced; Solder does not deploy it again.
+	RolledBackCondition = "RolledBack"
+)
+
 // ApplicationSpec defines the desired state of Application.
 type ApplicationSpec struct {
 	// source identifies and renders desired Kubernetes objects.

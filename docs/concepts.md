@@ -144,6 +144,22 @@ the Application's `status.managedKinds` inventory, so objects of any kind are
 pruned, including after a controller restart. Destructive changes are
 represented in the plan before mutation.
 
+Prune skips, and never deletes, two kinds of managed resources:
+
+- resources annotated `solder.io/prune: "disabled"`, a per-resource opt-out;
+- high-risk kinds, whose deletion loses data or other workloads' state:
+  Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
+  PersistentVolumes and Secrets.
+
+Skipping is not a failure: the rest of the prune proceeds and the rollout
+completes. The plan lists each skipped resource as `Unchanged` with a warning
+saying why, and a `PruneSkipped` Warning Event names them. Skipped resources
+keep Solder's labels and stay in the inventory, so the plan shows them on
+every Revision without trying to delete them again, and putting one back in
+Git adopts it as before. Delete one by hand once it is no longer needed. With
+`deletionPolicy: DeleteManagedResources`, deleting the Application still
+deletes high-risk resources, and still keeps resources that opted out.
+
 ## Drift and self-heal
 
 Solder can detect live drift by comparing normalized live state to desired state.
@@ -161,10 +177,48 @@ Applications that manage other kinds are re-checked every
 
 ## Rollback
 
-Rollback chooses a previous healthy Revision, records rollback intent on the
-Application, and runs normal reconciliation against that prior source revision.
-This preserves the same validation, planning, apply, health, and event behavior
-as a forward sync.
+A rollback records its intent on the Application: the source revision to roll
+back to, the source revision it rolls back from, and whether it is manual
+(`solder rollback`) or automatic (a `rollback` failure policy). A request
+that does not say what it rolls back from rolls back from the commit the
+Application's spec resolves to, and a second `solder rollback` while one is
+pending keeps the first one's source. Solder then
+runs normal reconciliation against the target, with the same validation,
+planning, apply, health, and event behavior as a forward sync.
+
+When the rollback completes, it holds. Every Revision of the source revision
+rolled back from, in any phase, is marked `Failed` with a `RolledBack`
+condition (reason `ManualRollback` or `RollbackCompleted`), and Solder does not
+deploy it again. The Application keeps running the target: Solder still
+reconciles it, observing its health, reporting drift of the target as
+`Drifted`, and self-healing when `spec.sync.selfHeal` is set. Otherwise sync is
+`OutOfSync`, since the held desired revision is not deployed, and `Ready` is
+`False` with reason `RolledBack`. An approval of a held Revision is ignored,
+and history retention never deletes a held Revision, which does not count
+against `spec.history.limit`.
+
+The hold is keyed on the commit and the Revision identity. It ends when:
+
+- a new commit arrives, creating a new Revision;
+- `spec.source.path`, `spec.source.render` or the service account changes,
+  which also creates a new Revision for the same commit: a changed spec is new
+  desired state, so it deploys;
+- you delete the held Revision, which Solder then creates afresh;
+- you roll back to the held Revision explicitly, with
+  `solder rollback --revision`, which lifts its hold and deploys it;
+- the held commit is the one deployed, as after an identity change that
+  deployed it is reverted: the old Revision is lifted and reconciled normally.
+
+A change that keeps the Revision identity, such as a new value in a Secret
+named by Helm `valuesFrom`, does not end the hold.
+
+A rollback that cannot reach its target is abandoned: Solder removes the
+request, emits a `RollbackAbandoned` Warning Event, and reconciles the desired
+revision again. That happens when the target fails for a reason retrying cannot
+fix, such as invalid desired state, or once its `maxAttempts` are used up. A
+failed fetch of the target, or a retryable failure such as a failed chart pull,
+keeps the request, and Solder tries the target again after its backoff. To give
+up such a rollback yourself, remove the `solder.io/rollback-*` annotations.
 
 ## Events, metrics, and tracing
 

@@ -10,6 +10,64 @@
   validation ratcheting (before Kubernetes 1.30), rename it before deleting
   such an Application, or its finalizer cannot be removed. A `.solder.yaml`
   naming an invalid release fails discovery for its Repository.
+- Fixed: a stale managed resource annotated `solder.io/prune: "disabled"`, or
+  of a high-risk kind (Namespace, CustomResourceDefinition,
+  PersistentVolumeClaim, PersistentVolume, Secret), failed the whole rollout
+  with `PruneFailure`. Prune now skips such resources and never deletes them;
+  the rest of the prune proceeds and the rollout completes. The Revision plan
+  lists each skipped resource as `Unchanged` with a warning saying why, and a
+  `PruneSkipped` Warning Event names them once per attempt. They keep Solder's
+  labels and stay in the inventory, and later Revisions do not try to delete
+  them again.
+- Fixed: a completed rollback did not last. After an automatic rollback the
+  failed Revision was left `RollingBack` and deployed again on the next
+  reconcile; after a manual rollback with automatic sync, the current commit
+  was deployed again, and a rollout still in progress resumed. A rollback now
+  records its target, the source revision it rolls back from, and its kind in
+  the `solder.io/rollback-revision`, `solder.io/rollback-from` and
+  `solder.io/rollback-kind` annotations. Once it completes, every Revision of
+  the rolled-back-from revision, in any phase, is marked `Failed` with a
+  `RolledBack` condition (`ManualRollback` or `RollbackCompleted`) and is not
+  deployed, approved, or removed by history retention again. The Application
+  keeps reconciling the rollback target, observing its health and
+  self-healing drift, with sync `OutOfSync` and `Ready=False/RolledBack`. The
+  hold ends with a new commit, a change to `spec.source.path`,
+  `spec.source.render` or the service account, deleting the held Revision, an
+  explicit rollback to it, or the held commit being deployed again, such as
+  after reverting an identity change; a new value in a Secret named by Helm
+  `valuesFrom` does not end it. A rollback whose target fails for a reason
+  retrying cannot fix, or uses up its `maxAttempts`, is abandoned with a
+  `RollbackAbandoned` Warning Event instead of pinning the Application; a
+  failed fetch or a retryable failure keeps the request. Git cannot request a
+  rollback: discovery strips the rollback annotations from `.solder.yaml`.
+- Fixed: `solder rollback` without `--revision` picked the newest Healthy
+  Revision, usually the one already deployed, so it did nothing. It now picks
+  the newest Revision that is Healthy or was deployed by an earlier rollback,
+  whose source revision is neither the desired nor the deployed one, ordered by
+  creation time and then name, and fails when there is none. It records the
+  desired revision as the one rolled back from, or the pending request's
+  source while another rollback waits, refuses a Revision of another
+  Application, and says when rolling back to a held Revision lifts its hold.
+  `solder approve` refuses a Revision a rollback replaced.
+- Fixed: a Revision status write from a stale copy could overwrite newer
+  status. Writes are now checked against the resourceVersion they were read
+  at, and a conflict retries the reconcile.
+- Fixed: the Application `Ready` condition was only ever set to `False`, so a
+  recovered Application kept a stale failure that `solder diagnose` printed.
+  `Ready` now turns `True` with reason `Healthy` when a rollout completes
+  Synced and Healthy, and `False` with the failure's reason whenever a rollout
+  fails, not only when reconciliation stops before planning. While a completed
+  rollback holds, it is `False` with reason `RolledBack`. `Ready` is left as
+  it was during drift without self-heal, suspension, approval and dependency
+  waits, and rollouts in progress, so it reports the last completed rollout.
+- Behaviour change: an Application that another Application manages, such as
+  an app of apps, now shows `Ready=False` on every rollout failure and after a
+  rollback, and the parent treats it as Progressing, since kstatus treats a
+  `Ready` condition that is not `True` as not ready. Before, only failures
+  before planning set it.
+- Fixed: `solder version` always printed `solder development`. Builds now embed
+  the version: the Git tag for a release image, `sha-<commit>` otherwise, and
+  `dev` for a plain `go build`. The manager logs it once at startup.
 - Applications explain why they are not Healthy. When a managed resource is
   unhealthy, Solder builds a graph of its live ReplicaSets, Pods,
   EndpointSlices and the ConfigMaps, Secrets, claims, volumes and

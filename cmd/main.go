@@ -51,6 +51,7 @@ import (
 	"github.com/azrtydxb/solder/internal/notify"
 	"github.com/azrtydxb/solder/internal/ops"
 	"github.com/azrtydxb/solder/internal/receiver"
+	"github.com/azrtydxb/solder/internal/version"
 	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -306,7 +307,7 @@ func main() {
 		setupLog.Error(err, "Failed to set up tracing")
 		os.Exit(1)
 	}
-	setupLog.Info("Starting manager")
+	setupLog.Info("Starting manager", "version", version.Version)
 	runErr := mgr.Start(ctx)
 	// The manager's context is done by now; give the exporter its own
 	// deadline to flush the last spans.
