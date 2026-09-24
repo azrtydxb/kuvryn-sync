@@ -32,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/azrtydxb/solder/internal/applier"
 )
 
 // countingController records Watch calls and nothing else.
@@ -92,7 +94,7 @@ func TestDriftWatchesCheckKindsConcurrentlyAndRegisterEachOnce(t *testing.T) {
 	// While Widget's permission check is stuck, other kinds are not held up.
 	other := make(chan bool, 1)
 	go func() {
-		other <- watches.ensure(ctx, []schema.GroupVersionKind{staticWatchKinds[0], gizmo})
+		other <- watches.ensure(ctx, []schema.GroupVersionKind{applier.DefaultKinds[0], gizmo})
 	}()
 	select {
 	case ok := <-other:

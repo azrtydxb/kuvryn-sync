@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	"github.com/azrtydxb/solder/internal/prune"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -103,7 +104,7 @@ func TestKeepListsKeptObjectsInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := plan.Keep([]Kept{{Object: cm("c", "v"), Reason: "opted out"}, {Object: cm("a", "v"), Reason: "high-risk"}}); err != nil {
+	if err := plan.Keep([]prune.Rejected{{Object: cm("c", "v"), Reason: "opted out"}, {Object: cm("a", "v"), Reason: "high-risk"}}); err != nil {
 		t.Fatal(err)
 	}
 	resources := plan.RevisionPlan(10).Resources

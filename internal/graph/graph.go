@@ -248,14 +248,14 @@ func (b *builder) infer(id resource.ID, obj unstructured.Unstructured, keys []st
 		}
 	}
 	switch {
-	case id.Group == "" && id.Kind == "Service":
-		b.service(id, obj, keys)
+	case id.Group == "" && id.Kind == "Service", id.Group == "policy" && id.Kind == "PodDisruptionBudget":
+		if s, ok := Selector(obj); ok {
+			b.selects(id, s, keys, id.Kind == "Service")
+		}
 	case id.Group == "networking.k8s.io" && id.Kind == "Ingress":
 		b.ingress(id, obj)
 	case id.Group == "autoscaling" && id.Kind == "HorizontalPodAutoscaler":
 		b.autoscaler(id, obj)
-	case id.Group == "policy" && id.Kind == "PodDisruptionBudget":
-		b.disruptionBudget(id, obj, keys)
 	case id.Group == "" && id.Kind == "PersistentVolumeClaim":
 		if volume, _, _ := unstructured.NestedString(obj.Object, "spec", "volumeName"); volume != "" {
 			b.reference(id, resource.ID{Version: "v1", Kind: "PersistentVolume", Name: volume}, EdgeBinds, false)
@@ -268,18 +268,6 @@ func (b *builder) infer(id resource.ID, obj unstructured.Unstructured, keys []st
 	}
 	if spec, ok := PodSpec(obj); ok {
 		b.podSpec(id, spec)
-	}
-}
-
-func (b *builder) service(id resource.ID, obj unstructured.Unstructured, keys []string) {
-	if selector, ok := Selector(obj); ok {
-		b.selects(id, selector, keys, true)
-	}
-}
-
-func (b *builder) disruptionBudget(id resource.ID, obj unstructured.Unstructured, keys []string) {
-	if selector, ok := Selector(obj); ok {
-		b.selects(id, selector, keys, false)
 	}
 }
 

@@ -26,9 +26,6 @@ type OTelTracer struct {
 // NewOTelTracer creates a tracer on the global OpenTelemetry provider, which
 // SetupTracing configures.
 func NewOTelTracer(name string) OTelTracer {
-	if name == "" {
-		name = "github.com/azrtydxb/solder"
-	}
 	return OTelTracer{tracer: otel.Tracer(name)}
 }
 

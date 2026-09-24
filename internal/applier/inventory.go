@@ -1,8 +1,10 @@
 package applier
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"maps"
+	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -45,12 +47,7 @@ func UnionKinds(sets ...[]schema.GroupVersionKind) []schema.GroupVersionKind {
 			seen[gvk] = struct{}{}
 		}
 	}
-	out := make([]schema.GroupVersionKind, 0, len(seen))
-	for gvk := range seen {
-		out = append(out, gvk)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
-	return out
+	return slices.SortedFunc(maps.Keys(seen), func(a, b schema.GroupVersionKind) int { return cmp.Compare(a.String(), b.String()) })
 }
 
 // ListOptions tunes ListManaged.
