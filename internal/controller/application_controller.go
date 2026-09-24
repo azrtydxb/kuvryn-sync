@@ -1380,8 +1380,10 @@ func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1
 	setReady(application, metav1.ConditionFalse, reason, message)
 }
 
-// ReadyCondition is the Application condition that is True only while the
-// Application is Synced to its desired Revision and Healthy.
+// ReadyCondition is the Application condition that is True after the last
+// rollout completed Synced and Healthy, and False after a failure or an
+// automatic rollback. Drift without self-heal, suspension, dependency and
+// approval waits, and rollouts in progress leave it as it was.
 const ReadyCondition = "Ready"
 
 // setReady records the Ready condition. Its transition time moves only when

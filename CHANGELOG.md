@@ -24,7 +24,14 @@
   `Ready` now turns `True` with reason `Healthy` when a rollout completes
   Synced and Healthy, and `False` with the failure's reason whenever a rollout
   fails, not only when reconciliation stops before planning. After an
-  automatic rollback it is `False` with reason `RolledBack`.
+  automatic rollback it is `False` with reason `RolledBack`. `Ready` is left as
+  it was during drift without self-heal, suspension, approval and dependency
+  waits, and rollouts in progress, so it reports the last completed rollout.
+- Behaviour change: an Application that another Application manages, such as
+  an app of apps, now shows `Ready=False` on every rollout failure and after a
+  rollback, and the parent treats it as Progressing, since kstatus treats a
+  `Ready` condition that is not `True` as not ready. Before, only failures
+  before planning set it.
 - Fixed: `solder version` always printed `solder development`. Builds now embed
   the version: the Git tag for a release image, `sha-<commit>` otherwise, and
   `dev` for a plain `go build`. The manager logs it once at startup.
