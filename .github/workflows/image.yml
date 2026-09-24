@@ -62,7 +62,8 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
+          # On a pull request github.sha is the ephemeral merge commit.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [ "$REF_TYPE" = "tag" ]; then
             echo "version=$REF_NAME" >> "$GITHUB_OUTPUT"

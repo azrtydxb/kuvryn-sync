@@ -1,8 +1,9 @@
 # Image URL to use all building/pushing image targets
 IMG ?= solder:latest
 # VERSION is embedded in the binary and printed by `solder version`: the Git
-# tag of the checkout, or sha-<short commit> when HEAD is not tagged.
-VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "sha-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)")
+# tag of the checkout, or sha-<short commit> when HEAD is not tagged, either
+# suffixed -dirty when the working tree has changes.
+VERSION ?= $(shell git describe --tags --exact-match --dirty 2>/dev/null || echo "sha-$$(git describe --always --dirty --exclude='*' 2>/dev/null || echo unknown)")
 LDFLAGS ?= -X github.com/azrtydxb/solder/internal/version.Version=$(VERSION)
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
