@@ -482,6 +482,99 @@ spec:
                     desiredRevision is the source revision Git currently
                     asks Solder to run.
                   type: string
+                diagnosis:
+                  description: |-
+                    diagnosis explains why the Application is not Healthy: each cause names
+                    the resource at the root of a failure and the chain of resources from
+                    an unhealthy managed object down to it. It is empty when the
+                    Application is Healthy.
+                  items:
+                    description: DiagnosisCause is one root cause of an unhealthy Application.
+                    properties:
+                      chain:
+                        description: |-
+                          chain lists the resources from the unhealthy managed object down to the
+                          root cause, both included.
+                        items:
+                          description:
+                            ResourceRef identifies a Kubernetes resource
+                            in a plan, graph, or status.
+                          properties:
+                            apiVersion:
+                              description:
+                                apiVersion is the resource API version, such
+                                as apps/v1.
+                              minLength: 1
+                              type: string
+                            kind:
+                              description: kind is the Kubernetes resource kind.
+                              minLength: 1
+                              type: string
+                            name:
+                              description: name is the resource name.
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: namespace is empty for cluster-scoped resources.
+                              type: string
+                          required:
+                            - apiVersion
+                            - kind
+                            - name
+                          type: object
+                        maxItems: 10
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      message:
+                        description:
+                          message is the redacted, bounded evidence for the
+                          failure.
+                        maxLength: 512
+                        type: string
+                      reason:
+                        description: |-
+                          reason is a CamelCase word naming the failure, such as MissingSecret,
+                          ImagePullBackOff or Unschedulable.
+                        maxLength: 128
+                        minLength: 1
+                        pattern: ^[A-Z][A-Za-z0-9]*$
+                        type: string
+                      resource:
+                        description: |-
+                          resource is the resource at the root of the failure, such as a missing
+                          Secret or a Pod whose container cannot start.
+                        properties:
+                          apiVersion:
+                            description:
+                              apiVersion is the resource API version, such
+                              as apps/v1.
+                            minLength: 1
+                            type: string
+                          kind:
+                            description: kind is the Kubernetes resource kind.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: name is the resource name.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: namespace is empty for cluster-scoped resources.
+                            type: string
+                        required:
+                          - apiVersion
+                          - kind
+                          - name
+                        type: object
+                    required:
+                      - chain
+                      - reason
+                      - resource
+                    type: object
+                  maxItems: 10
+                  type: array
+                  x-kubernetes-list-type: atomic
                 health:
                   description: health reports operational health independent from sync.
                   properties:

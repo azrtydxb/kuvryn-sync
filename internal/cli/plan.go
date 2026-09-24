@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,37 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/yaml"
 )
+
+// Usage lists the CLI commands.
+const Usage = `Usage: solder <command> [arguments] [-n namespace]
+
+Read:
+  apps                                     List Applications
+  repos                                    List Repositories
+  repo get <repository>                    Show one Repository
+  get <application>                        Show one Application (alias: status)
+  history <application> [-o table|json]    List an Application's Revisions
+  revision <revision>                      Show one Revision
+  plan <application> [-f file] [-o text|json|yaml]
+                                           Show the newest Revision's plan
+  diagnose <application>                   Explain why an Application is not Healthy
+  graph <application> [-o json|dot]        Print the live resource graph
+  drift <application>                      Show sync state (alias of get)
+
+Change:
+  sync <application> --revision <revision> Approve a Revision's plan (alias: approve)
+  rollback <application> [--revision <revision>]
+                                           Roll back to a healthy Revision
+  suspend <application>                    Stop reconciling an Application
+  resume <application>                     Resume reconciling an Application
+
+Other:
+  install                                  Print the install commands
+  version                                  Print the version
+  help                                     Print this help
+
+Without a command, or with flags only, solder starts the controller manager.
+`
 
 // Run executes the CLI subcommand, returning false when args should start the controller manager.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, int) {
@@ -50,6 +82,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 		err = runDrift(ctx, args[1:], stdout, stderr)
 	case "diagnose":
 		err = runDiagnose(ctx, args[1:], stdout, stderr)
+	case "graph":
+		err = runGraph(ctx, args[1:], stdout, stderr)
 	case "suspend":
 		err = runSuspend(ctx, args[1:], stdout, stderr, true)
 	case "resume":
@@ -57,11 +91,14 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 	case "version":
 		_, _ = fmt.Fprintln(stdout, "solder development")
 		return true, 0
+	case "help":
+		_, _ = fmt.Fprint(stdout, Usage)
+		return true, 0
 	default:
 		if len(args[0]) > 0 && args[0][0] == '-' {
 			return false, 0
 		}
-		_, _ = fmt.Fprintf(stderr, "unknown solder command %q\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown solder command %q\n\n%s", args[0], Usage)
 		return true, 1
 	}
 	if err != nil {
@@ -337,15 +374,29 @@ func runDiagnose(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: solder diagnose <application> [-n namespace]")
 	}
-	rev, err := loadRevision(ctx, fs.Arg(0), *namespace, "")
+	c, err := clusterClient()
 	if err != nil {
 		return err
 	}
-	if rev.Status.Failure == nil {
-		_, _ = fmt.Fprintf(stdout, "%s: no failure recorded\n", fs.Arg(0))
-		return nil
+	return diagnose(ctx, c, *namespace, fs.Arg(0), stdout)
+}
+
+// diagnose prints the causal chains recorded on an Application and the
+// failure of its latest Revision.
+func diagnose(ctx context.Context, c client.Client, namespace, application string, stdout io.Writer) error {
+	app := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
+		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "%s: %s: %s\n", fs.Arg(0), rev.Status.Failure.Reason, rev.Status.Failure.Message)
+	var failure *corev1alpha1.RevisionFailure
+	rev, err := newestRevision(ctx, c, application, namespace)
+	switch {
+	case err == nil:
+		failure = rev.Status.Failure
+	case !errors.Is(err, errNoRevision):
+		return err
+	}
+	_, _ = fmt.Fprint(stdout, RenderDiagnosis(*app, failure))
 	return nil
 }
 
@@ -451,6 +502,14 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 	if err != nil {
 		return nil, err
 	}
+	return newestRevision(ctx, c, application, namespace)
+}
+
+// newestRevision returns the most recently created Revision of application.
+// errNoRevision reports an Application with no Revision yet.
+var errNoRevision = errors.New("no Revision found")
+
+func newestRevision(ctx context.Context, c client.Client, application, namespace string) (*corev1alpha1.Revision, error) {
 	var list corev1alpha1.RevisionList
 	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
 		return nil, err
@@ -466,7 +525,7 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 		}
 	}
 	if newest == nil {
-		return nil, fmt.Errorf("no Revision found for application %q in namespace %q", application, namespace)
+		return nil, fmt.Errorf("%w for application %q in namespace %q", errNoRevision, application, namespace)
 	}
 	return newest, nil
 }

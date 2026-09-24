@@ -34,7 +34,7 @@ func TestGroupHealthCountsMissingObjects(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
 	missing := configMapObject("payments", "desired")
 
-	results, err := groupHealth(context.Background(), c, health.Evaluator{}, []unstructured.Unstructured{missing}, false)
+	results, _, err := groupHealth(context.Background(), c, health.Evaluator{}, []unstructured.Unstructured{missing}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestGroupHealthCountsMissingObjects(t *testing.T) {
 		t.Fatalf("missing sync object = %#v, want one Progressing result", results)
 	}
 
-	results, err = groupHealth(context.Background(), c, health.Evaluator{}, []unstructured.Unstructured{missing}, true)
+	results, _, err = groupHealth(context.Background(), c, health.Evaluator{}, []unstructured.Unstructured{missing}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

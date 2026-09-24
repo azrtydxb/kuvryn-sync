@@ -118,17 +118,77 @@ solder resume payments -n default
 
 ## Diagnosis
 
-Show the latest recorded deterministic failure for an Application:
+Explain why an Application is not Healthy. The command prints the `Ready`
+condition when it is `False`, such as a `SourceFailure`, the latest Revision
+failure, and every cause recorded in `status.diagnosis`, each with its chain
+from the unhealthy managed resource down to the root cause:
 
 ```sh
 solder diagnose payments -n default
 ```
+
+```text
+payments: health Degraded, sync OutOfSync
+Failure: HealthFailure: One or more resources are degraded
+Causes (1):
+
+1. MissingSecret  Secret/payments/db
+   Secret payments/db does not exist; Pod api-7d9f-x2k: CreateContainerConfigError: ...
+   Deployment/payments/api
+   └─ ReplicaSet/payments/api-7d9f
+      └─ Pod/payments/api-7d9f-x2k
+         └─ Secret/payments/db
+```
+
+See [Reading a diagnosis](troubleshooting.md#reading-a-diagnosis).
+
+## Resource graph
+
+Print the live resource graph of an Application: its managed resources, the
+ReplicaSets, Pods and EndpointSlices below them, and the ConfigMaps, Secrets,
+claims, volumes and ServiceAccounts they refer to:
+
+```sh
+solder graph payments -n default
+solder graph payments -n default -o dot | dot -Tsvg > payments.svg
+```
+
+`-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
+Graphviz DOT. A node marked `missing` is referenced but does not exist; one
+marked `unreadable` could not be checked, and `unread` (a comment in DOT)
+lists the lists that failed, such as `could not list Pods: forbidden`. See
+[Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
+the edges.
+
+The command reads the cluster with your own kubeconfig credentials, so it
+shows only what you may read. It needs, in the Application's destination
+namespace:
+
+- `get` on the Application, in its own namespace;
+- `list` on every kind in the Application's `status.managedKinds`;
+- `list` on `replicasets`, `pods` and `endpointslices`;
+- `get` on the objects they refer to: `configmaps`, `secrets`,
+  `serviceaccounts`, `persistentvolumeclaims`, `services`, any
+  HorizontalPodAutoscaler target, and cluster-scoped `persistentvolumes`.
+
+Secrets, ConfigMaps and ServiceAccounts are listed and read as metadata only,
+so their data never leaves the API server; Kubernetes RBAC still asks for the
+`list` and `get` verbs on them. A kind you may not list is left out, and a
+reference you may not read is marked `unreadable`.
 
 `drift` currently aliases the Application read path:
 
 ```sh
 solder drift payments -n default
 ```
+
+## Help
+
+```sh
+solder help
+```
+
+Lists every command. An unknown command prints the same list.
 
 ## Install helper
 

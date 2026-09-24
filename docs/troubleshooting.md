@@ -79,9 +79,47 @@ kubectl describe app <application> -n <namespace>
 kubectl get events -n <namespace> --sort-by=.lastTimestamp
 ```
 
-Inspect the managed workload resources named in Revision plan or failure status.
-Health timeouts are controlled by `spec.health.timeout` and failure behavior by
+`solder diagnose` prints the root causes Solder recorded in
+`status.diagnosis`; see [Reading a diagnosis](#reading-a-diagnosis). Health
+timeouts are controlled by `spec.health.timeout` and failure behavior by
 `spec.strategy.failurePolicy`.
+
+## Reading a diagnosis
+
+Each cause in `status.diagnosis` names a root resource, a reason, a message,
+and a chain. Read the chain from the top: the first entry is the managed
+resource that is not Healthy, the last is the root cause, and the entries
+between are how one leads to the other, such as the ReplicaSet and Pod between
+a Deployment and a missing Secret. Fix the last entry; the others recover on
+their own.
+
+| Reason                                      | Root resource       | What to check                                                                                            |
+| ------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------- |
+| `MissingSecret`, `MissingConfigMap`         | the missing object  | Create it, or fix the name in the Pod template; mark the reference `optional: true` if it may be absent. |
+| `MissingPersistentVolumeClaim`              | the missing claim   | Create the claim or fix `claimName`.                                                                     |
+| `MissingServiceAccount`                     | the missing account | Create the account or fix `serviceAccountName`.                                                          |
+| `ImagePullBackOff`, `ErrImagePull`          | the Pod             | The image name and tag, and the pull Secret; a missing pull Secret is reported as `MissingSecret`.       |
+| `CrashLoopBackOff`                          | the Pod             | The last exit code in the message, then `kubectl logs --previous`.                                       |
+| `CreateContainerConfigError`                | the Pod             | A key missing from a ConfigMap or Secret that exists.                                                    |
+| `Unschedulable`                             | the Pod             | Requests, node selectors, taints, and quotas named in the message.                                       |
+| `ClaimPending`                              | the claim           | The storage class and its provisioner.                                                                   |
+| `NoReadyEndpoints`                          | the Service         | Whether its selector matches ready Pods.                                                                 |
+| `JobFailed`, `OOMKilled`, `ContainerFailed` | the Job or its Pod  | The Job's Pods and their logs.                                                                           |
+| `FailedCreate`, `ProgressDeadlineExceeded`  | the workload        | The workload's conditions: quotas, admission, or a rollout that stopped progressing.                     |
+
+A cause whose chain is only the managed resource itself means Solder found no
+deeper evidence; its reason is the resource's health verdict, such as
+`ReplicasUnavailable` during an ordinary rollout. Solder then emits no
+`Diagnosed` Event unless the Application is Degraded. When a list failed,
+such a message ends with what was not visible, such as
+`not visible: could not list Pods: forbidden`: the evidence may be there,
+but the service account may not read it.
+
+Solder reads the objects below managed resources as the Application's service
+account. If the account may not list Pods or read Secrets, the diagnosis stops
+higher up the chain, and a reference it could not check is never reported as
+missing; see [Diagnosis permissions](operations.md#diagnosis-permissions).
+`solder graph <application>` shows the same graph with your own credentials.
 
 ## ServiceAccountRequired or Forbidden
 

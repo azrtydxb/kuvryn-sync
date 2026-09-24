@@ -47,11 +47,11 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 			return progressing(result, "PodPending", "pod is not running"), nil
 		}
 	case "Job":
-		conditions := statusConditions(obj)
-		if condition, ok := conditions["Failed"]; ok && condition.status == "True" {
-			return Result{Resource: id, State: corev1alpha1.HealthStateDegraded, Reason: "JobFailed", Message: condition.message}, nil
+		conditions := Conditions(obj)
+		if condition, ok := conditions["Failed"]; ok && condition.Status == "True" {
+			return Result{Resource: id, State: corev1alpha1.HealthStateDegraded, Reason: "JobFailed", Message: condition.Message}, nil
 		}
-		if condition, ok := conditions["Complete"]; ok && condition.status == "True" {
+		if condition, ok := conditions["Complete"]; ok && condition.Status == "True" {
 			return result, nil
 		}
 		return progressing(result, "JobRunning", "job has not completed"), nil
@@ -68,29 +68,32 @@ func generic(result Result, obj unstructured.Unstructured) Result {
 	if observed, found, _ := unstructured.NestedInt64(obj.Object, "status", "observedGeneration"); found && observed < obj.GetGeneration() {
 		return progressing(result, "GenerationPending", "controller has not observed latest generation")
 	}
-	conditions := statusConditions(obj)
-	if condition, ok := conditions["Stalled"]; ok && condition.status == "True" {
+	conditions := Conditions(obj)
+	if condition, ok := conditions["Stalled"]; ok && condition.Status == "True" {
 		result.State = corev1alpha1.HealthStateDegraded
 		result.Reason = "Stalled"
-		result.Message = condition.message
+		result.Message = condition.Message
 		return result
 	}
-	if condition, ok := conditions["Reconciling"]; ok && condition.status == "True" {
-		return progressing(result, "Reconciling", condition.message)
+	if condition, ok := conditions["Reconciling"]; ok && condition.Status == "True" {
+		return progressing(result, "Reconciling", condition.Message)
 	}
-	if condition, ok := conditions["Ready"]; ok && condition.status != "True" {
-		return progressing(result, "NotReady", condition.message)
+	if condition, ok := conditions["Ready"]; ok && condition.Status != "True" {
+		return progressing(result, "NotReady", condition.Message)
 	}
 	return result
 }
 
-type condition struct {
-	status  string
-	message string
+// Condition is one entry of an object's status.conditions.
+type Condition struct {
+	Status  string
+	Reason  string
+	Message string
 }
 
-func statusConditions(obj unstructured.Unstructured) map[string]condition {
-	out := map[string]condition{}
+// Conditions returns an object's status conditions by type.
+func Conditions(obj unstructured.Unstructured) map[string]Condition {
+	out := map[string]Condition{}
 	raw, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	for _, item := range raw {
 		entry, ok := item.(map[string]any)
@@ -99,9 +102,10 @@ func statusConditions(obj unstructured.Unstructured) map[string]condition {
 		}
 		kind, _ := entry["type"].(string)
 		status, _ := entry["status"].(string)
+		reason, _ := entry["reason"].(string)
 		message, _ := entry["message"].(string)
 		if kind != "" {
-			out[kind] = condition{status: status, message: message}
+			out[kind] = Condition{Status: status, Reason: reason, Message: message}
 		}
 	}
 	return out

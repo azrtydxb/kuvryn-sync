@@ -13,13 +13,16 @@ var assignments = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(Authorization:\s*Bearer\s+)[^\s,;]+`),
 }
 
+// userinfo matches the credentials in a URL such as scheme://user:pass@host.
+var userinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@"']+@`)
+
 // String removes obvious secret material from status, events, logs, and CLI output.
 func String(value string) string {
 	out := value
 	for _, re := range assignments {
 		out = re.ReplaceAllString(out, `${1}${2}`+Placeholder)
 	}
-	return out
+	return userinfo.ReplaceAllString(out, `${1}`+Placeholder+`@`)
 }
 
 // Value returns a fully redacted placeholder when a field is sensitive.

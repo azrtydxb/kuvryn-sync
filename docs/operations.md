@@ -17,7 +17,9 @@ Core commands use Kubernetes CRDs directly:
 - `solder plan <application>` reads Revision status and prints redacted plan
   output.
 - `solder history <application>` lists retained deployment attempts.
-- `solder diagnose <application>` prints the latest deterministic failure.
+- `solder diagnose <application>` prints the latest deterministic failure and
+  the causal chains in `status.diagnosis`.
+- `solder graph <application>` prints the live resource graph as JSON or DOT.
 - `solder rollback <application>` requests rollback to a healthy Revision.
 
 Application, Repository, and Revision status remain the public integration API.
@@ -457,7 +459,32 @@ kubectl get revisions.solder.io -n <namespace>
 ```
 
 Solder emits lifecycle Events and writes Conditions for readiness, failure, and
-rollout states.
+rollout states. A `Diagnosed` Warning Event names the first root cause each
+time the set of causes in `status.diagnosis` changes.
+
+## Diagnosis permissions
+
+To diagnose an unhealthy Application, Solder reads, as the Application's
+service account, in the destination namespace:
+
+- `list` on `replicasets` (apps), `pods` and `endpointslices`
+  (discovery.k8s.io);
+- `get` on the `configmaps`, `secrets`, `serviceaccounts`,
+  `persistentvolumeclaims` and `services` its resources refer to;
+- `get` on the target of each HorizontalPodAutoscaler's `scaleTargetRef`,
+  which can be any kind;
+- `get` on the `persistentvolumes` its claims are bound to. PersistentVolumes
+  are cluster-scoped, so only a ClusterRole bound with a ClusterRoleBinding
+  grants this; without it, the edge from a claim to its volume is simply
+  `unreadable`.
+
+Secrets, ConfigMaps and ServiceAccounts are read as metadata only; their data
+never leaves the API server, although RBAC still asks for the `get` verb. A
+read the account may not make is not an error: the diagnosis only goes less
+deep, a reference it could not check is never blamed as missing, and a list it
+could not make is named in the message of a cause that found no deeper
+evidence. Reads are bounded: at most 20 label selectors and 20 Services' EndpointSlices,
+100 objects per list, 100 referenced objects and 500 objects in all.
 
 ## History retention
 

@@ -54,3 +54,9 @@ Entry shape (unindented in real entries):
 - Class: mechanical
 - Missed by: rubric
 - Adaptation: REVIEW.md now asks for every instance of a fixed pattern to be fixed; the pre-PR review had flagged the outer loop only. `TestPruneKeepsGoingPastACheckoutItCannotRemove` pins the inner loop.
+
+## 2026-09-24 Copilot review of PR #8 — managed PodDisruptionBudgets never listed their Pods
+
+- Class: mechanical
+- Missed by: test
+- Adaptation: `TestCollectReadsThePodsABudgetCovers` pins that a managed PDB alone makes Collect read its Pods; the edge tests had built graphs from Pods handed in directly, never through Collect.

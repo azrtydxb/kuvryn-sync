@@ -50,6 +50,9 @@ type rolloutProgress struct {
 	state         rolloutState
 	// hooks maps the hooks this rollout already applied to their state.
 	hooks map[corev1alpha1.ResourceRef]corev1alpha1.HealthState
+	// previousHealth is the Application health persisted before this
+	// reconcile.
+	previousHealth corev1alpha1.HealthState
 }
 
 // rolloutOf reads how far a Revision's rollout got. Revisions written before

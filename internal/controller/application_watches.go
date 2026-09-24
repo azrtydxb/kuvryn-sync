@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"sort"
 	"sync"
 	"time"
 
@@ -41,14 +40,7 @@ import (
 
 // staticWatchKinds are watched from startup; the controller role grants
 // list/watch on them.
-var staticWatchKinds = []schema.GroupVersionKind{
-	{Group: "", Version: "v1", Kind: "ConfigMap"},
-	{Group: "", Version: "v1", Kind: "Secret"},
-	{Group: "", Version: "v1", Kind: "Service"},
-	{Group: "apps", Version: "v1", Kind: "Deployment"},
-	{Group: "apps", Version: "v1", Kind: "StatefulSet"},
-	{Group: "apps", Version: "v1", Kind: "DaemonSet"},
-}
+var staticWatchKinds = applier.DefaultKinds
 
 // driftWatches starts metadata-only watches for managed kinds the controller
 // is allowed to list and watch. Kinds it may not watch are left to periodic
@@ -169,41 +161,11 @@ func (w *driftWatches) register(ctx context.Context, gvk schema.GroupVersionKind
 
 // objectKinds returns the distinct kinds of objects, sorted for stable status.
 func objectKinds(objects []unstructured.Unstructured) []schema.GroupVersionKind {
-	seen := map[schema.GroupVersionKind]struct{}{}
+	kinds := make([]schema.GroupVersionKind, 0, len(objects))
 	for _, obj := range objects {
-		seen[obj.GroupVersionKind()] = struct{}{}
+		kinds = append(kinds, obj.GroupVersionKind())
 	}
-	return sortedKinds(seen)
-}
-
-// inventoryKinds returns the kinds recorded in an Application's inventory.
-func inventoryKinds(application *corev1alpha1.Application) []schema.GroupVersionKind {
-	seen := map[schema.GroupVersionKind]struct{}{}
-	for _, kind := range application.Status.ManagedKinds {
-		if gv, err := schema.ParseGroupVersion(kind.APIVersion); err == nil {
-			seen[gv.WithKind(kind.Kind)] = struct{}{}
-		}
-	}
-	return sortedKinds(seen)
-}
-
-func unionKinds(sets ...[]schema.GroupVersionKind) []schema.GroupVersionKind {
-	seen := map[schema.GroupVersionKind]struct{}{}
-	for _, set := range sets {
-		for _, gvk := range set {
-			seen[gvk] = struct{}{}
-		}
-	}
-	return sortedKinds(seen)
-}
-
-func sortedKinds(seen map[schema.GroupVersionKind]struct{}) []schema.GroupVersionKind {
-	out := make([]schema.GroupVersionKind, 0, len(seen))
-	for gvk := range seen {
-		out = append(out, gvk)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
-	return out
+	return applier.UnionKinds(kinds)
 }
 
 func managedKinds(kinds []schema.GroupVersionKind) []corev1alpha1.ManagedKind {
