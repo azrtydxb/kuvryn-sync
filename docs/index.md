@@ -19,7 +19,8 @@ image automation, and Repository-driven Application discovery from
 When an Application is not Healthy, Solder walks its live resource graph down
 to the root cause, such as a missing Secret or a crash-looping Pod, and
 records the chain in `status.diagnosis`; `solder diagnose` and `solder graph`
-print it. Prometheus metrics are always on, and OpenTelemetry traces are
+print it. The Helm chart and raw manifests expose Prometheus metrics on `:8443`
+(the manager's own default leaves them off), and OpenTelemetry traces are
 exported over OTLP once an endpoint is configured.
 
 The first public API is intentionally compact:

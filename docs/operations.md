@@ -398,18 +398,20 @@ only the elected leader reconciles at any moment.
 
 ## Manager flags and environment
 
-| Flag                                         | Default | Meaning                                                                                            |
-| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| `--default-service-account`                  | empty   | Service account for Applications that set none; empty refuses them. Helm `defaultServiceAccount`.  |
-| `--drift-resync-interval`                    | `5m`    | Drift re-check for Applications with unwatched kinds; `0` disables it. Helm `driftResyncInterval`. |
-| `--webhook-receiver-bind-address`            | empty   | Push webhook receiver address, such as `:9292`; empty disables it. Helm `webhookReceiver.enabled`. |
-| `--leader-elect`                             | `false` | Leader election; the chart enables it. Helm `leaderElection`.                                      |
-| `--metrics-bind-address`                     | `0`     | Metrics address, such as `:8443`; `0` disables metrics. The chart and raw manifests use `:8443`.   |
-| `--metrics-secure`                           | `true`  | Serve metrics over HTTPS with authentication and authorization.                                    |
-| `--health-probe-bind-address`                | `:8081` | `/healthz` and `/readyz` address.                                                                  |
-| `--webhook-cert-path`, `--metrics-cert-path` | empty   | Directories holding the webhook and metrics certificates (`--*-cert-name`, `--*-cert-key`).        |
-| `--enable-http2`                             | `false` | Enable HTTP/2 for the metrics and webhook servers.                                                 |
-| `--zap-log-level`, `--zap-devel`             |         | controller-runtime logging options.                                                                |
+| Flag                                         | Default   | Meaning                                                                                            |
+| -------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------- |
+| `--default-service-account`                  | empty     | Service account for Applications that set none; empty refuses them. Helm `defaultServiceAccount`.  |
+| `--drift-resync-interval`                    | `5m`      | Drift re-check for Applications with unwatched kinds; `0` disables it. Helm `driftResyncInterval`. |
+| `--webhook-receiver-bind-address`            | empty     | Push webhook receiver address, such as `:9292`; empty disables it. Helm `webhookReceiver.enabled`. |
+| `--leader-elect`                             | `false`   | Leader election; the chart enables it. Helm `leaderElection`.                                      |
+| `--metrics-bind-address`                     | `0`       | Metrics address, such as `:8443`; `0` disables metrics. The chart and raw manifests use `:8443`.   |
+| `--metrics-secure`                           | `true`    | Serve metrics over HTTPS with authentication and authorization.                                    |
+| `--health-probe-bind-address`                | `:8081`   | `/healthz` and `/readyz` address.                                                                  |
+| `--webhook-cert-path`, `--metrics-cert-path` | empty     | Directories holding the webhook and metrics certificates.                                          |
+| `--webhook-cert-name`, `--metrics-cert-name` | `tls.crt` | Certificate file name in those directories.                                                        |
+| `--webhook-cert-key`, `--metrics-cert-key`   | `tls.key` | Key file name in those directories.                                                                |
+| `--enable-http2`                             | `false`   | Enable HTTP/2 for the metrics and webhook servers.                                                 |
+| `--zap-log-level`, `--zap-devel`             |           | controller-runtime logging options.                                                                |
 
 | Environment variable                                                 | Meaning                                                                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -428,6 +430,12 @@ the cache grows with `spec.history` and the number of Repositories, not with
 every commit ever rendered. Size the volume for that. Pulled Helm charts are
 cached beside the clones and removed once no render has used them for a day;
 every render of a Helm Application uses its chart.
+
+Pruning removes checkouts and whole clones, but a Repository's bare clone keeps
+every object it has fetched: Solder does not garbage-collect Git objects. Size
+the volume for each Repository's full history and fetch churn, not only the
+retained checkouts; a clone shrinks back only when its Repository is deleted or
+the Pod restarts with an empty cache.
 
 The chart's `emptyDir` has no size limit and counts against the node's
 ephemeral storage. On tight nodes, add an `ephemeral-storage` request and

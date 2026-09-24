@@ -27,10 +27,11 @@ kubectl apply --dry-run=server -f /tmp/solder-chart.yaml -n solder-system
 The next release removes one field and adds diagnosis, tracing, and cache
 pruning. Apply the new CRDs before the new image, as always. Then:
 
-1. **Stop sending Revision `spec.provenance`.** The field is removed. Nothing
-   in Solder read or set it, and it disappears from existing Revisions once
-   the CRD is updated, but a client that still sends it is rejected under
-   strict field validation. Solder has no product-specific integrations;
+1. **Stop sending Revision `spec.provenance`.** The field is removed from this
+   release's CRDs and installer. Nothing in Solder read or set it. The API
+   server prunes it from stored Revisions when it reads them, and removes it
+   for good on their next write; a client that still sends it is rejected
+   under strict field validation. Solder has no product-specific integrations;
    integrate through the CRDs, status, Events, and the CLI.
 2. **Grant the Application service accounts read access for diagnosis.**
    Applications now record why they are not Healthy in `status.diagnosis`
@@ -55,8 +56,10 @@ pruning. Apply the new CRDs before the new image, as always. Then:
    [Metrics and tracing](operations.md#metrics-and-tracing).
 5. **Size the cache volume.** Each replica now prunes its source cache every
    hour, so it holds the commits retained Revisions and Repositories refer to
-   plus Helm charts used within a day, instead of growing forever. Size the
-   `/tmp` volume for your `spec.history` limits and number of Repositories;
+   plus Helm charts used within a day, instead of growing forever. Bare
+   clones still keep every Git object they have fetched, so size the `/tmp`
+   volume for each Repository's history as well as your `spec.history`
+   limits and number of Repositories;
    the chart's volume is an `emptyDir`, so set an `ephemeral-storage` request
    in `resources` if nodes are tight. See [Source cache](operations.md#source-cache).
 6. **Build with Go 1.26.** Building Solder from source needs Go 1.26 or later,
