@@ -1181,7 +1181,7 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 		annotations := application.GetAnnotations()
 		delete(annotations, "solder.io/rollback-revision")
 		application.SetAnnotations(annotations)
-		if err := r.Update(ctx, application); err != nil {
+		if err := r.updateKeepingStatus(ctx, application); err != nil {
 			return err
 		}
 		r.event(application, corev1.EventTypeNormal, "RollbackCompleted", "Application rollback completed")
@@ -1215,6 +1215,16 @@ func (r *ApplicationReconciler) applyHistoryRetention(ctx context.Context, appli
 	return nil
 }
 
+// updateKeepingStatus updates the Application's metadata and spec, keeping the
+// status this reconcile computed: Update replaces the object with the
+// server's copy, whose status is the one persisted before this reconcile.
+func (r *ApplicationReconciler) updateKeepingStatus(ctx context.Context, application *corev1alpha1.Application) error {
+	computed := application.Status.DeepCopy()
+	err := r.Update(ctx, application)
+	application.Status = *computed
+	return err
+}
+
 func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, failure corev1alpha1.RevisionFailure) error {
 	now := metav1.Now()
 	rollbackQueued := false
@@ -1224,7 +1234,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 			metav1.SetMetaDataAnnotation(&application.ObjectMeta, "solder.io/rollback-revision", target.Spec.Source.Revision)
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
-			if err := r.Update(ctx, application); err != nil {
+			if err := r.updateKeepingStatus(ctx, application); err != nil {
 				return err
 			}
 		} else {

@@ -281,3 +281,62 @@ func TestDiagnoseEmitsAnEventOnlyWhenCausesChange(t *testing.T) {
 		t.Fatalf("a Healthy Application keeps diagnosis %+v", app.Status.Diagnosis)
 	}
 }
+
+func TestRollbackKeepsTheStatusThisReconcileComputed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	app := newApplication("api", corev1alpha1.RenderTypeYAML)
+	app.Spec.Strategy.FailurePolicy.Action = corev1alpha1.FailureActionRollback
+	revision := func(name, source string, phase corev1alpha1.RevisionPhase) *corev1alpha1.Revision {
+		return &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"solder.io/application": "api"}},
+			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: "api"}, Source: corev1alpha1.RevisionSource{Revision: source}},
+			Status:     corev1alpha1.RevisionStatus{Phase: phase},
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(app, revision("api-old", "old-sha", corev1alpha1.RevisionPhaseHealthy), revision("api-new", "new-sha", corev1alpha1.RevisionPhaseObserving)).
+		WithStatusSubresource(&corev1alpha1.Application{}, &corev1alpha1.Revision{}).Build()
+	recorder := record.NewFakeRecorder(10)
+	r := &ApplicationReconciler{Client: c, Scheme: scheme, Recorder: recorder}
+	ctx := context.Background()
+
+	live := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(app), live); err != nil {
+		t.Fatal(err)
+	}
+	current := &corev1alpha1.Revision{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "default", Name: "api-new"}, current); err != nil {
+		t.Fatal(err)
+	}
+	cause := corev1alpha1.DiagnosisCause{
+		Resource: corev1alpha1.ResourceRef{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: "db"},
+		Reason:   "MissingSecret",
+		Chain:    []corev1alpha1.ResourceRef{{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: "db"}},
+	}
+	live.Status.Diagnosis = []corev1alpha1.DiagnosisCause{cause}
+	live.Status.Resources = corev1alpha1.ResourceHealthSummary{Total: 1, Degraded: 1}
+	failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: "One or more resources are degraded", Retryable: true}
+	if err := r.failRevisionAndApplication(ctx, live, current, failure); err != nil {
+		t.Fatal(err)
+	}
+
+	stored := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(app), stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.GetAnnotations()["solder.io/rollback-revision"] != "old-sha" {
+		t.Fatalf("rollback was not requested: %v", stored.GetAnnotations())
+	}
+	if len(stored.Status.Diagnosis) != 1 || stored.Status.Diagnosis[0].Reason != "MissingSecret" {
+		t.Fatalf("diagnosis was lost: %+v", stored.Status.Diagnosis)
+	}
+	if stored.Status.Resources.Degraded != 1 || stored.Status.Health.State != corev1alpha1.HealthStateDegraded {
+		t.Fatalf("health was lost: resources=%+v health=%s", stored.Status.Resources, stored.Status.Health.State)
+	}
+}
