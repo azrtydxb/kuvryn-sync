@@ -98,7 +98,11 @@ func TestEvaluateJobs(t *testing.T) {
 	}
 }
 
-func TestDeploymentPastItsProgressDeadlineIsDegraded(t *testing.T) {
+// The Deployment controller turns Progressing back to True once progress
+// resumes, for example when the cluster autoscaler has added nodes, while
+// Degraded is terminal for a Revision: only spec.health.timeout decides that
+// a rollout failed.
+func TestDeploymentPastItsProgressDeadlineStaysProgressing(t *testing.T) {
 	stuck := deployment("api", 1, 0)
 	_ = unstructured.SetNestedSlice(stuck.Object, []any{map[string]any{
 		"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded", "message": `ReplicaSet "api-1" has timed out progressing.`,
@@ -107,7 +111,7 @@ func TestDeploymentPastItsProgressDeadlineIsDegraded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != corev1alpha1.HealthStateDegraded || got.Reason != "ProgressDeadlineExceeded" || got.Message == "" {
+	if got.State != corev1alpha1.HealthStateProgressing || got.Reason != "ReplicasUnavailable" {
 		t.Fatalf("stuck deployment = %#v", got)
 	}
 }

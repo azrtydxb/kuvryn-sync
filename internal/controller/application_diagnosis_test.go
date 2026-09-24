@@ -117,6 +117,9 @@ var _ = Describe("Application diagnosis", func() {
 		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
 		app.Spec.Sync.Automatic = true
 		app.Spec.Strategy.FailurePolicy.MaxAttempts = ptr.To[int32](5)
+		// The rollout fails, and the Application becomes Degraded, once the
+		// health timeout passes.
+		app.Spec.Health.Timeout = &metav1.Duration{Duration: 3 * time.Second}
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		reconciler := newApplicationReconciler([]unstructured.Unstructured{desired}, nil)
 		recorder := record.NewFakeRecorder(100)
@@ -155,13 +158,20 @@ var _ = Describe("Application diagnosis", func() {
 			Name: "api", Image: "nginx", Ready: false,
 			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CreateContainerConfigError", Message: `secret "db-credentials" not found`}},
 		}}})
-		setDeploymentStatus(0, appsv1.DeploymentCondition{
-			Type: appsv1.DeploymentProgressing, Status: corev1.ConditionFalse, Reason: "ProgressDeadlineExceeded", Message: `ReplicaSet "api-7d9f" has timed out progressing.`,
-		})
+		setDeploymentStatus(0)
 
-		By("diagnosing the chain Deployment, ReplicaSet, Pod, Secret")
+		By("diagnosing the chain Deployment, ReplicaSet, Pod, Secret while the rollout progresses")
 		updated = reconcileOnce(reconciler)
-		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateDegraded))
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateProgressing))
+		Expect(updated.Status.Diagnosis).To(HaveLen(1))
+		Expect(updated.Status.Diagnosis[0].Chain).To(HaveLen(4))
+		Expect(diagnosedEvents(recorder)).To(BeEmpty(), "the root cause has not changed")
+
+		By("keeping the diagnosis when the health timeout makes the Application Degraded")
+		Eventually(func() corev1alpha1.HealthState {
+			updated = reconcileOnce(reconciler)
+			return updated.Status.Health.State
+		}, 15*time.Second, 500*time.Millisecond).Should(Equal(corev1alpha1.HealthStateDegraded))
 		Expect(updated.Status.Diagnosis).To(HaveLen(1))
 		cause := updated.Status.Diagnosis[0]
 		Expect(cause.Reason).To(Equal("MissingSecret"))
@@ -173,6 +183,7 @@ var _ = Describe("Application diagnosis", func() {
 			{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: secret},
 		}))
 		Expect(cause.Message).To(ContainSubstring("CreateContainerConfigError"))
+		Expect(diagnosedEvents(recorder)).To(BeEmpty())
 
 		By("not repeating the Event while the root causes stay the same, across a retry")
 		Eventually(func() int32 {

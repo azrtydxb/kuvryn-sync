@@ -16,9 +16,6 @@
 - `solder diagnose` prints those causal chains, and the new `solder graph`
   prints an Application's live resource graph as JSON or Graphviz DOT, read
   with your own credentials. `solder help` lists every command.
-- A Deployment whose `Progressing` condition reports
-  `ProgressDeadlineExceeded` is now Degraded rather than Progressing, as in
-  kstatus, so the rollout fails without waiting for `spec.health.timeout`.
 - Fixed: pulled Helm charts were cached forever. The hourly cache pruner now
   removes charts no render has used for a day.
 - **Breaking:** the Revision `spec.provenance` field is removed, along with the

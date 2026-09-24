@@ -33,11 +33,6 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 		if generation > 0 && observed < generation {
 			return progressing(result, "GenerationPending", "controller has not observed latest generation"), nil
 		}
-		// Like kstatus, a Deployment that stopped making progress has failed
-		// rather than still being on its way.
-		if condition, ok := statusConditions(obj)["Progressing"]; ok && condition.status == "False" && condition.reason == "ProgressDeadlineExceeded" {
-			return Result{Resource: id, State: corev1alpha1.HealthStateDegraded, Reason: "ProgressDeadlineExceeded", Message: condition.message}, nil
-		}
 		if available < desired {
 			return progressing(result, "ReplicasUnavailable", fmt.Sprintf("%d/%d replicas available", available, desired)), nil
 		}

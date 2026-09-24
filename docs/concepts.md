@@ -72,9 +72,7 @@ An Application can be out of sync but healthy, synced but degraded, or planning
 while still serving traffic from the previous healthy Revision.
 
 Deployments, StatefulSets, DaemonSets, Pods, and Jobs have dedicated health
-rules; a Deployment whose `Progressing` condition reports
-`ProgressDeadlineExceeded` is Degraded. Every other kind follows the kstatus
-conventions most controllers use:
+rules. Every other kind follows the kstatus conventions most controllers use:
 
 - `status.observedGeneration` behind `metadata.generation` is Progressing;
 - a `Stalled=True` condition is Degraded;
