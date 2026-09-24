@@ -196,10 +196,12 @@ func (c *graphCollector) get(ctx context.Context, id resource.ID) (obj unstructu
 }
 
 // podSelector returns the non-empty label selector of the Pods a managed
-// Service or workload selects, or nil.
+// Service, PodDisruptionBudget, or workload selects, or nil.
 func podSelector(obj unstructured.Unstructured) labels.Selector {
 	gvk := obj.GroupVersionKind()
-	if gvk.Group != "" || gvk.Kind != "Service" {
+	service := gvk.Group == "" && gvk.Kind == "Service"
+	budget := gvk.Group == "policy" && gvk.Kind == "PodDisruptionBudget"
+	if !service && !budget {
 		if _, ok := PodSpec(obj); !ok || gvk.Kind == "Pod" || gvk.Kind == "CronJob" {
 			return nil
 		}

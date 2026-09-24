@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -20,6 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/azrtydxb/solder/internal/resource"
 )
 
 func TestCollectGraphTreatsForbiddenReadsAsNotVisible(t *testing.T) {
@@ -150,6 +153,28 @@ func toUnstructured(t *testing.T, obj any) unstructured.Unstructured {
 		t.Fatal(err)
 	}
 	return unstructured.Unstructured{Object: raw}
+}
+
+// A managed PodDisruptionBudget alone must make Collect read the Pods it
+// covers, so the budget-to-Pod edges exist.
+func TestCollectReadsThePodsABudgetCovers(t *testing.T) {
+	budget := &policyv1.PodDisruptionBudget{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "payments", UID: "pdb"},
+		Spec:       policyv1.PodDisruptionBudgetSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}}},
+	}
+	tenant := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-0", Namespace: "payments", UID: "p", Labels: map[string]string{"app": "api"}}},
+	).Build()
+
+	g, _ := Collect(context.Background(), tenant, "payments", []unstructured.Unstructured{toUnstructured(t, budget)})
+	from := resource.ID{Group: "policy", Version: "v1", Kind: "PodDisruptionBudget", Namespace: "payments", Name: "api"}
+	for _, edge := range g.Out(from) {
+		if edge.To.Kind == "Pod" && edge.To.Name == "api-0" {
+			return
+		}
+	}
+	t.Fatalf("no edge from the budget to its Pod: %v", g.Out(from))
 }
 
 func TestCollectBoundsEndpointSliceLists(t *testing.T) {
