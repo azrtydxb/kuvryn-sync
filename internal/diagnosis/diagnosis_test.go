@@ -129,13 +129,20 @@ func TestContainerWaitingReasonsAreLeafEvidence(t *testing.T) {
 	}
 }
 
+// containerOutput is what a container wrote to its termination log, or its
+// log output with FallbackToLogsOnError.
+const containerOutput = "panic: connecting to the database as admin"
+
 func TestCrashLoopIncludesLastTermination(t *testing.T) {
 	d, rs, p := workload(map[string]any{}, waiting("CrashLoopBackOff", "back-off 5m0s restarting failed container", map[string]any{
-		"lastState": map[string]any{"terminated": map[string]any{"reason": "Error", "exitCode": int64(137)}},
+		"lastState": map[string]any{"terminated": map[string]any{"reason": "Error", "exitCode": int64(137), "message": containerOutput}},
 	}))
 	cause := requireOne(t, diagnose(unhealthy(d), d, rs, p))
 	if cause.Reason != "CrashLoopBackOff" || !strings.Contains(cause.Message, "Error (exit code 137)") {
 		t.Fatalf("cause = %+v", cause)
+	}
+	if strings.Contains(cause.Message, containerOutput) {
+		t.Fatalf("container output reached the message: %q", cause.Message)
 	}
 }
 
@@ -257,10 +264,10 @@ func TestFailedJob(t *testing.T) {
 	}
 
 	failed := pod("migrate-x", job, map[string]any{}, map[string]any{"phase": "Failed", "containerStatuses": []any{map[string]any{
-		"name": "migrate", "state": map[string]any{"terminated": map[string]any{"reason": "OOMKilled", "exitCode": int64(137)}},
+		"name": "migrate", "state": map[string]any{"terminated": map[string]any{"reason": "OOMKilled", "exitCode": int64(137), "message": containerOutput}},
 	}}})
 	cause = requireOne(t, diagnose(results, job, failed))
-	if cause.Reason != "OOMKilled" || !strings.Contains(cause.Message, "exit code 137") {
+	if cause.Reason != "OOMKilled" || !strings.Contains(cause.Message, "exit code 137") || strings.Contains(cause.Message, containerOutput) {
 		t.Fatalf("a failed Job Pod is the more specific cause: %+v", cause)
 	}
 	requireChain(t, cause, job, failed)

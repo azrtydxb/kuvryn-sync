@@ -447,18 +447,17 @@ func podEvidence(obj unstructured.Unstructured) (string, string, bool) {
 	return reason, message, true
 }
 
-// termination describes a terminated container state.
+// termination describes a terminated container state by its reason and
+// exit code only. Its message is whatever the container wrote to its
+// termination log, or its log output with FallbackToLogsOnError, which must
+// not reach status or Events.
 func termination(terminated map[string]any) string {
 	reason, _ := terminated["reason"].(string)
 	if reason == "" {
 		reason = "Terminated"
 	}
 	code, _, _ := unstructured.NestedInt64(terminated, "exitCode")
-	text := fmt.Sprintf("%s (exit code %d)", reason, code)
-	if message, _ := terminated["message"].(string); message != "" {
-		text += ": " + message
-	}
-	return text
+	return fmt.Sprintf("%s (exit code %d)", reason, code)
 }
 
 func containerStatuses(obj unstructured.Unstructured, field string) []map[string]any {
