@@ -17,7 +17,9 @@ Core commands use Kubernetes CRDs directly:
 - `solder plan <application>` reads Revision status and prints redacted plan
   output.
 - `solder history <application>` lists retained deployment attempts.
-- `solder diagnose <application>` prints the latest deterministic failure.
+- `solder diagnose <application>` prints the latest deterministic failure and
+  the causal chains in `status.diagnosis`.
+- `solder graph <application>` prints the live resource graph as JSON or DOT.
 - `solder rollback <application>` requests rollback to a healthy Revision.
 
 Application, Repository, and Revision status remain the public integration API.
@@ -457,7 +459,25 @@ kubectl get revisions.solder.io -n <namespace>
 ```
 
 Solder emits lifecycle Events and writes Conditions for readiness, failure, and
-rollout states.
+rollout states. A `Diagnosed` Warning Event names the first root cause each
+time the set of causes in `status.diagnosis` changes.
+
+## Diagnosis permissions
+
+To diagnose an unhealthy Application, Solder reads, as the Application's
+service account, in the destination namespace:
+
+- `list` on `replicasets` (apps), `pods` and `endpointslices`
+  (discovery.k8s.io);
+- `get` on the `configmaps`, `secrets`, `serviceaccounts`,
+  `persistentvolumeclaims` and `services` its resources refer to, and on
+  cluster-scoped `persistentvolumes`.
+
+Secrets, ConfigMaps and ServiceAccounts are read as metadata only; their data
+never leaves the API server. A read the account may not make is not an error:
+the diagnosis only goes less deep, and a reference it could not check is never
+blamed as missing. Reads are bounded: at most 20 label selectors, 100 objects
+per list, 100 referenced objects and 500 objects in all.
 
 ## History retention
 

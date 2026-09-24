@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Applications explain why they are not Healthy. When a managed resource is
+  unhealthy, Solder builds a graph of its live ReplicaSets, Pods,
+  EndpointSlices and the ConfigMaps, Secrets, claims, volumes and
+  ServiceAccounts they refer to, read as the Application's service account,
+  and records up to ten root causes in the new `status.diagnosis`, each with
+  the chain from the managed resource down to the cause, such as Deployment,
+  ReplicaSet, Pod, missing Secret. A `Diagnosed` Warning Event names the first
+  cause when the causes change. The diagnosis is cleared once the Application
+  is Healthy. For the deepest diagnosis the service account needs `list` on
+  Pods, ReplicaSets and EndpointSlices and `get` on what they refer to;
+  without it, diagnosis stops higher up and reconciliation is unaffected.
+- `solder diagnose` prints those causal chains, and the new `solder graph`
+  prints an Application's live resource graph as JSON or Graphviz DOT, read
+  with your own credentials. `solder help` lists every command.
+- A Deployment whose `Progressing` condition reports
+  `ProgressDeadlineExceeded` is now Degraded rather than Progressing, as in
+  kstatus, so the rollout fails without waiting for `spec.health.timeout`.
 - Fixed: pulled Helm charts were cached forever. The hourly cache pruner now
   removes charts no render has used for a day.
 - **Breaking:** the Revision `spec.provenance` field is removed, along with the

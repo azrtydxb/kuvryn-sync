@@ -190,7 +190,50 @@ spec:
 | `status.health.state`       | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
 | `status.managedKinds`       | Kinds Solder last applied; used to prune and watch managed objects of any kind.                        |
 | `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
+| `status.diagnosis`          | Up to 10 root causes of unhealthy managed resources; empty when the Application is Healthy.            |
 | `status.conditions`         | Kubernetes Conditions for reconciliation.                                                              |
+
+### Diagnosis
+
+`status.diagnosis` explains why an Application is not Healthy. Solder sets it
+whenever it evaluates health and finds a managed resource that is not Healthy,
+and clears it once every managed resource is. Each entry is one root cause:
+
+| Field      | Meaning                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `resource` | The resource at the root of the failure (`apiVersion`, `kind`, `namespace`, `name`), such as a missing Secret or a Pod.  |
+| `reason`   | A CamelCase word naming the failure, such as `MissingSecret`, `ImagePullBackOff`, `CrashLoopBackOff` or `Unschedulable`. |
+| `message`  | Redacted evidence, at most 1024 characters.                                                                              |
+| `chain`    | Up to 10 resources, from the unhealthy managed resource down to `resource`, both included.                               |
+
+A root cause shared by several resources, such as one missing Secret that
+three Pods need, is listed once. Degraded resources are explained first. See
+[Reading a diagnosis](troubleshooting.md#reading-a-diagnosis).
+
+```yaml
+status:
+  diagnosis:
+    - reason: MissingSecret
+      resource: { apiVersion: v1, kind: Secret, namespace: payments, name: db }
+      message: >-
+        Secret payments/db does not exist; Pod api-7d9f-x2k:
+        CreateContainerConfigError: container api is waiting: secret "db" not found
+      chain:
+        - {
+            apiVersion: apps/v1,
+            kind: Deployment,
+            namespace: payments,
+            name: api,
+          }
+        - {
+            apiVersion: apps/v1,
+            kind: ReplicaSet,
+            namespace: payments,
+            name: api-7d9f,
+          }
+        - { apiVersion: v1, kind: Pod, namespace: payments, name: api-7d9f-x2k }
+        - { apiVersion: v1, kind: Secret, namespace: payments, name: db }
+```
 
 ## HealthCheck
 

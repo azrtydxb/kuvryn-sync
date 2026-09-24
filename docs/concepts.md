@@ -72,7 +72,9 @@ An Application can be out of sync but healthy, synced but degraded, or planning
 while still serving traffic from the previous healthy Revision.
 
 Deployments, StatefulSets, DaemonSets, Pods, and Jobs have dedicated health
-rules. Every other kind follows the kstatus conventions most controllers use:
+rules; a Deployment whose `Progressing` condition reports
+`ProgressDeadlineExceeded` is Degraded. Every other kind follows the kstatus
+conventions most controllers use:
 
 - `status.observedGeneration` behind `metadata.generation` is Progressing;
 - a `Stalled=True` condition is Degraded;
@@ -87,6 +89,36 @@ Healthy before the next is applied.
 A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
 expressions. A rollout waits only for Progressing resources, until
 `spec.health.timeout`.
+
+## Resource graph and diagnosis
+
+When a managed resource is not Healthy, Solder builds a graph of the live
+objects around the Application's managed resources and walks it down to the
+evidence that explains the failure. The graph is deterministic and has these
+edges:
+
+| Edge        | From                             | To                                                                                                                              |
+| ----------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `Owns`      | an owner                         | each object whose `ownerReferences` name it: a Deployment its ReplicaSets, a ReplicaSet or Job its Pods                         |
+| `Selects`   | a Service or PodDisruptionBudget | the Pods its selector matches; for a Service also the workloads whose Pod template it matches                                   |
+| `Endpoints` | a Service                        | EndpointSlices labelled `kubernetes.io/service-name`                                                                            |
+| `Routes`    | an Ingress                       | the Services of its rules and default backend                                                                                   |
+| `Scales`    | a HorizontalPodAutoscaler        | its `scaleTargetRef`                                                                                                            |
+| `Binds`     | a PersistentVolumeClaim          | the PersistentVolume in `spec.volumeName`                                                                                       |
+| `Mounts`    | a Pod or workload                | the claims its volumes use                                                                                                      |
+| `Uses`      | a Pod or workload                | ConfigMaps and Secrets from `envFrom`, `env` value sources, `configMap`, `secret` and projected volumes, and `imagePullSecrets` |
+| `RunsAs`    | a Pod or workload                | its ServiceAccount                                                                                                              |
+
+An object that is referenced but does not exist is a `missing` node, which is
+how a missing Secret becomes a root cause. Kinds Solder does not know only
+contribute their `ownerReferences`; they never fail reconciliation.
+
+Diagnosis starts from each unhealthy managed resource and prefers the most
+specific evidence: a container waiting to start (`ImagePullBackOff`,
+`CrashLoopBackOff` with its last exit code, `CreateContainerConfigError`), an
+unschedulable Pod, a Pending claim, a missing ConfigMap or Secret, a Service
+without ready endpoints, or a failed Job. The result is
+[`status.diagnosis`](api.md#diagnosis); `solder graph` prints the graph itself.
 
 ## Render, normalize, validate, plan
 

@@ -118,17 +118,61 @@ solder resume payments -n default
 
 ## Diagnosis
 
-Show the latest recorded deterministic failure for an Application:
+Explain why an Application is not Healthy. The command prints the latest
+Revision failure and every cause recorded in `status.diagnosis`, each with its
+chain from the unhealthy managed resource down to the root cause:
 
 ```sh
 solder diagnose payments -n default
 ```
+
+```text
+payments: health Degraded, sync OutOfSync
+Failure: HealthFailure: One or more resources are degraded
+Causes (1):
+
+1. MissingSecret  Secret/payments/db
+   Secret payments/db does not exist; Pod api-7d9f-x2k: CreateContainerConfigError: ...
+   Deployment/payments/api
+   └─ ReplicaSet/payments/api-7d9f
+      └─ Pod/payments/api-7d9f-x2k
+         └─ Secret/payments/db
+```
+
+See [Reading a diagnosis](troubleshooting.md#reading-a-diagnosis).
+
+## Resource graph
+
+Print the live resource graph of an Application: its managed resources, the
+ReplicaSets, Pods and EndpointSlices below them, and the ConfigMaps, Secrets,
+claims, volumes and ServiceAccounts they refer to:
+
+```sh
+solder graph payments -n default
+solder graph payments -n default -o dot | dot -Tsvg > payments.svg
+```
+
+`-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
+Graphviz DOT. The command reads the cluster with your own kubeconfig
+credentials, so it shows only what you may read. A node marked `missing` is
+referenced but does not exist; one marked `unreadable` could not be checked.
+Secrets and ConfigMaps are read as metadata only. See
+[Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
+the edges.
 
 `drift` currently aliases the Application read path:
 
 ```sh
 solder drift payments -n default
 ```
+
+## Help
+
+```sh
+solder help
+```
+
+Lists every command. An unknown command prints the same list.
 
 ## Install helper
 
