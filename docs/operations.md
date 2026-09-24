@@ -512,8 +512,8 @@ kubectl get revisions.solder.io -n <namespace>
 Solder emits lifecycle Events and writes Conditions for readiness, failure, and
 rollout states. A `Diagnosed` Warning Event names the first root cause each
 time the set of causes in `status.diagnosis` changes. A `PruneSkipped` Warning
-Event names the managed resources prune kept, up to five, when a Revision
-leaves them out of desired state; see [Apply and prune](concepts.md#apply-and-prune).
+Event names the managed resources prune kept, up to five, once per attempt at a
+Revision that leaves them out of desired state; see [Apply and prune](concepts.md#apply-and-prune).
 
 ## Diagnosis permissions
 

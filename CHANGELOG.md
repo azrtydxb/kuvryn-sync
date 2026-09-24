@@ -16,8 +16,9 @@
   with `PruneFailure`. Prune now skips such resources and never deletes them;
   the rest of the prune proceeds and the rollout completes. The Revision plan
   lists each skipped resource as `Unchanged` with a warning saying why, and a
-  `PruneSkipped` Warning Event names them. They keep Solder's labels and stay
-  in the inventory, and later Revisions do not try to delete them again.
+  `PruneSkipped` Warning Event names them once per attempt. They keep Solder's
+  labels and stay in the inventory, and later Revisions do not try to delete
+  them again.
 - Fixed: the Application `Ready` condition was only ever set to `False`, so a
   recovered Application kept a stale failure that `solder diagnose` printed.
   `Ready` now turns `True` with reason `Healthy` when a rollout completes

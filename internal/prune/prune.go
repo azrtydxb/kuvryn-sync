@@ -67,15 +67,15 @@ func skipReason(obj unstructured.Unstructured, policy Policy) string {
 	if obj.GetAnnotations()[PruneAnnotationKey] == "disabled" {
 		return "prune disabled by solder.io/prune annotation"
 	}
-	if HighRisk(obj) && !policy.AllowHighRisk {
+	if highRisk(obj) && !policy.AllowHighRisk {
 		return fmt.Sprintf("high-risk %s is never pruned automatically", obj.GetKind())
 	}
 	return ""
 }
 
-// HighRisk reports kinds whose deletion loses data or other workloads'
+// highRisk reports kinds whose deletion loses data or other workloads'
 // state, which prune keeps rather than deletes.
-func HighRisk(obj unstructured.Unstructured) bool {
+func highRisk(obj unstructured.Unstructured) bool {
 	switch obj.GetKind() {
 	case "Namespace", "CustomResourceDefinition", "PersistentVolumeClaim", "PersistentVolume", "Secret":
 		return true

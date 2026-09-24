@@ -54,8 +54,8 @@ type rolloutProgress struct {
 	// previousHealth is the Application health persisted before this
 	// reconcile.
 	previousHealth corev1alpha1.HealthState
-	// pruneSkipped are stale managed objects prune keeps rather than deletes.
-	pruneSkipped []prune.Rejected
+	// pruning is how prune split the stale managed objects.
+	pruning prune.Result
 }
 
 // rolloutOf reads how far a Revision's rollout got. Revisions written before

@@ -212,34 +212,36 @@ func redactedCount(n int) string {
 	return fmt.Sprintf("%d key(s) %s", n, redact.Value("secret"))
 }
 
-func deleteWarnings(obj unstructured.Unstructured) []string {
-	warnings := []string{"delete action is destructive"}
-	ann := obj.GetAnnotations()
-	if ann["solder.io/prune"] == "disabled" {
-		warnings = append(warnings, "prune disabled by solder.io/prune annotation; prune keeps it")
-	}
-	switch obj.GetKind() {
-	case "Namespace", "CustomResourceDefinition", "PersistentVolumeClaim", "PersistentVolume", "Secret":
-		warnings = append(warnings, "high-risk prune candidate; prune keeps it")
-	}
-	return warnings
+func deleteWarnings(unstructured.Unstructured) []string {
+	return []string{"delete action is destructive"}
 }
 
-// Keep records a managed object that desired state no longer declares but
-// prune keeps, such as one that opted out of prune, so the plan shows it and
-// why instead of a delete that never happens.
-func (p *Plan) Keep(obj unstructured.Unstructured, reason string) error {
-	id, err := resource.FromObject(obj)
-	if err != nil {
-		return err
+// Kept is a managed object desired state no longer declares but prune
+// keeps, such as one that opted out of prune, and why.
+type Kept struct {
+	Object unstructured.Unstructured
+	Reason string
+}
+
+// Keep records objects prune keeps, so the plan shows each of them and why
+// instead of a delete that never happens.
+func (p *Plan) Keep(kept []Kept) error {
+	if len(kept) == 0 {
+		return nil
 	}
-	p.Changes = append(p.Changes, Change{
-		ID:       id,
-		Action:   corev1alpha1.PlanActionUnchanged,
-		Warnings: []string{"no longer in desired state; prune skipped: " + reason},
-	})
+	for _, obj := range kept {
+		id, err := resource.FromObject(obj.Object)
+		if err != nil {
+			return err
+		}
+		p.Changes = append(p.Changes, Change{
+			ID:       id,
+			Action:   corev1alpha1.PlanActionUnchanged,
+			Warnings: []string{"no longer in desired state; prune skipped: " + obj.Reason},
+		})
+		p.Summary.Unchanged++
+	}
 	slices.SortFunc(p.Changes, func(a, b Change) int { return cmp.Compare(a.ID.String(), b.ID.String()) })
-	p.Summary.Unchanged++
 	return nil
 }
 

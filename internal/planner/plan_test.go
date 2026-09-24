@@ -83,9 +83,8 @@ func TestSensitiveNonSecretFieldsAreRedacted(t *testing.T) {
 	}
 }
 
-func TestDeleteChangesAreDestructiveAndWarnForHighRiskPrune(t *testing.T) {
+func TestDeleteChangesAreDestructiveAndWarn(t *testing.T) {
 	obj := secret("db", map[string]any{"password": "old"})
-	obj.SetAnnotations(map[string]string{"solder.io/prune": "disabled"})
 	plan, err := Build(nil, []unstructured.Unstructured{obj})
 	if err != nil {
 		t.Fatal(err)
@@ -94,8 +93,29 @@ func TestDeleteChangesAreDestructiveAndWarnForHighRiskPrune(t *testing.T) {
 	if !res.Destructive {
 		t.Fatalf("delete not marked destructive: %#v", res)
 	}
-	if len(res.Warnings) < 3 {
-		t.Fatalf("expected destructive, opt-out, and high-risk warnings: %#v", res.Warnings)
+	if len(res.Warnings) != 1 || res.Warnings[0] != "delete action is destructive" {
+		t.Fatalf("expected the destructive warning: %#v", res.Warnings)
+	}
+}
+
+func TestKeepListsKeptObjectsInOrder(t *testing.T) {
+	plan, err := Build([]unstructured.Unstructured{cm("b", "v")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Keep([]Kept{{Object: cm("c", "v"), Reason: "opted out"}, {Object: cm("a", "v"), Reason: "high-risk"}}); err != nil {
+		t.Fatal(err)
+	}
+	resources := plan.RevisionPlan(10).Resources
+	names := []string{resources[0].Resource.Name, resources[1].Resource.Name, resources[2].Resource.Name}
+	if names[0] != "a" || names[1] != "b" || names[2] != "c" {
+		t.Fatalf("plan is not sorted: %v", names)
+	}
+	if resources[0].Action != "Unchanged" || resources[0].Warnings[0] != "no longer in desired state; prune skipped: high-risk" {
+		t.Fatalf("kept object = %#v", resources[0])
+	}
+	if plan.Summary.Unchanged != 2 || plan.Summary.Create != 1 {
+		t.Fatalf("summary = %#v", plan.Summary)
 	}
 }
 

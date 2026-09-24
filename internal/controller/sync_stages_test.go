@@ -307,6 +307,37 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "changed desired state was applied on an old approval")
 	})
 
+	// Catches a PruneSkipped Event on every reconcile of a rollout, which
+	// walks its groups, and prunes, again each time it checks a hook.
+	It("warns about skipped prunes once while a post-sync hook runs", func() {
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kept-config", Namespace: "payments",
+				Labels:      map[string]string{"solder.io/application": appName},
+				Annotations: map[string]string{"solder.io/prune": "disabled"},
+			},
+		})).To(Succeed())
+		DeferCleanup(func() {
+			deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments"}})
+		})
+		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "post-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired"), hook}, nil)
+		recorder := record.NewFakeRecorder(100)
+		r.Recorder = recorder
+		for range 4 {
+			reconcileOnce(r)
+			Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving), "the post-sync hook should still be running")
+		}
+		Expect(widgetExists()).To(BeTrue())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
+		Expect(countEvents(drainEvents(recorder), "PruneSkipped")).To(Equal(1))
+
+		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
+		reconcileOnce(r)
+		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(countEvents(drainEvents(recorder), "PruneSkipped")).To(BeZero())
+	})
+
 	It("never runs a succeeded hook again, even after it is cleaned up", func() {
 		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0")}, nil)

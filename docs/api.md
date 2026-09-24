@@ -412,7 +412,7 @@ Application, is one of these:
 | `PlanFailure`                            | Live state could not be read or the plan could not be built.                                                |
 | `ConflictFailure`                        | A Server-Side Apply ownership conflict under `conflictPolicy: fail`.                                        |
 | `ApplyFailure`                           | The API server refused an apply.                                                                            |
-| `PruneFailure`                           | A prune was refused, such as for a high-risk kind; see [Labels and annotations](#labels-and-annotations).   |
+| `PruneFailure`                           | A managed resource could not be pruned, such as when the service account may not delete it.                 |
 | `Forbidden`                              | The Application's service account may not read, apply, or delete a resource.                                |
 | `HealthFailure`, `HookFailed`            | A managed resource or hook is Degraded; `status.diagnosis` explains why.                                    |
 | `TimeoutFailure`                         | Health was still Progressing when `spec.health.timeout` ran out.                                            |
@@ -423,24 +423,25 @@ Application, is one of these:
 
 Solder records Kubernetes Events on its own objects. Messages are redacted.
 
-| Object      | Reason                                      | Type    | When                                                                                      |
-| ----------- | ------------------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| Application | `PlanCreated`                               | Normal  | A Revision's plan was built.                                                              |
-| Application | `ApprovalRequired`                          | Normal  | The plan waits for manual approval.                                                       |
-| Application | `ApprovalStale`                             | Warning | The plan changed after it was approved; approve again.                                    |
-| Application | `DeploymentStarted`                         | Normal  | A rollout began applying.                                                                 |
-| Application | `DeploymentHealthy`                         | Normal  | Every managed resource is Healthy.                                                        |
-| Application | `Diagnosed`                                 | Warning | The root causes in `status.diagnosis` changed, or the Application became Degraded.        |
-| Application | `RollbackStarted`, `RollbackCompleted`      | both    | A failure triggered rollback, and the rollback finished.                                  |
-| Application | a [failure reason](#failure-reasons)        | Warning | A Revision failed, or retries stopped (`RetryBlocked`).                                   |
-| Application | `PruneInventoryIncomplete`                  | Warning | The service account may not list some managed kinds, so they are not pruned.              |
-| Application | `ManagedResourcesOrphaned`, `Forbidden`     | Warning | Deleting with `DeleteManagedResources` left objects the service account could not delete. |
-| Application | `InvalidHealthCheck`                        | Warning | A HealthCheck rule for a managed kind is invalid.                                         |
-| Application | `NotificationFailed`, `NotificationDropped` | Warning | A notification could not be delivered, or the queue was full.                             |
-| Repository  | `RepositoryReady`                           | Normal  | The source resolved.                                                                      |
-| Repository  | the `Ready` condition's failure reason      | Warning | The source could not be resolved or discovery failed.                                     |
-| Repository  | `ImagesUpdated`, `ImageUpdateFailed`        | both    | Image write-back committed a change, or failed.                                           |
-| ImagePolicy | `ImageSelected`                             | Normal  | A new image was selected.                                                                 |
+| Object      | Reason                                      | Type    | When                                                                                                                            |
+| ----------- | ------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Application | `PlanCreated`                               | Normal  | A Revision's plan was built.                                                                                                    |
+| Application | `ApprovalRequired`                          | Normal  | The plan waits for manual approval.                                                                                             |
+| Application | `ApprovalStale`                             | Warning | The plan changed after it was approved; approve again.                                                                          |
+| Application | `DeploymentStarted`                         | Normal  | A rollout began applying.                                                                                                       |
+| Application | `DeploymentHealthy`                         | Normal  | Every managed resource is Healthy.                                                                                              |
+| Application | `Diagnosed`                                 | Warning | The root causes in `status.diagnosis` changed, or the Application became Degraded.                                              |
+| Application | `RollbackStarted`, `RollbackCompleted`      | both    | A failure triggered rollback, and the rollback finished.                                                                        |
+| Application | a [failure reason](#failure-reasons)        | Warning | A Revision failed, or retries stopped (`RetryBlocked`).                                                                         |
+| Application | `PruneInventoryIncomplete`                  | Warning | The service account may not list some managed kinds, so they are not pruned.                                                    |
+| Application | `PruneSkipped`                              | Warning | Prune kept opted-out or high-risk managed resources that desired state no longer declares; once per attempt, naming up to five. |
+| Application | `ManagedResourcesOrphaned`, `Forbidden`     | Warning | Deleting with `DeleteManagedResources` left objects the service account could not delete.                                       |
+| Application | `InvalidHealthCheck`                        | Warning | A HealthCheck rule for a managed kind is invalid.                                                                               |
+| Application | `NotificationFailed`, `NotificationDropped` | Warning | A notification could not be delivered, or the queue was full.                                                                   |
+| Repository  | `RepositoryReady`                           | Normal  | The source resolved.                                                                                                            |
+| Repository  | the `Ready` condition's failure reason      | Warning | The source could not be resolved or discovery failed.                                                                           |
+| Repository  | `ImagesUpdated`, `ImageUpdateFailed`        | both    | Image write-back committed a change, or failed.                                                                                 |
+| ImagePolicy | `ImageSelected`                             | Normal  | A new image was selected.                                                                                                       |
 
 Every Application Event is also counted in `solder_lifecycle_events_total`.
 
@@ -451,7 +452,7 @@ Every Application Event is also counted in `solder_lifecycle_events_total`.
 | `solder.io/application`                  | managed objects, Revisions   | Solder        | Owning Application name; prune and drift find managed objects by it.                                                               |
 | `solder.io/application-namespace`        | managed objects              | Solder        | Owning Application namespace.                                                                                                      |
 | `solder.io/revision`                     | managed objects (annotation) | Solder        | Revision object that last applied it.                                                                                              |
-| `solder.io/prune: disabled`              | managed objects (annotation) | you           | Never prune this object: a prune that would delete it fails with `PruneFailure`.                                                   |
+| `solder.io/prune: disabled`              | managed objects (annotation) | you           | Never prune this object: prune skips it and reports it with a `PruneSkipped` Event.                                                |
 | `solder.io/hook`                         | desired objects (annotation) | you           | `pre-sync`, `post-sync`, or `skip`; see [Sync hooks and waves](operations.md#sync-hooks-and-waves).                                |
 | `solder.io/sync-wave`                    | desired objects (annotation) | you           | Integer wave, default `0`.                                                                                                         |
 | `solder.io/repository`                   | discovered Applications      | Solder        | Repository that discovered the Application.                                                                                        |
@@ -469,11 +470,12 @@ Every Application Event is also counted in `solder_lifecycle_events_total`.
 
 High-risk kinds (Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
 PersistentVolumes, and Secrets) are never pruned during a sync, and neither is
-an object annotated `solder.io/prune: disabled`: with `spec.sync.prune`
-enabled, removing one from desired state fails the Revision with
-`PruneFailure`, naming the object, and nothing is deleted. Delete such an
-object by hand, or remove Solder's `solder.io/application` label from it,
-before removing it from Git.
+an object annotated `solder.io/prune: disabled`. With `spec.sync.prune`
+enabled, removing one from desired state does not fail the rollout: prune
+skips it and deletes the rest, the Revision plan lists it as `Unchanged` with
+a warning saying why, and a `PruneSkipped` Warning Event names it once per
+attempt. It keeps Solder's labels, so it stays in the inventory. Delete such
+an object by hand once it is no longer needed.
 
 ## Invariants
 

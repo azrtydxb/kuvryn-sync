@@ -264,7 +264,10 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	now := metav1.Now()
-	if revision.Status.Phase == "" || revision.Status.Phase == corev1alpha1.RevisionPhasePending || revision.Status.Phase == corev1alpha1.RevisionPhaseFailed {
+	// A new attempt is the first plan of a Revision or a retry after it
+	// failed; approval waits, rollout progress and self-heal are not.
+	newAttempt := revision.Status.Phase == "" || revision.Status.Phase == corev1alpha1.RevisionPhasePending || revision.Status.Phase == corev1alpha1.RevisionPhaseFailed
+	if newAttempt {
 		revision.Status.Attempts++
 	}
 	status.StartPlanning(revision, application, now)
@@ -324,12 +327,11 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	liveObjects := slices.Collect(maps.Values(liveResult.Found))
-	managedStale := []unstructured.Unstructured{}
-	// pruneSkipped are stale managed objects prune keeps: they opted out or
-	// are high-risk. They stay out of the plan's deletes, so a Revision that
-	// only leaves them behind converges instead of retrying a delete that
-	// never happens, and they stay labelled, so Solder keeps tracking them.
-	var pruneSkipped []prune.Rejected
+	// pruning splits stale managed objects. Skipped ones, which opted out or
+	// are high-risk, stay out of the plan's deletes, so a Revision that only
+	// leaves them behind converges instead of retrying a delete that never
+	// happens, and they stay labelled, so Solder keeps tracking them.
+	var pruning prune.Result
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
 		if err != nil {
@@ -337,23 +339,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
-		pruning := prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name})
-		pruneSkipped = pruning.Skipped
-		// Rejected objects stay candidates, so pruneStale refuses them.
-		managedStale = pruning.Eligible
-		for _, rejected := range pruning.Rejected {
-			managedStale = append(managedStale, rejected.Object)
-		}
-		liveObjects = append(liveObjects, managedStale...)
+		pruning = prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name})
+		liveObjects = append(liveObjects, pruning.Eligible...)
 	}
 
 	plan, err := planner.Build(planned, liveObjects)
 	if err == nil {
-		for _, kept := range pruneSkipped {
-			if err = plan.Keep(kept.Object, kept.Reason); err != nil {
-				break
-			}
-		}
+		err = plan.Keep(keptObjects(pruning.Skipped))
 	}
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
@@ -371,19 +363,20 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
-	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth, pruneSkipped: pruneSkipped}
+	if newAttempt {
+		// Once per attempt: a rollout walks its groups again on every
+		// reconcile, and self-heal keeps the same Revision.
+		r.warnPruneSkipped(application, pruning.Skipped)
+	}
+	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth, pruning: pruning}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		// A rollout in progress is not done just because nothing is left to
 		// apply: keep waiting until every group is Healthy.
 		if rollout == rolloutInProgress {
-			return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
+			return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 		}
-		application.Status.ManagedKinds = inventoryKinds(rendered, pruneSkipped)
+		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
-		if transition {
-			// Only once per Revision, not on every steady-state reconcile.
-			r.warnPruneSkipped(application, pruneSkipped)
-		}
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -441,7 +434,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !application.Spec.Sync.Automatic {
 		revision.Status.Approval = approval
 	}
-	return r.applyAndObserve(ctx, tenant, application, revision, rendered, managedStale, progress)
+	return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 }
 
 // manualApproval returns the approval recorded for exactly this Revision and
@@ -1013,7 +1006,7 @@ func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructur
 	return stale
 }
 
-func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired, pruneCandidates []unstructured.Unstructured, progress rolloutProgress) (ctrl.Result, error) {
+func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, desired []unstructured.Unstructured, progress rolloutProgress) (ctrl.Result, error) {
 	// A retry after a failure is a new attempt; anything else in progress is
 	// the same deployment carrying on.
 	resuming := progress.state == rolloutInProgress && progress.previousPhase != corev1alpha1.RevisionPhaseFailed
@@ -1030,7 +1023,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "HealthChecks could not be read"), Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
-	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruneSkipped)
+	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruning.Skipped)
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
 	results := []health.Result{}
@@ -1044,7 +1037,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	// per rollout, so one already applied is only watched, never re-applied.
 	for _, group := range ordering.Groups(desired) {
 		if group.Stage == ordering.StagePostSync && !pruned {
-			if failure := r.pruneStale(ctx, tenant, application, pruneCandidates, progress.pruneSkipped); failure != nil {
+			if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 			}
 			pruned = true
@@ -1096,7 +1089,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 	}
 	if !pruned {
-		if failure := r.pruneStale(ctx, tenant, application, pruneCandidates, progress.pruneSkipped); failure != nil {
+		if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 		}
 	}
@@ -1137,21 +1130,28 @@ func (r *ApplicationReconciler) recordHealth(application *corev1alpha1.Applicati
 	application.Status.Resources = summary
 }
 
-// pruneStale deletes managed objects no longer in desired state. Objects
-// prune keeps on purpose, skipped, are reported and never deleted.
-func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, candidates []unstructured.Unstructured, skipped []prune.Rejected) *corev1alpha1.RevisionFailure {
-	plan := prune.Plan(candidates, prune.Policy{Application: application.Name})
-	if len(plan.Rejected) > 0 {
-		return &corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(fmt.Errorf("%s", plan.Rejected[0].Reason), "Managed resource prune was rejected"), Retryable: false}
+// pruneStale deletes the stale managed objects prune may delete. Objects it
+// keeps were reported when the attempt was planned.
+func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Client, pruning prune.Result) *corev1alpha1.RevisionFailure {
+	if len(pruning.Rejected) > 0 {
+		return &corev1alpha1.RevisionFailure{Reason: "PruneFailure", Message: safeMessage(errors.New(pruning.Rejected[0].Reason), "Managed resource prune was rejected"), Retryable: false}
 	}
-	r.warnPruneSkipped(application, append(slices.Clone(skipped), plan.Skipped...))
-	for _, obj := range ordering.Prune(plan.Eligible) {
+	for _, obj := range pruning.Eligible {
 		if err := tenant.Delete(ctx, obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
 			failure := accessFailure(err, "PruneFailure", "Managed resource prune failed", true)
 			return &failure
 		}
 	}
 	return nil
+}
+
+// keptObjects converts prune's skipped objects for the plan.
+func keptObjects(skipped []prune.Rejected) []planner.Kept {
+	kept := make([]planner.Kept, 0, len(skipped))
+	for _, obj := range skipped {
+		kept = append(kept, planner.Kept{Object: obj.Object, Reason: obj.Reason})
+	}
+	return kept
 }
 
 // maxPruneSkippedNamed bounds how many skipped objects a PruneSkipped Event
