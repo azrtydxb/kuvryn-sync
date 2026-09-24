@@ -17,3 +17,7 @@ Revision API records auditable attempts.
 ## Evidence
 
 - Evidence: `api/v1alpha1/revision_types.go` records applicationRef, source, provenance, desiredStateHash, phase, bounded plan, health, previousRevision, and failure. Generated CRDs include Revision status schema.
+
+## Superseded: Solder is universal
+
+The optional `spec.provenance` field this story mentions was removed in favour of a universal API.

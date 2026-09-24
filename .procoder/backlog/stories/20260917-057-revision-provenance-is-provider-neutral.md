@@ -24,3 +24,7 @@ Revision provenance is provider-neutral.
 ## Closure Evidence
 
 - Closed after the all-gap closure pass: product paths now include controller-integrated render/plan/apply/prune/health/drift/retry/rollback handling, bounded metrics and optional OTel tracing, lifecycle Events, CLI operations, installer/CI polish, and regenerated API/manifests. Verification evidence is the final `make fmt test`, `procoder test`, `procoder lint`, `procoder security`, and `procoder check` gate run for this pass.
+
+## Superseded: Solder is universal
+
+The Revision `spec.provenance` field and its types were removed: Solder stays universal and does not model a particular pipeline's evidence.

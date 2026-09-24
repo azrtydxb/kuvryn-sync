@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	chartv2 "helm.sh/helm/v4/pkg/chart/v2"
 	chartv2loader "helm.sh/helm/v4/pkg/chart/v2/loader"
@@ -82,8 +83,26 @@ func TestPullFromHTTPRepositoryCachesAndRenders(t *testing.T) {
 		t.Fatalf("digest = %s, want %s", digest, sha(archive))
 	}
 	served := requests.Load()
+	entry := filepath.Dir(path)
+	idle := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(entry, idle, idle); err != nil {
+		t.Fatal(err)
+	}
 	if _, again, err := Pull(cache, "payments", src); err != nil || again != digest || requests.Load() != served {
 		t.Fatalf("second pull was not served from cache: %v, %d requests", err, requests.Load()-served)
+	}
+	// The cache hit marked the chart as used, so pruning keeps it.
+	if removed, err := PruneCache(cache, time.Now().Add(-time.Hour)); err != nil || len(removed) != 0 {
+		t.Fatalf("pruned a chart used moments ago: %v, %v", removed, err)
+	}
+	if err := os.Chtimes(entry, idle, idle); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := PruneCache(cache, time.Now().Add(-time.Hour)); err != nil || len(removed) != 1 || removed[0] != entry {
+		t.Fatalf("idle chart was not pruned: %v, %v", removed, err)
+	}
+	if _, again, err := Pull(cache, "payments", src); err != nil || again != digest {
+		t.Fatalf("pruned chart was not pulled again: %v", err)
 	}
 
 	// The cached archive belongs to these credentials in this namespace.

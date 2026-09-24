@@ -60,3 +60,7 @@ carried: 0
 <!-- What we change next sprint because of it. -->
 
 <!-- One adaptation from this sprint worth keeping. -->
+
+## Superseded: Solder is universal
+
+The product-specific contracts (`internal/contracts`, Dhole and Kuvryn helpers) and the Revision `spec.provenance` field were removed. Solder integrates with any tool through its public CRDs, status, Events, and CLI.

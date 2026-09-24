@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -641,7 +640,7 @@ func (r *ApplicationReconciler) pullChart(ctx context.Context, namespace string,
 		}
 		src.Username, src.Password = string(secret.Data["username"]), string(secret.Data["password"])
 	}
-	return helmrenderer.Pull(filepath.Join(cacheRoot(r.CacheDir), "charts"), namespace, src)
+	return helmrenderer.Pull(chartCacheDir(r.CacheDir), namespace, src)
 }
 
 // helmValues merges valuesFrom, in order, then inline values, reading

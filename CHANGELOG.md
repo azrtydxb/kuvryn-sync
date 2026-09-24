@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed: pulled Helm charts were cached forever. The hourly cache pruner now
+  removes charts no render has used for a day.
+- **Breaking:** the Revision `spec.provenance` field is removed, along with the
+  unused product-specific integration helpers. Solder integrates with any tool
+  through its public CRDs, status, Events, and CLI. Nothing in Solder read or
+  set the field. Once the CRD is updated the field no longer appears on existing
+  Revisions, and clients that still send it are rejected under strict field
+  validation.
 - Fixed: the Git source cache was never cleaned. Every commit Solder rendered
   stayed checked out on disk forever. Each replica now prunes, every hour,
   checkouts no Revision or Repository refers to and clones of deleted

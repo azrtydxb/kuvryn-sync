@@ -3,12 +3,14 @@ package helm
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"helm.sh/helm/v4/pkg/action"
@@ -55,6 +57,11 @@ func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 	defer lock.(*sync.Mutex).Unlock()
 
 	if archive, err := findArchive(dest); err == nil {
+		// Mark the cached chart as used, so PruneCache keeps it.
+		now := time.Now()
+		if err := os.Chtimes(dest, now, now); err != nil {
+			return "", "", err
+		}
 		return digestFile(archive)
 	}
 	if err := os.MkdirAll(dest, 0o700); err != nil {
@@ -115,4 +122,42 @@ func digestFile(path string) (string, string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return path, "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// PruneCache removes cached charts in cacheDir that no Pull has used since
+// olderThan, holding the lock Pull takes for each, and returns what it
+// removed. It keeps going past an entry it cannot remove.
+func PruneCache(cacheDir string, olderThan time.Time) ([]string, error) {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	removed := []string{}
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dest := filepath.Join(cacheDir, entry.Name())
+		lock, _ := pullLocks.LoadOrStore(dest, &sync.Mutex{})
+		lock.(*sync.Mutex).Lock()
+		info, err := os.Stat(dest)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			// Removed since it was listed; nothing to do.
+		case err != nil:
+			errs = append(errs, err)
+		case info.ModTime().Before(olderThan):
+			if err := os.RemoveAll(dest); err != nil {
+				errs = append(errs, err)
+			} else {
+				removed = append(removed, dest)
+			}
+		}
+		lock.(*sync.Mutex).Unlock()
+	}
+	return removed, errors.Join(errs...)
 }

@@ -72,44 +72,6 @@ spec:
                     desiredStateHash is a deterministic fingerprint of rendered
                     desired state.
                   type: string
-                provenance:
-                  description: |-
-                    provenance optionally links this desired-state change to build artifacts
-                    and pipeline runs without coupling Solder to a specific CI system.
-                  properties:
-                    artifact:
-                      description:
-                        artifact identifies the immutable artifact promoted
-                        into desired state.
-                      properties:
-                        digest:
-                          type: string
-                        type:
-                          type: string
-                        uri:
-                          type: string
-                      type: object
-                    pipeline:
-                      description:
-                        pipeline identifies the pipeline run that promoted
-                        desired state.
-                      properties:
-                        provider:
-                          type: string
-                        run:
-                          type: string
-                      type: object
-                    source:
-                      description:
-                        source identifies the product source that produced
-                        the artifact.
-                      properties:
-                        repository:
-                          type: string
-                        revision:
-                          type: string
-                      type: object
-                  type: object
                 source:
                   description:
                     source records the exact desired-state source used for
