@@ -12,6 +12,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/normalize"
+	"github.com/azrtydxb/solder/internal/prune"
 	"github.com/azrtydxb/solder/internal/redact"
 	"github.com/azrtydxb/solder/internal/resource"
 )
@@ -74,7 +75,7 @@ func Build(desired []unstructured.Unstructured, live []unstructured.Unstructured
 		case !want && have:
 			change.Action = corev1alpha1.PlanActionDelete
 			change.Destructive = true
-			change.Warnings = deleteWarnings(liveObj)
+			change.Warnings = []string{"delete action is destructive"}
 			plan.Summary.Delete++
 		case want && have:
 			fields, err := changedFields(desiredObj, liveObj)
@@ -212,20 +213,9 @@ func redactedCount(n int) string {
 	return fmt.Sprintf("%d key(s) %s", n, redact.Value("secret"))
 }
 
-func deleteWarnings(unstructured.Unstructured) []string {
-	return []string{"delete action is destructive"}
-}
-
-// Kept is a managed object desired state no longer declares but prune
-// keeps, such as one that opted out of prune, and why.
-type Kept struct {
-	Object unstructured.Unstructured
-	Reason string
-}
-
 // Keep records objects prune keeps, so the plan shows each of them and why
 // instead of a delete that never happens.
-func (p *Plan) Keep(kept []Kept) error {
+func (p *Plan) Keep(kept []prune.Rejected) error {
 	if len(kept) == 0 {
 		return nil
 	}

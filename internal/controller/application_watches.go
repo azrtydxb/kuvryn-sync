@@ -38,10 +38,6 @@ import (
 	"github.com/azrtydxb/solder/internal/applier"
 )
 
-// staticWatchKinds are watched from startup; the controller role grants
-// list/watch on them.
-var staticWatchKinds = applier.DefaultKinds
-
 // driftWatches starts metadata-only watches for managed kinds the controller
 // is allowed to list and watch. Kinds it may not watch are left to periodic
 // resync, and their permission is re-checked at most once per recheck period.
@@ -63,7 +59,9 @@ type driftWatches struct {
 
 func newDriftWatches(ctrl controller.Controller, informers cache.Cache, c client.Client, recheck time.Duration) *driftWatches {
 	watched := map[schema.GroupKind]bool{}
-	for _, gvk := range staticWatchKinds {
+	// The default kinds are watched from startup; the controller role grants
+	// list/watch on them.
+	for _, gvk := range applier.DefaultKinds {
 		watched[gvk.GroupKind()] = true
 	}
 	return &driftWatches{

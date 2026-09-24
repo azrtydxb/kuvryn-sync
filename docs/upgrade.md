@@ -22,10 +22,11 @@ helm template solder charts/solder >/tmp/solder-chart.yaml
 kubectl apply --dry-run=server -f /tmp/solder-chart.yaml -n solder-system
 ```
 
-## Upgrading from 0.2.x
+## Upgrading from 0.2.x to 0.3.0
 
-The next release removes one field and adds diagnosis, tracing, and cache
-pruning. Apply the new CRDs before the new image, as always. Then:
+Release 0.3.0 removes one field, adds diagnosis, tracing, and cache pruning,
+and changes how rollbacks, pruning opt-outs, and the `Ready` condition behave.
+Apply the new CRDs before the new image, as always. Then:
 
 1. **Stop sending Revision `spec.provenance`.** The field is removed from this
    release's CRDs and installer. Nothing in Solder read or set it. The API
@@ -62,7 +63,20 @@ pruning. Apply the new CRDs before the new image, as always. Then:
    limits and number of Repositories;
    the chart's volume is an `emptyDir`, so set an `ephemeral-storage` request
    in `resources` if nodes are tight. See [Source cache](operations.md#source-cache).
-6. **Build with Go 1.26.** Building Solder from source needs Go 1.26 or later,
+6. **Expect rollbacks to hold.** A completed rollback, automatic or manual,
+   now stays in place until a new commit arrives, instead of being undone by
+   the next reconcile. `solder rollback` with no `--revision` picks the newest
+   known-good revision other than the one deployed. See
+   [Rollback](concepts.md#rollback) for every way a hold ends.
+7. **Review pruning opt-outs.** Objects annotated `solder.io/prune: disabled`,
+   and high-risk kinds, are now skipped with a `PruneSkipped` Warning instead
+   of failing the rollout. If you relied on that failure to stop rollouts,
+   use manual sync instead.
+8. **Watch `Ready`.** The Application `Ready` condition now turns `True` after
+   a rollout completes Synced and Healthy; before, it was only ever `False`.
+   Alerts on `Ready` start working, and a parent Application that manages
+   child Applications now waits for them.
+9. **Build with Go 1.26.** Building Solder from source needs Go 1.26 or later,
    as `go.mod` has required since 0.2.0; the repository's devcontainer
    provides it. Release images are unaffected.
 

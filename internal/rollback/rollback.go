@@ -5,8 +5,6 @@ import (
 	"sort"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/planner"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // Target returns the most recent healthy Revision before current for the same Application.
@@ -35,13 +33,4 @@ func Target(current corev1alpha1.Revision, history []corev1alpha1.Revision) (cor
 		return candidates[i].Name > candidates[j].Name
 	})
 	return candidates[0], nil
-}
-
-// Plan uses the normal planner to compare previous healthy desired state to current live state.
-func Plan(previousDesired, currentLive []unstructured.Unstructured, limit int) (corev1alpha1.RevisionPlan, error) {
-	plan, err := planner.Build(previousDesired, currentLive)
-	if err != nil {
-		return corev1alpha1.RevisionPlan{}, err
-	}
-	return plan.RevisionPlan(limit), nil
 }

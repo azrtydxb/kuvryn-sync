@@ -259,9 +259,12 @@ spec:
                                 - version
                               type: object
                             releaseName:
-                              description:
-                                releaseName is the Helm release name used
-                                for template rendering.
+                              description: |-
+                                releaseName is the Helm release name used for template rendering. Like
+                                Helm, it must be a lowercase DNS subdomain of at most 53 characters.
+                                Empty means the default, solder.
+                              maxLength: 53
+                              pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$
                               type: string
                             values:
                               description:
@@ -490,6 +493,99 @@ spec:
                     desiredRevision is the source revision Git currently
                     asks Solder to run.
                   type: string
+                diagnosis:
+                  description: |-
+                    diagnosis explains why the Application is not Healthy: each cause names
+                    the resource at the root of a failure and the chain of resources from
+                    an unhealthy managed object down to it. It is empty when the
+                    Application is Healthy.
+                  items:
+                    description: DiagnosisCause is one root cause of an unhealthy Application.
+                    properties:
+                      chain:
+                        description: |-
+                          chain lists the resources from the unhealthy managed object down to the
+                          root cause, both included.
+                        items:
+                          description:
+                            ResourceRef identifies a Kubernetes resource
+                            in a plan, graph, or status.
+                          properties:
+                            apiVersion:
+                              description:
+                                apiVersion is the resource API version, such
+                                as apps/v1.
+                              minLength: 1
+                              type: string
+                            kind:
+                              description: kind is the Kubernetes resource kind.
+                              minLength: 1
+                              type: string
+                            name:
+                              description: name is the resource name.
+                              minLength: 1
+                              type: string
+                            namespace:
+                              description: namespace is empty for cluster-scoped resources.
+                              type: string
+                          required:
+                            - apiVersion
+                            - kind
+                            - name
+                          type: object
+                        maxItems: 10
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      message:
+                        description:
+                          message is the redacted, bounded evidence for the
+                          failure.
+                        maxLength: 512
+                        type: string
+                      reason:
+                        description: |-
+                          reason is a CamelCase word naming the failure, such as MissingSecret,
+                          ImagePullBackOff or Unschedulable.
+                        maxLength: 128
+                        minLength: 1
+                        pattern: ^[A-Z][A-Za-z0-9]*$
+                        type: string
+                      resource:
+                        description: |-
+                          resource is the resource at the root of the failure, such as a missing
+                          Secret or a Pod whose container cannot start.
+                        properties:
+                          apiVersion:
+                            description:
+                              apiVersion is the resource API version, such
+                              as apps/v1.
+                            minLength: 1
+                            type: string
+                          kind:
+                            description: kind is the Kubernetes resource kind.
+                            minLength: 1
+                            type: string
+                          name:
+                            description: name is the resource name.
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: namespace is empty for cluster-scoped resources.
+                            type: string
+                        required:
+                          - apiVersion
+                          - kind
+                          - name
+                        type: object
+                    required:
+                      - chain
+                      - reason
+                      - resource
+                    type: object
+                  maxItems: 10
+                  type: array
+                  x-kubernetes-list-type: atomic
                 health:
                   description: health reports operational health independent from sync.
                   properties:
@@ -1366,44 +1462,6 @@ spec:
                     desiredStateHash is a deterministic fingerprint of rendered
                     desired state.
                   type: string
-                provenance:
-                  description: |-
-                    provenance optionally links this desired-state change to build artifacts
-                    and pipeline runs without coupling Solder to a specific CI system.
-                  properties:
-                    artifact:
-                      description:
-                        artifact identifies the immutable artifact promoted
-                        into desired state.
-                      properties:
-                        digest:
-                          type: string
-                        type:
-                          type: string
-                        uri:
-                          type: string
-                      type: object
-                    pipeline:
-                      description:
-                        pipeline identifies the pipeline run that promoted
-                        desired state.
-                      properties:
-                        provider:
-                          type: string
-                        run:
-                          type: string
-                      type: object
-                    source:
-                      description:
-                        source identifies the product source that produced
-                        the artifact.
-                      properties:
-                        repository:
-                          type: string
-                        revision:
-                          type: string
-                      type: object
-                  type: object
                 source:
                   description:
                     source records the exact desired-state source used for
@@ -1461,9 +1519,12 @@ spec:
                                 - version
                               type: object
                             releaseName:
-                              description:
-                                releaseName is the Helm release name used
-                                for template rendering.
+                              description: |-
+                                releaseName is the Helm release name used for template rendering. Like
+                                Helm, it must be a lowercase DNS subdomain of at most 53 characters.
+                                Empty means the default, solder.
+                              maxLength: 53
+                              pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$
                               type: string
                             values:
                               description:
@@ -2660,7 +2721,7 @@ spec:
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
           command:
             - /manager
-          image: ghcr.io/azrtydxb/solder:v0.2.0
+          image: ghcr.io/azrtydxb/solder:v0.3.0
           livenessProbe:
             httpGet:
               path: /healthz

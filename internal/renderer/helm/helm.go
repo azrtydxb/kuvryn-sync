@@ -3,6 +3,7 @@ package helm
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -21,15 +22,6 @@ import (
 )
 
 const defaultReleaseName = "solder"
-
-// ReleaseName returns the Helm release name rendering uses: name as given in
-// the Application's spec, or the default "solder" when name is empty.
-func ReleaseName(name string) string {
-	if name == "" {
-		return defaultReleaseName
-	}
-	return name
-}
 
 // Renderer renders a chart like `helm template`, without a helm binary and
 // without contacting the cluster or any chart or values URL.
@@ -74,7 +66,7 @@ func (Renderer) Render(ctx context.Context, input renderer.Input) ([]unstructure
 	install := action.NewInstall(action.NewConfiguration())
 	install.DryRunStrategy = action.DryRunClient
 	install.Replace = true
-	install.ReleaseName = ReleaseName(input.ReleaseName)
+	install.ReleaseName = cmp.Or(input.ReleaseName, defaultReleaseName)
 	install.Namespace = input.Namespace
 	rendered, err := install.RunWithContext(ctx, chrt, values)
 	if err != nil {

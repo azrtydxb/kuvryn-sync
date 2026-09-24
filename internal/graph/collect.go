@@ -77,7 +77,9 @@ func Collect(ctx context.Context, reader client.Reader, namespace string, manage
 		}
 	}
 	for _, service := range services {
-		c.addAll(c.list(ctx, schema.GroupVersionKind{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"}, client.MatchingLabels{"kubernetes.io/service-name": service}))
+		for _, slice := range c.list(ctx, schema.GroupVersionKind{Group: "discovery.k8s.io", Version: "v1", Kind: "EndpointSlice"}, client.MatchingLabels{"kubernetes.io/service-name": service}) {
+			c.add(slice)
+		}
 	}
 	// Referenced objects may refer to more, such as a claim to its volume.
 	unreadable := []resource.ID{}
@@ -136,12 +138,6 @@ func (c *graphCollector) add(obj unstructured.Unstructured) {
 	c.budget--
 }
 
-func (c *graphCollector) addAll(objs []unstructured.Unstructured) {
-	for _, obj := range objs {
-		c.add(obj)
-	}
-}
-
 // list returns at most one bounded page of objects of a kind.
 func (c *graphCollector) list(ctx context.Context, gvk schema.GroupVersionKind, opts ...client.ListOption) []unstructured.Unstructured {
 	if c.budget <= 0 {
@@ -169,7 +165,7 @@ func (c *graphCollector) get(ctx context.Context, id resource.ID) (obj unstructu
 	gvk := schema.GroupVersionKind{Group: id.Group, Version: id.Version, Kind: id.Kind}
 	key := client.ObjectKey{Namespace: id.Namespace, Name: id.Name}
 	var err error
-	if id.Group == "" && (id.Kind == "Secret" || id.Kind == "ConfigMap" || id.Kind == "ServiceAccount") {
+	if IdentityOnly(gvk) {
 		meta := &metav1.PartialObjectMetadata{}
 		meta.SetGroupVersionKind(gvk)
 		if err = c.reader.Get(ctx, key, meta); err == nil {
@@ -193,6 +189,12 @@ func (c *graphCollector) get(ctx context.Context, id resource.ID) (obj unstructu
 		logf.FromContext(ctx).V(1).Info("Could not read referenced object for diagnosis", "kind", id.Kind, "name", id.Name, "reason", apierrors.ReasonForError(err))
 		return obj, false, false
 	}
+}
+
+// IdentityOnly reports the kinds the graph needs only the identity of:
+// Secrets, ConfigMaps and ServiceAccounts, whose content is never read.
+func IdentityOnly(gvk schema.GroupVersionKind) bool {
+	return gvk.Group == "" && (gvk.Kind == "Secret" || gvk.Kind == "ConfigMap" || gvk.Kind == "ServiceAccount")
 }
 
 // podSelector returns the non-empty label selector of the Pods a managed

@@ -410,7 +410,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	plan, err := planner.Build(planned, liveObjects)
 	if err == nil {
-		err = plan.Keep(keptObjects(pruning.Skipped))
+		err = plan.Keep(pruning.Skipped)
 	}
 	if err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "PlanFailure", Message: safeMessage(err, "Plan could not be built"), Retryable: false}
@@ -1211,15 +1211,6 @@ func (r *ApplicationReconciler) pruneStale(ctx context.Context, tenant client.Cl
 	return nil
 }
 
-// keptObjects converts prune's skipped objects for the plan.
-func keptObjects(skipped []prune.Rejected) []planner.Kept {
-	kept := make([]planner.Kept, 0, len(skipped))
-	for _, obj := range skipped {
-		kept = append(kept, planner.Kept{Object: obj.Object, Reason: obj.Reason})
-	}
-	return kept
-}
-
 // maxPruneSkippedNamed bounds how many skipped objects a PruneSkipped Event
 // names.
 const maxPruneSkippedNamed = 5
@@ -1436,17 +1427,14 @@ func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application 
 }
 
 // validateHelmReleaseName returns an error when a Helm Application's release
-// name, or the default used in its place, breaks Helm's naming rule.
+// name breaks Helm's naming rule. An empty name renders as "solder", which is
+// valid.
 func validateHelmReleaseName(application *corev1alpha1.Application) error {
 	render := application.Spec.Source.Render
-	if render.Type != corev1alpha1.RenderTypeHelm {
+	if render.Type != corev1alpha1.RenderTypeHelm || render.Helm == nil || render.Helm.ReleaseName == "" {
 		return nil
 	}
-	name := ""
-	if render.Helm != nil {
-		name = render.Helm.ReleaseName
-	}
-	name = helmrenderer.ReleaseName(name)
+	name := render.Helm.ReleaseName
 	if err := chartutil.ValidateReleaseName(name); err != nil {
 		return fmt.Errorf("helm release name %q is not valid: it must be a lowercase DNS subdomain of at most 53 characters; rename the release", name)
 	}
