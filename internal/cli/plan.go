@@ -291,7 +291,7 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 		return fmt.Errorf("revision %s belongs to application %q, not %q", rev.Name, rev.Spec.ApplicationRef.Name, app.Name)
 	}
 	if rolledBack(rev) {
-		return fmt.Errorf("Revision %s was replaced by a rollback; push a new commit or delete the Revision", rev.Name)
+		return fmt.Errorf("revision %s was replaced by a rollback; push a new commit, delete the Revision, or run solder rollback --revision %s", rev.Name, rev.Name)
 	}
 	digest := rev.Status.Plan.Digest
 	if digest == "" {
@@ -341,8 +341,13 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 	}
 	// The desired revision is what reconciling would deploy next, so it is
 	// what the rollback must hold; the deployed one is replaced anyway and
-	// only deploys again if it is also desired.
-	from := app.Status.DesiredRevision
+	// only deploys again if it is also desired. While a rollback is pending,
+	// the desired revision is already its target, so a new request keeps the
+	// source that one recorded.
+	from := app.Annotations[corev1alpha1.RollbackFromAnnotation]
+	if app.Annotations[corev1alpha1.RollbackRevisionAnnotation] == "" || from == "" {
+		from = app.Status.DesiredRevision
+	}
 	if from == "" {
 		from = app.Status.DeployedRevision
 	}
@@ -378,6 +383,10 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 	}
 	if rolledBack(rev) {
 		_, _ = fmt.Fprintf(stdout, "revision %s was replaced by an earlier rollback; rolling back to it lifts that hold\n", rev.Name)
+	}
+	if from == rev.Spec.Source.Revision {
+		_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
+		return nil
 	}
 	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s), holding %s once it completes\n", app.Name, rev.Name, rev.Spec.Source.Revision, from)
 	return nil

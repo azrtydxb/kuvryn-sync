@@ -165,6 +165,40 @@ func TestRollbackChecksItsTarget(t *testing.T) {
 	if !strings.Contains(stdout.String(), "lifts that hold") {
 		t.Fatalf("rollback to a held Revision did not explain the hold: %s", stdout.String())
 	}
+	// Lifting the hold on the desired revision holds nothing once it is done.
+	if strings.Contains(stdout.String(), "holding") {
+		t.Fatalf("lifting a hold claims to hold a revision: %s", stdout.String())
+	}
+}
+
+// Catches a second rollback while one is pending recording the first one's
+// target as the revision rolled back from, which held the good commit and
+// left the bad one to deploy again.
+func TestRollbackKeepsThePendingRequestsSource(t *testing.T) {
+	app := rollbackApp("b-sha", "x-sha")
+	app.Annotations = map[string]string{
+		corev1alpha1.RollbackRevisionAnnotation: "b-sha",
+		corev1alpha1.RollbackFromAnnotation:     "x-sha",
+		corev1alpha1.RollbackKindAnnotation:     corev1alpha1.RollbackKindManual,
+	}
+	c := rollbackClient(t, app,
+		rollbackRevision("payments-a", "a-sha", corev1alpha1.RevisionPhaseHealthy, 0),
+		rollbackRevision("payments-b", "b-sha", corev1alpha1.RevisionPhaseHealthy, 1),
+		rollbackRevision("payments-x", "x-sha", corev1alpha1.RevisionPhaseHealthy, 2))
+	var stdout bytes.Buffer
+	if err := rollback(context.Background(), c, "default", "payments", "payments-a", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	updated := &corev1alpha1.Application{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, updated); err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Annotations[corev1alpha1.RollbackFromAnnotation]; got != "x-sha" {
+		t.Fatalf("rollback-from = %q, want the pending request's x-sha", got)
+	}
+	if got := updated.Annotations[corev1alpha1.RollbackRevisionAnnotation]; got != "a-sha" {
+		t.Fatalf("rollback-revision = %q, want a-sha", got)
+	}
 }
 
 // Catches an approval of a Revision a rollback replaced, which the controller
@@ -175,7 +209,7 @@ func TestApproveRefusesARolledBackRevision(t *testing.T) {
 	c := rollbackClient(t, rollbackApp("b-sha", "a-sha"), held)
 	var stdout bytes.Buffer
 	err := approve(context.Background(), c, "default", "payments", "payments-b", &stdout)
-	if err == nil || err.Error() != "Revision payments-b was replaced by a rollback; push a new commit or delete the Revision" {
+	if err == nil || err.Error() != "revision payments-b was replaced by a rollback; push a new commit, delete the Revision, or run solder rollback --revision payments-b" {
 		t.Fatalf("err = %v", err)
 	}
 }

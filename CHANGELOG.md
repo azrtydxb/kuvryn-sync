@@ -45,7 +45,8 @@
   the newest Revision that is Healthy or was deployed by an earlier rollback,
   whose source revision is neither the desired nor the deployed one, ordered by
   creation time and then name, and fails when there is none. It records the
-  desired revision as the one rolled back from, refuses a Revision of another
+  desired revision as the one rolled back from, or the pending request's
+  source while another rollback waits, refuses a Revision of another
   Application, and says when rolling back to a held Revision lifts its hold.
   `solder approve` refuses a Revision a rollback replaced.
 - Fixed: a Revision status write from a stale copy could overwrite newer
