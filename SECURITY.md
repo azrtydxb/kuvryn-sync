@@ -7,7 +7,7 @@ repository owner instead of opening a public issue with exploit details.
 
 | Version  | Supported               |
 | -------- | ----------------------- |
-| `v0.2.x` | Best-effort alpha fixes |
+| `v0.3.x` | Best-effort alpha fixes |
 
 ## Sensitive data expectations
 

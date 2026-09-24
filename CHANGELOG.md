@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+_Solder now explains why an Application is unhealthy, keeps rollbacks from
+being undone, exports traces, and keeps its caches bounded. It is universal:
+the product-specific integration code and the Revision `spec.provenance` field
+are gone. Read the [upgrade notes](docs/upgrade.md) first; a few changes are
+breaking._
 
 - **Breaking:** `spec.source.render.helm.releaseName` must follow Helm's naming
   rule, a lowercase DNS subdomain of at most 53 characters, and the CRD
