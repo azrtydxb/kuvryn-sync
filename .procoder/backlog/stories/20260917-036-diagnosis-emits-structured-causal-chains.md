@@ -55,6 +55,6 @@ status, Events and CLI.
   shared-cause deduplication and the cap; the envtest "Application
   diagnosis" (`internal/controller/application_diagnosis_test.go`) shows a
   Degraded Deployment diagnosed as Deployment, ReplicaSet, Pod, missing
-  Secret; `TestDiagnoseEmitsAnEventOnlyWhenCausesChange` and
+  Secret; `TestDiagnoseEmitsAnEventWhenCausesChangeOrTheApplicationDegrades` and
   `TestDiagnosePrintsChains` cover Events and CLI. Each was checked to fail
   with the code it covers removed.

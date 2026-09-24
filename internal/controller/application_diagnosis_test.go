@@ -183,7 +183,9 @@ var _ = Describe("Application diagnosis", func() {
 			{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: secret},
 		}))
 		Expect(cause.Message).To(ContainSubstring("CreateContainerConfigError"))
-		Expect(diagnosedEvents(recorder)).To(BeEmpty())
+		events = diagnosedEvents(recorder)
+		Expect(events).To(HaveLen(1), "becoming Degraded is reported even with the same causes")
+		Expect(events[0]).To(ContainSubstring("Secret payments/db-credentials: MissingSecret"))
 
 		By("not repeating the Event while the root causes stay the same, across a retry")
 		Eventually(func() int32 {
@@ -222,7 +224,7 @@ func controllerutilSetOwner(owner, obj client.Object) error {
 	return nil
 }
 
-func TestDiagnoseEmitsAnEventOnlyWhenCausesChange(t *testing.T) {
+func TestDiagnoseEmitsAnEventWhenCausesChangeOrTheApplicationDegrades(t *testing.T) {
 	waitingPod := func(reason string) unstructured.Unstructured {
 		pod := &corev1.Pod{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
@@ -249,8 +251,8 @@ func TestDiagnoseEmitsAnEventOnlyWhenCausesChange(t *testing.T) {
 	tenant := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
 	unhealthy := []health.Result{{Resource: podID, State: corev1alpha1.HealthStateProgressing, Reason: "PodPending"}}
 
-	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{pulling}, false)
-	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{pulling}, false)
+	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{pulling}, false, corev1alpha1.HealthStateProgressing)
+	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{pulling}, false, corev1alpha1.HealthStateProgressing)
 	if events := drainEvents(recorder); len(events) != 1 || !strings.Contains(events[0], "Pod payments/api: ImagePullBackOff") {
 		t.Fatalf("events = %v", events)
 	}
@@ -258,25 +260,28 @@ func TestDiagnoseEmitsAnEventOnlyWhenCausesChange(t *testing.T) {
 		t.Fatalf("diagnosis = %+v", app.Status.Diagnosis)
 	}
 
-	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{waitingPod("CrashLoopBackOff")}, false)
+	r.diagnose(context.Background(), tenant, app, unhealthy, []unstructured.Unstructured{waitingPod("CrashLoopBackOff")}, false, corev1alpha1.HealthStateProgressing)
 	if events := drainEvents(recorder); len(events) != 1 || !strings.Contains(events[0], "CrashLoopBackOff") {
 		t.Fatalf("a changed cause must be reported once: %v", events)
 	}
 
 	fallback := []health.Result{{Resource: podID, State: corev1alpha1.HealthStateProgressing, Reason: "PodPending"}}
 	creating := waitingPod("ContainerCreating")
-	r.diagnose(context.Background(), tenant, app, fallback, []unstructured.Unstructured{creating}, false)
+	r.diagnose(context.Background(), tenant, app, fallback, []unstructured.Unstructured{creating}, false, corev1alpha1.HealthStateProgressing)
 	if events := drainEvents(recorder); len(events) != 0 || len(app.Status.Diagnosis) != 1 || app.Status.Diagnosis[0].Reason != "PodPending" {
 		t.Fatalf("an ordinary rollout raised events %v with diagnosis %+v", events, app.Status.Diagnosis)
 	}
-	app.Status.Diagnosis = nil
-	r.diagnose(context.Background(), tenant, app, fallback, []unstructured.Unstructured{creating}, true)
+	r.diagnose(context.Background(), tenant, app, fallback, []unstructured.Unstructured{creating}, true, corev1alpha1.HealthStateProgressing)
 	if events := drainEvents(recorder); len(events) != 1 {
-		t.Fatalf("a Degraded Application must report even its fallback cause: %v", events)
+		t.Fatalf("an Application newly Degraded must report its unchanged fallback cause: %v", events)
+	}
+	r.diagnose(context.Background(), tenant, app, fallback, []unstructured.Unstructured{creating}, true, corev1alpha1.HealthStateDegraded)
+	if events := drainEvents(recorder); len(events) != 0 {
+		t.Fatalf("an Application still Degraded with the same causes reported again: %v", events)
 	}
 
 	healthy := []health.Result{{Resource: podID, State: corev1alpha1.HealthStateHealthy}}
-	r.diagnose(context.Background(), tenant, app, healthy, nil, false)
+	r.diagnose(context.Background(), tenant, app, healthy, nil, false, corev1alpha1.HealthStateProgressing)
 	if app.Status.Diagnosis != nil || len(drainEvents(recorder)) != 0 {
 		t.Fatalf("a Healthy Application keeps diagnosis %+v", app.Status.Diagnosis)
 	}

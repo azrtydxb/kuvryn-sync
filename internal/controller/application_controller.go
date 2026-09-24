@@ -344,7 +344,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	revision.Status.Plan.Digest = digest
 	revision.Status.Failure = nil
 	r.event(application, corev1.EventTypeNormal, "PlanCreated", "Application plan created")
-	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks}
+	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth}
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		// A rollout in progress is not done just because nothing is left to
 		// apply: keep waiting until every group is Healthy.
@@ -1022,7 +1022,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 			}
 			if replacing {
-				return r.observe(ctx, tenant, application, revision, results, observed, 2*time.Second)
+				return r.observe(ctx, tenant, application, revision, results, observed, progress.previousHealth, 2*time.Second)
 			}
 		}
 		if len(pending) > 0 {
@@ -1051,11 +1051,11 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 				failure = corev1alpha1.RevisionFailure{Reason: "HookFailed", Message: safeMessage(fmt.Errorf("%s hook %s/%s failed: %s", group.Stage, result.Resource.Kind, result.Resource.Name, result.Message), "A sync hook failed"), Retryable: true}
 			}
 			r.recordHealth(application, revision, results)
-			r.diagnose(ctx, tenant, application, results, observed, true)
+			r.diagnose(ctx, tenant, application, results, observed, true, progress.previousHealth)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		if health.Summary(groupResults).Progressing > 0 {
-			return r.observe(ctx, tenant, application, revision, results, observed, 10*time.Second)
+			return r.observe(ctx, tenant, application, revision, results, observed, progress.previousHealth, 10*time.Second)
 		}
 	}
 	if !pruned {
@@ -1075,9 +1075,9 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 
 // observe records that the rollout is still progressing, and why, and checks
 // back later, failing once the health timeout has passed.
-func (r *ApplicationReconciler) observe(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result, observed []unstructured.Unstructured, after time.Duration) (ctrl.Result, error) {
+func (r *ApplicationReconciler) observe(ctx context.Context, tenant client.Client, application *corev1alpha1.Application, revision *corev1alpha1.Revision, results []health.Result, observed []unstructured.Unstructured, previousHealth corev1alpha1.HealthState, after time.Duration) (ctrl.Result, error) {
 	timedOut := application.Spec.Health.Timeout != nil && revision.Status.StartedAt != nil && time.Since(revision.Status.StartedAt.Time) > application.Spec.Health.Timeout.Duration
-	r.diagnose(ctx, tenant, application, results, observed, timedOut)
+	r.diagnose(ctx, tenant, application, results, observed, timedOut, previousHealth)
 	if timedOut {
 		failure := corev1alpha1.RevisionFailure{Reason: "TimeoutFailure", Message: "Health observation timed out", Retryable: true}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)

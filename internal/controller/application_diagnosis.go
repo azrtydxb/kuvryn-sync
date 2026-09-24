@@ -33,10 +33,12 @@ import (
 
 // diagnose records on the Application why its managed objects are not
 // Healthy, and clears the diagnosis once they are. degraded is whether the
-// Application is being marked Degraded. A Diagnosed Event names the first
-// cause whenever the set of causes changes, unless every cause is only a
-// managed object's own health verdict during a rollout that is not failing.
-func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Reader, application *corev1alpha1.Application, results []health.Result, observed []unstructured.Unstructured, degraded bool) {
+// Application is being marked Degraded, and previousHealth the health
+// persisted before this reconcile. A Diagnosed Event names the first cause
+// when the set of causes changes or the Application newly becomes Degraded,
+// unless every cause is only a managed object's own health verdict during a
+// rollout that is not failing.
+func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Reader, application *corev1alpha1.Application, results []health.Result, observed []unstructured.Unstructured, degraded bool, previousHealth corev1alpha1.HealthState) {
 	if !slices.ContainsFunc(results, func(result health.Result) bool { return result.State != corev1alpha1.HealthStateHealthy }) {
 		application.Status.Diagnosis = nil
 		return
@@ -45,8 +47,9 @@ func (r *ApplicationReconciler) diagnose(ctx context.Context, tenant client.Read
 	causes := diagnosis.Build(ctx, diagnosis.Input{Results: results, Graph: g, Objects: objects})
 	next := diagnosis.Status(causes)
 	changed := !sameCauses(application.Status.Diagnosis, next)
+	newlyDegraded := degraded && previousHealth != corev1alpha1.HealthStateDegraded
 	application.Status.Diagnosis = next
-	if !changed || len(causes) == 0 {
+	if len(causes) == 0 || (!changed && !newlyDegraded) {
 		return
 	}
 	evident := slices.ContainsFunc(causes, func(cause diagnosis.Cause) bool { return !cause.Fallback })
