@@ -10,6 +10,12 @@
   validation ratcheting (before Kubernetes 1.30), rename it before deleting
   such an Application, or its finalizer cannot be removed. A `.solder.yaml`
   naming an invalid release fails discovery for its Repository.
+- Fixed: the Application `Ready` condition was only ever set to `False`, so a
+  recovered Application kept a stale failure that `solder diagnose` printed.
+  `Ready` now turns `True` with reason `Healthy` when a rollout completes
+  Synced and Healthy, and `False` with the failure's reason whenever a rollout
+  fails, not only when reconciliation stops before planning. After an
+  automatic rollback it is `False` with reason `RolledBack`.
 - Fixed: `solder version` always printed `solder development`. Builds now embed
   the version: the Git tag for a release image, `sha-<commit>` otherwise, and
   `dev` for a plain `go build`. The manager logs it once at startup.

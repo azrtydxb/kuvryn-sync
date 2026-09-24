@@ -1199,11 +1199,13 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 		if err := r.updateKeepingStatus(ctx, application); err != nil {
 			return err
 		}
+		setReady(application, metav1.ConditionFalse, "RolledBack", "Application was rolled back to an earlier Revision after a failure")
 		r.event(application, corev1.EventTypeNormal, "RollbackCompleted", "Application rollback completed")
 		if transition {
 			r.notify(ctx, application, revision, corev1alpha1.NotificationRolledBack, "Application rollback completed")
 		}
 	} else {
+		setReady(application, metav1.ConditionTrue, "Healthy", "Application is Synced and Healthy")
 		r.event(application, corev1.EventTypeNormal, "DeploymentHealthy", healthyMessage)
 		if transition {
 			r.notify(ctx, application, revision, corev1alpha1.NotificationHealthy, healthyMessage)
@@ -1267,6 +1269,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 		}
 	}
 	status.Fail(revision, application, now, failure)
+	setReady(application, metav1.ConditionFalse, failure.Reason, failure.Message)
 	if !healthFailure(failure.Reason) {
 		application.Status.Diagnosis = nil
 	}
@@ -1319,9 +1322,20 @@ func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1
 	application.Status.State = corev1alpha1.HealthStateDegraded
 	application.Status.Health.State = corev1alpha1.HealthStateDegraded
 	application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
+	setReady(application, metav1.ConditionFalse, reason, message)
+}
+
+// ReadyCondition is the Application condition that is True only while the
+// Application is Synced to its desired Revision and Healthy.
+const ReadyCondition = "Ready"
+
+// setReady records the Ready condition. Its transition time moves only when
+// the status flips, and a fixed message per reason keeps steady-state
+// reconciles from rewriting it.
+func setReady(application *corev1alpha1.Application, state metav1.ConditionStatus, reason, message string) {
 	apimeta.SetStatusCondition(&application.Status.Conditions, metav1.Condition{
-		Type:               "Ready",
-		Status:             metav1.ConditionFalse,
+		Type:               ReadyCondition,
+		Status:             state,
 		Reason:             reason,
 		Message:            message,
 		ObservedGeneration: application.Generation,
