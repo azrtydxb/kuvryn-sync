@@ -153,12 +153,26 @@ solder graph payments -n default -o dot | dot -Tsvg > payments.svg
 ```
 
 `-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
-Graphviz DOT. The command reads the cluster with your own kubeconfig
-credentials, so it shows only what you may read. A node marked `missing` is
-referenced but does not exist; one marked `unreadable` could not be checked.
-Secrets and ConfigMaps are read as metadata only. See
+Graphviz DOT. A node marked `missing` is referenced but does not exist; one
+marked `unreadable` could not be checked. See
 [Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
 the edges.
+
+The command reads the cluster with your own kubeconfig credentials, so it
+shows only what you may read. It needs, in the Application's destination
+namespace:
+
+- `get` on the Application, in its own namespace;
+- `list` on every kind in the Application's `status.managedKinds`;
+- `list` on `replicasets`, `pods` and `endpointslices`;
+- `get` on the objects they refer to: `configmaps`, `secrets`,
+  `serviceaccounts`, `persistentvolumeclaims`, `services`, any
+  HorizontalPodAutoscaler target, and cluster-scoped `persistentvolumes`.
+
+Secrets, ConfigMaps and ServiceAccounts are listed and read as metadata only,
+so their data never leaves the API server; Kubernetes RBAC still asks for the
+`list` and `get` verbs on them. A kind you may not list is left out, and a
+reference you may not read is marked `unreadable`.
 
 `drift` currently aliases the Application read path:
 

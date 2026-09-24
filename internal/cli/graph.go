@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
@@ -39,7 +40,9 @@ func writeGraph(ctx context.Context, c client.Client, namespace, application, fo
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
 		return err
 	}
-	managed, _, err := applier.ListManaged(ctx, c, app, applier.ListOptions{})
+	// Secrets and ConfigMaps are only nodes of the graph: their identity is
+	// enough, and their data is never read.
+	managed, _, err := applier.ListManaged(ctx, c, app, applier.ListOptions{MetadataOnly: identityOnly})
 	if err != nil {
 		return err
 	}
@@ -58,6 +61,11 @@ func writeGraph(ctx context.Context, c client.Client, namespace, application, fo
 	}
 	_, _ = fmt.Fprintln(stdout, indented.String())
 	return nil
+}
+
+// identityOnly reports the kinds the graph needs only the identity of.
+func identityOnly(gvk schema.GroupVersionKind) bool {
+	return gvk.Group == "" && (gvk.Kind == "Secret" || gvk.Kind == "ConfigMap" || gvk.Kind == "ServiceAccount")
 }
 
 // RenderDiagnosis renders an Application's recorded diagnosis and the

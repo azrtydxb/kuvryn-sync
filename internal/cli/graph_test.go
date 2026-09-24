@@ -10,12 +10,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
 	"github.com/azrtydxb/solder/internal/applier"
@@ -24,7 +26,7 @@ import (
 // graphClient holds an Application whose Deployment runs a Pod that needs a
 // Secret that does not exist, plus an unmanaged Deployment and one managed by
 // the Application of the same name in another namespace.
-func graphClient(t *testing.T) client.Client {
+func graphClient(t *testing.T, extra ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -44,7 +46,7 @@ func graphClient(t *testing.T) client.Client {
 	owner := func(apiVersion, kind, name, uid string) []metav1.OwnerReference {
 		return []metav1.OwnerReference{{APIVersion: apiVersion, Kind: kind, Name: name, UID: types.UID(uid), Controller: ptr.To(true)}}
 	}
-	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	objects := []client.Object{
 		&corev1alpha1.Application{
 			ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"},
 			Spec:       corev1alpha1.ApplicationSpec{Destination: corev1alpha1.ApplicationDestination{Namespace: "payments"}},
@@ -57,7 +59,8 @@ func graphClient(t *testing.T) client.Client {
 		}}, Spec: appsv1.DeploymentSpec{Selector: selector, Template: template}},
 		&appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "payments", UID: "rs", Labels: map[string]string{"app": "api"}, OwnerReferences: owner("apps/v1", "Deployment", "api", "d")}, Spec: appsv1.ReplicaSetSpec{Selector: selector, Template: template}},
 		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-1-a", Namespace: "payments", UID: "p", Labels: map[string]string{"app": "api"}, OwnerReferences: owner("apps/v1", "ReplicaSet", "api-1", "rs")}, Spec: template.Spec},
-	).Build()
+	}
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(append(objects, extra...)...).WithStatusSubresource(&corev1alpha1.Application{}).Build()
 }
 
 func TestGraphJSONFollowsTheApplicationsManagedObjects(t *testing.T) {
@@ -110,6 +113,48 @@ func TestGraphJSONFollowsTheApplicationsManagedObjects(t *testing.T) {
 	} {
 		if !edges[edge] {
 			t.Errorf("missing edge %q in %v", edge, edges)
+		}
+	}
+}
+
+func TestGraphReadsManagedSecretsAsMetadataOnly(t *testing.T) {
+	managed := map[string]string{applier.ApplicationLabelKey: "payments", applier.ApplicationNamespaceLabelKey: "default"}
+	base := graphClient(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-token", Namespace: "payments", UID: "s", Labels: managed},
+		Data:       map[string][]byte{"token": []byte("do-not-read")},
+	}, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-settings", Namespace: "payments", UID: "c", Labels: managed},
+		Data:       map[string]string{"k": "v"},
+	})
+	app := &corev1alpha1.Application{}
+	if err := base.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, app); err != nil {
+		t.Fatal(err)
+	}
+	app.Status.ManagedKinds = append(app.Status.ManagedKinds, corev1alpha1.ManagedKind{APIVersion: "v1", Kind: "Secret"}, corev1alpha1.ManagedKind{APIVersion: "v1", Kind: "ConfigMap"})
+	if err := base.Status().Update(context.Background(), app); err != nil {
+		t.Fatal(err)
+	}
+	c := interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if full, ok := list.(*unstructured.UnstructuredList); ok && (full.GetKind() == "SecretList" || full.GetKind() == "ConfigMapList") {
+				t.Errorf("listed %s in full", full.GetKind())
+			}
+			return c.List(ctx, list, opts...)
+		},
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if full, ok := obj.(*unstructured.Unstructured); ok && (full.GetKind() == "Secret" || full.GetKind() == "ConfigMap") {
+				t.Errorf("read %s %s in full", full.GetKind(), key.Name)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	var stdout bytes.Buffer
+	if err := writeGraph(context.Background(), c, "default", "payments", "json", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"v1/Secret/payments/api-token", "v1/ConfigMap/payments/api-settings"} {
+		if !strings.Contains(stdout.String(), `"id": "`+id+`"`) {
+			t.Errorf("graph lacks managed %s:\n%s", id, stdout.String())
 		}
 	}
 }
