@@ -4,11 +4,16 @@
 {{- if and (gt (int $c.replicas) 1) (not $c.sessionKey.secretName) }}
 {{- fail "console.replicas > 1 needs console.sessionKey.secretName: without a shared session key each replica keeps its own in memory, and a user's session works on only one of them" }}
 {{- end }}
+{{- /* Token sign-in is always on. OIDC is optional: set both values or neither. */}}
+{{- $oidc := or $c.oidc.issuerURL $c.oidc.clientID }}
+{{- if and $oidc (not (and $c.oidc.issuerURL $c.oidc.clientID)) }}
+{{- fail "console.oidc.issuerURL and console.oidc.clientID must be set together, or both left empty for token sign-in only" }}
+{{- end }}
 {{- $redirect := $c.redirectURL }}
 {{- if and (not $redirect) $c.ingress.enabled $c.ingress.host }}
 {{- $redirect = printf "https://%s/auth/callback" $c.ingress.host }}
 {{- end }}
-{{- if not $redirect }}
+{{- if and $oidc (not $redirect) }}
 {{- fail "console.redirectURL is required: set it, or enable console.ingress with a host to derive https://<host>/auth/callback" }}
 {{- end }}
 apiVersion: v1
@@ -17,6 +22,7 @@ metadata:
   name: {{ $name }}
   labels:
     app.kubernetes.io/name: kuvryn-sync-console
+{{- if $oidc }}
 ---
 # The console's only permission: impersonating the signed-in user and their
 # groups. Every read it makes is the user's own, under their RBAC. Without
@@ -58,6 +64,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -95,8 +102,9 @@ spec:
           args:
             - console
             - --listen=:8080
-            - --oidc-issuer-url={{ required "console.oidc.issuerURL is required" $c.oidc.issuerURL }}
-            - --oidc-client-id={{ required "console.oidc.clientID is required" $c.oidc.clientID }}
+            {{- if $oidc }}
+            - --oidc-issuer-url={{ $c.oidc.issuerURL }}
+            - --oidc-client-id={{ $c.oidc.clientID }}
             {{- if $c.oidc.clientSecret.secretName }}
             - --oidc-client-secret-file=/etc/ksync/oidc/{{ $c.oidc.clientSecret.key }}
             {{- end }}
@@ -111,15 +119,18 @@ spec:
             {{- with $c.groupsPrefix }}
             - --groups-prefix={{ . }}
             {{- end }}
+            {{- end }}
             {{- if $c.sessionKey.secretName }}
             - --session-key-file=/etc/ksync/session/{{ $c.sessionKey.key }}
             {{- end }}
             - --cluster-name={{ $c.clusterName }}
+            {{- if $oidc }}
             {{- with $c.ssoName }}
             - --sso-name={{ . }}
             {{- end }}
             {{- with $c.connectors }}
             - --connectors={{ join "," . }}
+            {{- end }}
             {{- end }}
             {{- with $c.docsURL }}
             - --docs-url={{ . }}
@@ -143,12 +154,14 @@ spec:
               mountPath: /etc/ksync/session
               readOnly: true
             {{- end }}
-            {{- if $c.oidc.clientSecret.secretName }}
+            {{- if and $oidc $c.oidc.clientSecret.secretName }}
             - name: oidc
               mountPath: /etc/ksync/oidc
               readOnly: true
             {{- end }}
+          {{- if $oidc }}
           # /healthz is 503 until OIDC discovery succeeds.
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz
@@ -156,14 +169,14 @@ spec:
           livenessProbe:
             tcpSocket:
               port: http
-      {{- if or $c.sessionKey.secretName $c.oidc.clientSecret.secretName }}
+      {{- if or $c.sessionKey.secretName (and $oidc $c.oidc.clientSecret.secretName) }}
       volumes:
         {{- if $c.sessionKey.secretName }}
         - name: session
           secret:
             secretName: {{ $c.sessionKey.secretName }}
         {{- end }}
-        {{- if $c.oidc.clientSecret.secretName }}
+        {{- if and $oidc $c.oidc.clientSecret.secretName }}
         - name: oidc
           secret:
             secretName: {{ $c.oidc.clientSecret.secretName }}

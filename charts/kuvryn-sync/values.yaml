@@ -49,10 +49,14 @@ resources:
     memory: 512Mi
 
 # The read-only web console (ksync console), off by default. It runs as its
-# own Deployment and ServiceAccount, whose only permission is to impersonate
-# users and groups: every read is made as the signed-in user, so what a person
-# sees follows their own Kubernetes RBAC. See docs/console.md.
+# own Deployment and ServiceAccount. People sign in with a Kubernetes bearer
+# token, for example from `kubectl create token`, and every read carries that
+# token, so what a person sees follows its own RBAC; the console's
+# ServiceAccount then has no permissions at all. See docs/console.md.
 #
+# OIDC sign-in is optional (console.oidc). With it, the console's
+# ServiceAccount may impersonate users and groups, and every OIDC read is
+# made as the signed-in user.
 # WARNING: impersonating any user or group includes system:masters, so
 # whoever holds the console ServiceAccount's token can act as cluster-admin.
 # The console itself refuses system: identities, but Kubernetes does not.
@@ -63,13 +67,17 @@ console:
   enabled: false
   # More than one replica needs sessionKey.secretName.
   replicas: 1
-  # Restrict whom the console may impersonate. Each non-empty list becomes
-  # resourceNames on its impersonate rule; an empty list leaves that kind
+  # With OIDC: restrict whom the console may impersonate. Each non-empty list
+  # becomes resourceNames on its impersonate rule; an empty list leaves that kind
   # unrestricted. Sign-ins with a username or group outside the lists fail
   # with Forbidden on every read.
   impersonation:
     users: []
     groups: []
+  # Optional OIDC sign-in, offered next to token sign-in. Set issuerURL and
+  # clientID together, or leave both empty for token sign-in only; without
+  # them the chart renders no impersonate ClusterRole or binding, and none of
+  # the OIDC settings below apply.
   oidc:
     # OIDC issuer, for example Dex: https://dex.example.com
     issuerURL: ""
@@ -79,9 +87,9 @@ console:
     clientSecret:
       secretName: ""
       key: client-secret
-  # Where the issuer sends users back: https://<host>/auth/callback. Defaults
-  # to that URL on ingress.host when the ingress is enabled; required
-  # otherwise, and the chart refuses to render without one.
+  # With OIDC: where the issuer sends users back: https://<host>/auth/callback.
+  # Defaults to that URL on ingress.host when the ingress is enabled; required
+  # otherwise, and the chart refuses to render OIDC without one.
   redirectURL: ""
   # ID token claims mapped to the impersonated username and groups, and the
   # prefixes added to them. With empty prefixes, RBAC bindings name users and
