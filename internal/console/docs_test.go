@@ -62,7 +62,7 @@ func TestConsoleDocsCoverTokenSignIn(t *testing.T) {
 	}{
 		"## Sign in with a Kubernetes token":           {token, []string{"SelfSubjectReview", "8 hours", "POST /auth/token", "1.28"}},
 		"## Create a viewer token":                     {viewer, []string{"kind: ServiceAccount", "kind: RoleBinding", "kubectl create token", "sync.kuvryn.io", "--duration"}},
-		"## Add the console to a raw-manifest install": {raw, []string{"dist/install.yaml", "helm template kuvryn-sync charts/kuvryn-sync", "--set console.enabled=true", "--show-only templates/console.yaml", "kubectl apply -f -"}},
+		"## Add the console to a raw-manifest install": {raw, []string{"dist/install.yaml", "helm template kuvryn-sync charts/kuvryn-sync", "--set console.enabled=true", "--show-only templates/console.yaml", "kubectl apply -n kuvryn-sync-system -f -"}},
 	} {
 		if tc.body == "" {
 			t.Errorf("docs/console.md has no %q section", name)

@@ -168,8 +168,12 @@ of the same release tag, so the image matches the controller:
 ```sh
 helm template kuvryn-sync charts/kuvryn-sync --namespace kuvryn-sync-system \
   --set console.enabled=true --set console.clusterName=prod-eu-1 \
-  --show-only templates/console.yaml | kubectl apply -f -
+  --show-only templates/console.yaml | kubectl apply -n kuvryn-sync-system -f -
 ```
+
+The rendered objects carry no namespace of their own, so keep the `-n` on
+`kubectl apply`; without it they land in the current namespace, usually
+`default`.
 
 That is the token-only console: a ServiceAccount, a Deployment and a Service
 in `kuvryn-sync-system`, and nothing cluster-wide. Add
