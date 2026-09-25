@@ -58,7 +58,10 @@ export const REFRESH_MS = 10000;
  * while a later refresh fails, so a slow API server shows a banner rather
  * than an empty page. A null path fetches nothing.
  */
-export function usePoll<T>(path: string | null, intervalMs = REFRESH_MS): Poll<T> {
+export function usePoll<T>(
+  path: string | null,
+  intervalMs = REFRESH_MS,
+): Poll<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<APIError | Error>();
   const [refreshedAt, setRefreshedAt] = useState<Date>();

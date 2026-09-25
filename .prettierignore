@@ -1,1 +1,3 @@
 charts/kuvryn-sync/templates/*.yaml
+# Vendored from the Azrty design system; re-copied, never edited in place.
+web/src/azrty/

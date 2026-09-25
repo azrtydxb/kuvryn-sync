@@ -8,9 +8,7 @@ describe("getJSON", () => {
     );
     const loc = { href: "/apps" };
     vi.stubGlobal("location", loc);
-    await expect(getJSON("/api/applications")).rejects.toThrow(
-      "unauthorized",
-    );
+    await expect(getJSON("/api/applications")).rejects.toThrow("unauthorized");
     expect(loc.href).toBe("/login");
   });
 });
