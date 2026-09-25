@@ -250,8 +250,14 @@ applies `WrapTransport` inside its impersonation wrapper, so
 `readOnlyTransport` sees the final request: besides refusing non-GETs and
 Secret paths, it refuses a request whose `Impersonate-User` is missing, a
 `system:` identity or not the session user, a `system:` `Impersonate-Group`,
-any `Upgrade` header, and the `proxy`, `exec`, `attach`, `portforward` and
-`log` subresources.
+and any `Upgrade` header. Paths are checked against an allowlist of shapes
+rather than a denylist: only discovery (`/api`, `/api/v1`, `/apis`,
+`/apis/<group>[/<version>]`) and lists or gets of a resource, with no
+subresource, pass, minus core Secrets and the legacy `/watch/` and `/proxy/`
+prefixes. Empty segments are dropped first and `.` or `..` segments are
+refused, so `/api/v1//namespaces/a/secrets` and `/api/v1/watch/secrets`
+cannot slip through. The managed kinds on the Resources tab can be any
+group, so the allowlist is by shape, not by group.
 
 - [ ] Write `internal/console/kube_test.go`:
   ```go
@@ -286,8 +292,8 @@ any `Upgrade` header, and the `proxy`, `exec`, `attach`, `portforward` and
   expect it to FAIL to compile with "undefined: readOnlyTransport".
 - [ ] Implement `kube.go`. The client comes from `client.New` with
       `rest.CopyConfig` and `WrapTransport` set to wrap in `readOnlyTransport`.
-      Watch requests are GETs with `?watch=true` and stay allowed, although the
-      UI never issues them.
+      Watch requests (`?watch`) are refused as well, since the console only
+      polls.
 - [ ] Run `go test ./internal/console/`, and expect PASS.
 - [ ] Commit "Read the cluster as the console user, read-only".
 

@@ -97,23 +97,49 @@ func TestUserClientSendsOnlyImpersonatedGETs(t *testing.T) {
 
 func TestForbiddenPaths(t *testing.T) {
 	for path, want := range map[string]bool{
-		"/api/v1/secrets":                                         true,
-		"/api/v1/namespaces/a/secrets":                            true,
-		"/api/v1/namespaces/a/secrets/db":                         true,
-		"/api/v1/namespaces/a/pods/p/exec":                        true,
-		"/api/v1/namespaces/a/pods/p/log":                         true,
-		"/api/v1/namespaces/a/services/s/proxy/x":                 true,
-		"/api/v1/nodes/n/proxy":                                   true,
-		"/apis/apps/v1/namespaces/a/deployments/proxy":            false,
-		"/api/v1/namespaces/secrets":                              false,
-		"/api/v1/namespaces/a/configmaps":                         false,
-		"/apis/sync.kuvryn.io/v1alpha1/namespaces/a/applications": false,
-		"/apis/example.io/v1/namespaces/a/secrets":                false,
-		"/version": false,
+		// Secrets, however the path is spelled.
+		"/api/v1/secrets":                                 true,
+		"/api/v1/namespaces/a/secrets":                    true,
+		"/api/v1/namespaces/a/secrets/db":                 true,
+		"/api/v1/watch/secrets":                           true,
+		"/api/v1/watch/namespaces/a/secrets":              true,
+		"/api/v1//namespaces/a/secrets":                   true,
+		"//api/v1/namespaces/a//secrets/db":               true,
+		"/api/v1/namespaces/a/./secrets":                  true,
+		"/api/v1/namespaces/a/configmaps/../../a/secrets": true,
+		// Subresources, proxies, watches and anything outside the resource API.
+		"/api/v1/namespaces/a/pods/p/exec":               true,
+		"/api/v1/namespaces/a/pods/p/log":                true,
+		"/api/v1/namespaces/a/services/s/proxy/x":        true,
+		"/api/v1/nodes/n/proxy":                          true,
+		"/api/v1/proxy/nodes/n":                          true,
+		"/apis/apps/v1/namespaces/a/deployments/x/scale": true,
+		"/apis/apps/v1/watch/deployments":                true,
+		"/version":                                       true,
+		"/openapi/v3":                                    true,
+		"/logs/":                                         true,
+		"/":                                              true,
+		// What the console reads: discovery, lists and gets.
+		"/api":                            false,
+		"/api/v1":                         false,
+		"/apis":                           false,
+		"/apis/apps/v1":                   false,
+		"/api/v1/namespaces":              false,
+		"/api/v1/namespaces/a":            false,
+		"/api/v1/namespaces/a/configmaps": false,
+		"/apis/apps/v1/namespaces/a/deployments/proxy":              false,
+		"/apis/sync.kuvryn.io/v1alpha1/namespaces/a/applications":   false,
+		"/apis/sync.kuvryn.io/v1alpha1/namespaces/a/applications/x": false,
+		"/apis/example.io/v1/namespaces/a/secrets":                  false,
 	} {
 		if got := forbiddenPath(path); got != want {
 			t.Errorf("forbiddenPath(%q) = %v, want %v", path, got, want)
 		}
+	}
+	watch, _ := http.NewRequest("GET", "https://k8s/api/v1/namespaces/a/configmaps?watch=true", nil)
+	watch.Header.Set("Impersonate-User", "alice")
+	if _, err := (readOnlyTransport{next: http.DefaultTransport, user: "alice"}).RoundTrip(watch); !errors.Is(err, ErrForbiddenPath) {
+		t.Fatalf("watch = %v, want ErrForbiddenPath", err)
 	}
 	req, _ := http.NewRequest("GET", "https://k8s/api/v1/namespaces/a/configmaps", nil)
 	if _, err := (readOnlyTransport{next: http.DefaultTransport}).RoundTrip(req); !errors.Is(err, ErrNotImpersonated) {

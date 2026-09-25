@@ -16,8 +16,9 @@ var (
 	// ErrWriteRefused reports a request other than GET, which the console
 	// never sends.
 	ErrWriteRefused = errors.New("console: only GET requests are allowed")
-	// ErrForbiddenPath reports a GET the console never sends: Secrets,
-	// proxies, exec, attach, port-forward, logs and connection upgrades.
+	// ErrForbiddenPath reports a GET the console never sends: anything but
+	// discovery and resource lists and gets, Secrets, subresources (proxies,
+	// exec, attach, port-forward, logs), watches and connection upgrades.
 	ErrForbiddenPath = errors.New("console: request path is not allowed")
 	// ErrNotImpersonated reports a request that would be sent as the
 	// console's own identity instead of the signed-in user's.
@@ -25,10 +26,6 @@ var (
 )
 
 const userClientTimeout = 10 * time.Second
-
-// refusedSubresources are the subresources that reach into workloads or
-// nodes rather than reading objects.
-var refusedSubresources = map[string]bool{"proxy": true, "exec": true, "attach": true, "portforward": true, "log": true}
 
 // UserClient returns a read-only client that impersonates id. Every request
 // passes through readOnlyTransport after the impersonation headers are set,
@@ -73,7 +70,7 @@ func (t readOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method != http.MethodGet {
 		return nil, fmt.Errorf("%w: %s %s", ErrWriteRefused, r.Method, r.URL.Path)
 	}
-	if forbiddenPath(r.URL.Path) || r.Header.Get("Upgrade") != "" {
+	if forbiddenPath(r.URL.Path) || r.URL.Query().Has("watch") || r.Header.Get("Upgrade") != "" {
 		return nil, fmt.Errorf("%w: %s", ErrForbiddenPath, r.URL.Path)
 	}
 	user := r.Header.Get("Impersonate-User")
@@ -88,28 +85,50 @@ func (t readOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return t.next.RoundTrip(r)
 }
 
-// forbiddenPath reports Secret paths (/api/v1/secrets and
-// /api/v1/namespaces/*/secrets/...) and workload subresources.
+// forbiddenPath reports every path the console does not read. It allows
+// only API discovery (/api, /api/v1, /apis, /apis/<group>[/<version>]) and
+// lists or gets of a resource, namespaced or not, with no subresource. Of
+// those it still refuses core Secrets, the legacy /watch/ and /proxy/
+// prefixes, and "." or ".." segments. Empty segments are dropped first, so
+// "/api/v1//namespaces/a/secrets" is judged as "/api/v1/namespaces/a/secrets".
 func forbiddenPath(path string) bool {
-	segs := strings.Split(strings.Trim(path, "/"), "/")
+	segs := []string{}
+	for seg := range strings.SplitSeq(path, "/") {
+		switch seg {
+		case "":
+			continue
+		case ".", "..":
+			return true
+		}
+		segs = append(segs, seg)
+	}
 	var tail []string
 	core := false
 	switch {
-	case len(segs) >= 2 && segs[0] == "api":
+	case len(segs) >= 1 && segs[0] == "api":
+		if len(segs) == 1 {
+			return false
+		}
 		tail, core = segs[2:], true
-	case len(segs) >= 3 && segs[0] == "apis":
+	case len(segs) >= 1 && segs[0] == "apis":
+		if len(segs) <= 3 {
+			return false
+		}
 		tail = segs[3:]
 	default:
-		return false
-	}
-	if len(tail) >= 3 && tail[0] == "namespaces" {
-		tail = tail[2:]
+		return true
 	}
 	if len(tail) == 0 {
 		return false
 	}
-	if tail[0] == "proxy" || (core && tail[0] == "secrets") {
+	if tail[0] == "watch" || tail[0] == "proxy" {
 		return true
 	}
-	return len(tail) >= 3 && refusedSubresources[tail[2]]
+	if tail[0] == "namespaces" && len(tail) >= 3 {
+		tail = tail[2:]
+	}
+	if len(tail) > 2 {
+		return true
+	}
+	return core && tail[0] == "secrets"
 }
