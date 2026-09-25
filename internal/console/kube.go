@@ -37,6 +37,9 @@ const userClientTimeout = 10 * time.Second
 // so a request that is not a GET, not impersonated as id, or aimed at a
 // Secret is refused before it is sent.
 func UserClient(base *rest.Config, scheme *runtime.Scheme, id Identity) (client.Reader, error) {
+	if id.IsToken() || id.Token != "" {
+		return nil, errors.New("console: a token session is never impersonated")
+	}
 	if err := checkIdentity(id); err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -42,6 +43,11 @@ type loginFlow interface {
 	Logout(w http.ResponseWriter, r *http.Request)
 }
 
+// tokenFlow is token sign-in, which *Auth always offers.
+type tokenFlow interface {
+	SignInWithToken(w http.ResponseWriter, r *http.Request)
+}
+
 // UseAuthenticator sets how requests are signed in. With *Auth, the server
 // also serves /logout and, when OIDC is configured, /auth/start and
 // /auth/callback, and /healthz follows its OIDC discovery.
@@ -61,7 +67,12 @@ func NewServer(cfg Config, base *rest.Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{cfg: cfg, base: rest.CopyConfig(base), files: ui.Files()}
-	s.readers = newReaderCache(func(id Identity) (client.Reader, error) { return UserClient(s.base, scheme, id) })
+	s.readers = newReaderCache(func(id Identity) (client.Reader, error) {
+		if id.IsToken() {
+			return TokenClient(s.base, scheme, id)
+		}
+		return UserClient(s.base, scheme, id)
+	})
 	s.newReader = s.readers.get
 	s.impersonation.Store("unchecked")
 	return s, nil
@@ -77,6 +88,9 @@ func (s *Server) Handler() http.Handler {
 			mux.HandleFunc("GET /auth/callback", flow.Callback)
 		}
 		mux.HandleFunc("POST /logout", flow.Logout)
+	}
+	if flow, ok := s.auth.(tokenFlow); ok {
+		mux.HandleFunc("POST /auth/token", flow.SignInWithToken)
 	}
 	// Any other /auth/ path, the OIDC routes included when OIDC is off, is
 	// 404 rather than the SPA's index page.
@@ -98,6 +112,9 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              s.cfg.Listen,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// Requests log through ctx's logger; shutting down still lets
+		// in-flight requests finish.
+		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -153,7 +170,7 @@ func (s *Server) withIdentity(next func(http.ResponseWriter, *http.Request, Iden
 			return
 		}
 		id, err := s.auth.Identity(r)
-		if err != nil || checkIdentity(id) != nil {
+		if err != nil || id.check() != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -194,8 +211,11 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		out.Connectors = append(out.Connectors, s.cfg.Connectors...)
 	}
 	if s.auth != nil {
-		if id, err := s.auth.Identity(r); err == nil && checkIdentity(id) == nil {
-			out.Authenticated, out.Username, out.Groups = true, id.Username, id.Groups
+		if id, err := s.auth.Identity(r); err == nil && id.check() == nil {
+			out.Authenticated, out.Username, out.Groups, out.Method = true, id.Username, id.Groups, MethodOIDC
+			if id.IsToken() {
+				out.Method = MethodToken
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

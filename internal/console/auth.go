@@ -71,6 +71,48 @@ type Identity struct {
 // IsToken reports whether id is a token session.
 func (id Identity) IsToken() bool { return id.Method == MethodToken }
 
+// check applies the rules of id's sign-in method: a token session needs its
+// token and passes checkTokenIdentity; an OIDC session, including one from
+// before token sign-in with no method, passes checkIdentity.
+func (id Identity) check() error {
+	switch id.Method {
+	case MethodToken:
+		if id.Token == "" {
+			return errors.New("a token session has no token")
+		}
+		return checkTokenIdentity(id.Username, id.Groups)
+	case "", MethodOIDC:
+		if id.Token != "" {
+			return errors.New("an OIDC session carries a token")
+		}
+		return checkIdentity(id)
+	}
+	return fmt.Errorf("unknown sign-in method %q", id.Method)
+}
+
+// sessionData is the session cookie's sealed content. t, the bearer token,
+// is set only for a token session. A cookie without m is an OIDC session
+// from before token sign-in.
+type sessionData struct {
+	Username string    `json:"u"`
+	Groups   []string  `json:"g,omitempty"`
+	Expiry   time.Time `json:"e"`
+	Method   string    `json:"m,omitempty"`
+	Token    string    `json:"t,omitempty"`
+}
+
+func sessionFromIdentity(id Identity) sessionData {
+	return sessionData{Username: id.Username, Groups: id.Groups, Expiry: id.Expiry, Method: id.Method, Token: id.Token.Reveal()}
+}
+
+func (d sessionData) identity() Identity {
+	method := d.Method
+	if method == "" {
+		method = MethodOIDC
+	}
+	return Identity{Username: d.Username, Groups: d.Groups, Expiry: d.Expiry, Method: method, Token: Secret(d.Token)}
+}
+
 // Authenticator resolves the signed-in identity of a request.
 type Authenticator interface {
 	Identity(r *http.Request) (Identity, error)
@@ -106,9 +148,11 @@ type provider struct {
 // authorization code flow, using PKCE (S256), state and nonce, and keeps the
 // identity in an encrypted cookie.
 type Auth struct {
-	cfg          Config
-	key          []byte
-	base         *rest.Config
+	cfg  Config
+	key  []byte
+	base *rest.Config
+	// review validates a token; a SelfSubjectReview outside tests.
+	review       func(ctx context.Context, token string) (reviewedUser, error)
 	clientSecret string
 	provider     atomic.Pointer[provider]
 	now          func() time.Time
@@ -132,6 +176,7 @@ func NewAuth(ctx context.Context, cfg Config, base *rest.Config) (*Auth, error) 
 		return nil, err
 	}
 	a := &Auth{cfg: cfg, key: key, base: rest.CopyConfig(base), now: time.Now}
+	a.review = a.selfSubjectReview
 	if !cfg.OIDCEnabled() {
 		ctrllog.FromContext(ctx).Info("Offering token sign-in only because --oidc-issuer-url and --oidc-client-id are not set")
 		return a, nil
@@ -322,7 +367,7 @@ func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, code, "claims", err.Error())
 		return
 	}
-	sealed, err := seal(a.key, id)
+	sealed, err := seal(a.key, sessionFromIdentity(id))
 	if err != nil {
 		a.fail(w, http.StatusInternalServerError, "internal", "could not create the session")
 		return
@@ -354,7 +399,7 @@ func (a *Auth) identityFromToken(idToken *oidc.IDToken) (Identity, int, error) {
 			return Identity{}, http.StatusForbidden, errors.New("the ID token's email is not verified")
 		}
 	}
-	id := Identity{Username: a.cfg.UsernamePrefix + username, Expiry: idToken.Expiry}
+	id := Identity{Username: a.cfg.UsernamePrefix + username, Expiry: idToken.Expiry, Method: MethodOIDC}
 	if a.cfg.GroupsClaim != "" {
 		for _, g := range stringsClaim(claims[a.cfg.GroupsClaim]) {
 			id.Groups = append(id.Groups, a.cfg.GroupsPrefix+g)
@@ -428,11 +473,21 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 
 // Identity returns the request's signed-in identity, or ErrNoSession.
 func (a *Auth) Identity(r *http.Request) (Identity, error) {
-	var id Identity
-	if !a.readCookie(r, SessionCookie, &id) || !a.now().Before(id.Expiry) || checkIdentity(id) != nil {
+	var d sessionData
+	if !a.readCookie(r, SessionCookie, &d) {
+		return Identity{}, ErrNoSession
+	}
+	id := d.identity()
+	if !a.now().Before(id.Expiry) || id.check() != nil {
 		return Identity{}, ErrNoSession
 	}
 	return id, nil
+}
+
+// ClearSession expires the session cookie, for a session the API server no
+// longer accepts.
+func (a *Auth) ClearSession(w http.ResponseWriter) {
+	http.SetCookie(w, a.cookie(SessionCookie, "", "/", time.Unix(0, 0)))
 }
 
 func (a *Auth) readCookie(r *http.Request, name string, v any) bool {
