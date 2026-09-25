@@ -43,8 +43,8 @@ type loginFlow interface {
 }
 
 // UseAuthenticator sets how requests are signed in. With *Auth, the server
-// also serves /auth/start, /auth/callback and /logout, and /healthz follows
-// its OIDC discovery.
+// also serves /logout and, when OIDC is configured, /auth/start and
+// /auth/callback, and /healthz follows its OIDC discovery.
 func (s *Server) UseAuthenticator(a Authenticator) { s.auth = a }
 
 // NewServer builds the console server. base is the console's own cluster
@@ -72,10 +72,15 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	if flow, ok := s.auth.(loginFlow); ok {
-		mux.HandleFunc("GET /auth/start", flow.Start)
-		mux.HandleFunc("GET /auth/callback", flow.Callback)
+		if s.oidcEnabled() {
+			mux.HandleFunc("GET /auth/start", flow.Start)
+			mux.HandleFunc("GET /auth/callback", flow.Callback)
+		}
 		mux.HandleFunc("POST /logout", flow.Logout)
 	}
+	// Any other /auth/ path, the OIDC routes included when OIDC is off, is
+	// 404 rather than the SPA's index page.
+	mux.HandleFunc("/auth/", http.NotFound)
 	mux.HandleFunc("GET /api/me", s.me)
 	s.registerAPI(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
@@ -108,15 +113,24 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	oidc := "pending"
-	if s.oidcReady() {
+	switch {
+	case s.auth != nil && !s.oidcEnabled():
+		oidc = "disabled"
+	case s.oidcReady():
 		oidc = "ready"
 	}
 	impersonation, _ := s.impersonation.Load().(string)
 	code := http.StatusOK
-	if oidc != "ready" {
+	if oidc == "pending" {
 		code = http.StatusServiceUnavailable
 	}
 	writeJSON(w, code, map[string]string{"oidc": oidc, "impersonation": impersonation})
+}
+
+// oidcEnabled reports whether the Authenticator offers OIDC sign-in.
+func (s *Server) oidcEnabled() bool {
+	o, ok := s.auth.(interface{ OIDCEnabled() bool })
+	return ok && o.OIDCEnabled()
 }
 
 // oidcReady reports whether sign-in can work: an Authenticator is set and,
@@ -153,7 +167,10 @@ type meResponse struct {
 	Authenticated bool     `json:"authenticated"`
 	Username      string   `json:"username,omitempty"`
 	Groups        []string `json:"groups,omitempty"`
+	Method        string   `json:"method,omitempty"`
 	Cluster       string   `json:"cluster"`
+	TokenSignIn   bool     `json:"tokenSignIn"`
+	OIDC          bool     `json:"oidc"`
 	Connectors    []string `json:"connectors"`
 	SSOName       string   `json:"ssoName"`
 	DocsURL       string   `json:"docsURL,omitempty"`
@@ -161,14 +178,20 @@ type meResponse struct {
 }
 
 // me answers 200 with or without a session, since the login page needs the
-// cluster name and sign-in connectors before anyone has signed in.
+// cluster name and sign-in methods before anyone has signed in. Connectors
+// are listed only when OIDC is configured.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	out := meResponse{
-		Cluster:    s.cfg.ClusterName,
-		Connectors: append([]string{}, s.cfg.Connectors...),
-		SSOName:    s.cfg.SSOName,
-		DocsURL:    s.cfg.DocsURL,
-		StatusURL:  s.cfg.StatusURL,
+		Cluster:     s.cfg.ClusterName,
+		TokenSignIn: true,
+		OIDC:        s.oidcEnabled(),
+		Connectors:  []string{},
+		SSOName:     s.cfg.SSOName,
+		DocsURL:     s.cfg.DocsURL,
+		StatusURL:   s.cfg.StatusURL,
+	}
+	if out.OIDC {
+		out.Connectors = append(out.Connectors, s.cfg.Connectors...)
 	}
 	if s.auth != nil {
 		if id, err := s.auth.Identity(r); err == nil && checkIdentity(id) == nil {

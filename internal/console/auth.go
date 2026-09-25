@@ -18,6 +18,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"k8s.io/client-go/rest"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/azrtydxb/kuvryn-sync/internal/redact"
@@ -80,34 +81,40 @@ type provider struct {
 	verifier *oidc.IDTokenVerifier
 }
 
-// Auth signs users in with the OIDC authorization code flow, using PKCE
-// (S256), state and nonce, and keeps the identity in an encrypted cookie.
+// Auth signs users in with a Kubernetes token or, when configured, the OIDC
+// authorization code flow, using PKCE (S256), state and nonce, and keeps the
+// identity in an encrypted cookie.
 type Auth struct {
 	cfg          Config
 	key          []byte
+	base         *rest.Config
 	clientSecret string
 	provider     atomic.Pointer[provider]
 	now          func() time.Time
 }
 
-// NewAuth loads the session key and client secret and starts OIDC discovery.
-// An unreachable issuer does not fail startup: discovery is retried every ten
-// seconds until ctx is done, and Ready reports when it has succeeded.
-func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
-	if cfg.IssuerURL == "" || cfg.ClientID == "" || cfg.RedirectURL == "" {
-		return nil, errors.New("console: --oidc-issuer-url, --oidc-client-id and --redirect-url are required")
+// NewAuth loads the session key and, when OIDC is configured, the client
+// secret, and starts OIDC discovery. base is the console's own cluster
+// configuration; token sign-in uses only its address and CA, never its
+// credentials. An unreachable issuer does not fail startup: discovery is
+// retried every ten seconds until ctx is done, and Ready reports when it has
+// succeeded.
+func NewAuth(ctx context.Context, cfg Config, base *rest.Config) (*Auth, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
-	if cfg.UsernameClaim == "" {
-		return nil, errors.New("console: --username-claim must not be empty")
-	}
-	if cfg.InsecureCookies && !isLoopbackURL(cfg.RedirectURL) {
-		return nil, fmt.Errorf("console: --insecure-cookies is for local development only; --redirect-url %q must be on localhost, 127.0.0.1 or [::1]", cfg.RedirectURL)
+	if base == nil {
+		return nil, errors.New("console: a cluster configuration is required")
 	}
 	key, err := sessionKey(ctx, cfg.SessionKeyFile)
 	if err != nil {
 		return nil, err
 	}
-	a := &Auth{cfg: cfg, key: key, now: time.Now}
+	a := &Auth{cfg: cfg, key: key, base: rest.CopyConfig(base), now: time.Now}
+	if !cfg.OIDCEnabled() {
+		ctrllog.FromContext(ctx).Info("Offering token sign-in only because --oidc-issuer-url and --oidc-client-id are not set")
+		return a, nil
+	}
 	if cfg.ClientSecretFile != "" {
 		secret, err := os.ReadFile(cfg.ClientSecretFile)
 		if err != nil {
@@ -121,6 +128,9 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 	}
 	return a, nil
 }
+
+// OIDCEnabled reports whether OIDC sign-in is configured.
+func (a *Auth) OIDCEnabled() bool { return a.cfg.OIDCEnabled() }
 
 // isLoopbackURL reports whether raw names localhost or a loopback address.
 func isLoopbackURL(raw string) bool {
@@ -156,8 +166,9 @@ func sessionKey(ctx context.Context, path string) ([]byte, error) {
 	return key, nil
 }
 
-// Ready reports whether OIDC discovery has succeeded.
-func (a *Auth) Ready() bool { return a.provider.Load() != nil }
+// Ready reports whether OIDC discovery has succeeded. Without OIDC there is
+// nothing to discover, so it is always ready.
+func (a *Auth) Ready() bool { return !a.cfg.OIDCEnabled() || a.provider.Load() != nil }
 
 func (a *Auth) discover(ctx context.Context) error {
 	p, err := oidc.NewProvider(ctx, a.cfg.IssuerURL)
@@ -203,6 +214,10 @@ func (a *Auth) retryDiscovery(ctx context.Context) {
 // Start redirects to the issuer's authorization endpoint, for
 // GET /auth/start?connector=.
 func (a *Auth) Start(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.OIDCEnabled() {
+		http.NotFound(w, r)
+		return
+	}
 	p := a.provider.Load()
 	if p == nil {
 		a.fail(w, http.StatusServiceUnavailable, "unavailable", "the identity provider is not reachable yet")
@@ -231,6 +246,10 @@ func (a *Auth) Start(w http.ResponseWriter, r *http.Request) {
 // redeems the code with the PKCE verifier, verifies the ID token's signature,
 // issuer, audience, expiry and nonce, and sets the session cookie.
 func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.OIDCEnabled() {
+		http.NotFound(w, r)
+		return
+	}
 	p := a.provider.Load()
 	if p == nil {
 		a.fail(w, http.StatusServiceUnavailable, "unavailable", "the identity provider is not reachable yet")
