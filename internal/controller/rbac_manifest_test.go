@@ -23,10 +23,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"helm.sh/helm/v4/pkg/strvals"
 	rbacv1 "k8s.io/api/rbac/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	sigsyaml "sigs.k8s.io/yaml"
@@ -278,4 +280,168 @@ func containerImages(obj map[string]any) []string {
 		}
 	}
 	return images
+}
+
+// helmTemplate renders charts/kuvryn-sync in process as release kuvryn-sync,
+// with args as helm template's --set pairs, and returns the objects as
+// multi-document YAML.
+func helmTemplate(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := renderChart(t, args...)
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	return out
+}
+
+// renderChart is helmTemplate returning the render error, for values the
+// chart must refuse.
+func renderChart(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	values := map[string]any{}
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] != "--set" {
+			t.Fatalf("helmTemplate supports only --set, got %q", args[i])
+		}
+		if err := strvals.ParseInto(args[i+1], values); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := helmrenderer.Renderer{}.Render(context.Background(), renderer.Input{
+		Workspace: root, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system", Values: values,
+	})
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	for _, obj := range objects {
+		doc, err := sigsyaml.Marshal(obj.Object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.WriteString("---\n")
+		out.Write(doc)
+	}
+	return out.String(), nil
+}
+
+// clusterRoleNamed returns the ClusterRole called name in rendered YAML.
+func clusterRoleNamed(t *testing.T, rendered, name string) rbacv1.ClusterRole {
+	t.Helper()
+	decoder := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(rendered), 4096)
+	for {
+		role := rbacv1.ClusterRole{}
+		if err := decoder.Decode(&role); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if role.Kind == "ClusterRole" && role.Name == name {
+			return role
+		}
+	}
+	t.Fatalf("no ClusterRole %s", name)
+	return rbacv1.ClusterRole{}
+}
+
+func TestHelmChartRendersASeparateConsole(t *testing.T) {
+	out := helmTemplate(t, consoleArgs...)
+	if !strings.Contains(out, "name: kuvryn-sync-kuvryn-sync-console") {
+		t.Fatal("no console Deployment")
+	}
+	if strings.Count(out, "serviceAccountName: kuvryn-sync-kuvryn-sync-console") != 1 {
+		t.Fatal("the console does not run as its own ServiceAccount")
+	}
+	if off := helmTemplate(t); strings.Contains(off, "kuvryn-sync-console") {
+		t.Fatal("the console renders although console.enabled is false")
+	}
+}
+
+func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
+	role := clusterRoleNamed(t, helmTemplate(t, consoleArgs...), "kuvryn-sync-kuvryn-sync-console")
+	if len(role.Rules) == 0 {
+		t.Fatal("the console ClusterRole has no rules, so it cannot impersonate")
+	}
+	for _, rule := range role.Rules {
+		if !slices.Equal(rule.Verbs, []string{"impersonate"}) || !slices.Equal(rule.APIGroups, []string{""}) {
+			t.Fatalf("console rule grants more than impersonate: %+v", rule)
+		}
+		for _, r := range rule.Resources {
+			if r != "users" && r != "groups" {
+				t.Fatalf("console may impersonate %s", r)
+			}
+		}
+	}
+
+	// console.impersonation limits the role to named users and groups.
+	limited := clusterRoleNamed(t, helmTemplate(t, append(append([]string{}, consoleArgs...),
+		"--set", "console.impersonation.users={alice@acme.io,bob@acme.io}", "--set", "console.impersonation.groups={acme:platform}")...), "kuvryn-sync-kuvryn-sync-console")
+	names := map[string][]string{}
+	for _, rule := range limited.Rules {
+		if !slices.Equal(rule.Verbs, []string{"impersonate"}) || len(rule.Resources) != 1 {
+			t.Fatalf("limited rule = %+v", rule)
+		}
+		names[rule.Resources[0]] = rule.ResourceNames
+	}
+	if !slices.Equal(names["users"], []string{"alice@acme.io", "bob@acme.io"}) || !slices.Equal(names["groups"], []string{"acme:platform"}) {
+		t.Fatalf("resourceNames = %v", names)
+	}
+	// Limiting only users still leaves groups unrestricted, and says so by
+	// rendering a separate rule.
+	usersOnly := clusterRoleNamed(t, helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.impersonation.users={alice@acme.io}")...), "kuvryn-sync-kuvryn-sync-console")
+	for _, rule := range usersOnly.Rules {
+		if slices.Contains(rule.Resources, "users") && !slices.Equal(rule.ResourceNames, []string{"alice@acme.io"}) {
+			t.Fatalf("users rule = %+v", rule)
+		}
+	}
+}
+
+// consoleArgs enables the console with the minimum it needs.
+var consoleArgs = []string{"--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync", "--set", "console.redirectURL=https://console.example/auth/callback"}
+
+// The console exits at start without --redirect-url, so the chart must refuse
+// to render one it cannot derive rather than ship a Deployment that crashes.
+func TestConsoleChartRequiresARedirectURL(t *testing.T) {
+	base := consoleArgs[:len(consoleArgs)-2]
+	if _, err := renderChart(t, base...); err == nil || !strings.Contains(err.Error(), "console.redirectURL") {
+		t.Fatalf("console without a redirect URL or ingress host rendered: %v", err)
+	}
+	out := helmTemplate(t, append(append([]string{}, base...), "--set", "console.ingress.enabled=true", "--set", "console.ingress.host=ksync.example")...)
+	if !strings.Contains(out, "--redirect-url=https://ksync.example/auth/callback") {
+		t.Fatal("the redirect URL is not derived from console.ingress.host")
+	}
+}
+
+// A GitOps controller renders the chart on every reconcile, so any random or
+// cluster-dependent output would drift forever and rotate the session key.
+func TestConsoleChartRendersDeterministically(t *testing.T) {
+	for _, extra := range [][]string{nil, {"--set", "console.sessionKey.secretName=ksync-session"}} {
+		args := append(append([]string{}, consoleArgs...), extra...)
+		if first, second := helmTemplate(t, args...), helmTemplate(t, args...); first != second {
+			t.Fatalf("two renders with %v differ", extra)
+		}
+	}
+	out := helmTemplate(t, consoleArgs...)
+	if strings.Contains(out, "session-key-file") || strings.Contains(out, "kuvryn-sync-console-session") {
+		t.Fatalf("the chart mounts or creates a session key without console.sessionKey.secretName:\n%s", out)
+	}
+	withKey := helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.sessionKey.secretName=ksync-session")...)
+	if !strings.Contains(withKey, "--session-key-file=/etc/ksync/session/session-key") || !strings.Contains(withKey, "secretName: ksync-session") {
+		t.Fatal("console.sessionKey.secretName is not mounted")
+	}
+}
+
+func TestConsoleReplicasNeedASharedSessionKey(t *testing.T) {
+	_, err := renderChart(t, append(append([]string{}, consoleArgs...), "--set", "console.replicas=2")...)
+	if err == nil || !strings.Contains(err.Error(), "console.sessionKey.secretName") {
+		t.Fatalf("replicas=2 without a session key Secret rendered: %v", err)
+	}
+	out := helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.replicas=2", "--set", "console.sessionKey.secretName=ksync-session")...)
+	if !strings.Contains(out, "replicas: 2") {
+		t.Fatal("console.replicas is not rendered")
+	}
 }

@@ -38,11 +38,15 @@ whose ServiceAccount may only impersonate users and groups.
 - OIDC uses the authorization code flow with PKCE (S256), plus state and
   nonce, and the ID token is verified against the issuer's JWKS.
 - The session cookie is named `ksync_session`. It is AES-256-GCM encrypted
-  with the key from `--session-key-file` (32 bytes), is HttpOnly, Secure
+  with the key from `--session-key-file` (32 bytes) or, without that flag, a
+  random key generated in memory at startup, which does not survive a
+  restart or reach other replicas. It is HttpOnly, Secure
   (unless `--insecure-cookies`) and SameSite=Lax, and expires at the ID
   token's `exp`. No refresh tokens are stored.
 - The username claim defaults to `email` and the groups claim to `groups`.
-  Both prefixes are empty by default.
+  Both prefixes are empty by default, by the maintainer's choice; the docs
+  and values warn that unprefixed names share RBAC's namespace with other
+  authenticators and recommend `oidc:` where that applies.
 - The UI refreshes every 10 seconds by polling. There are no server-side
   watches.
 - Namespaces: try a cluster-wide list first. On 403, the UI shows a picker
@@ -59,7 +63,12 @@ whose ServiceAccount may only impersonate users and groups.
   - copy taken verbatim from the design, with "solder" renamed to "ksync"
     and `solder.io/v1alpha1` to `sync.kuvryn.io/v1alpha1`.
 - There is a strict CSP: `default-src 'self'; img-src 'self' data:;
-style-src 'self'; script-src 'self'; frame-ancestors 'none'`.
+style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`
+  (the last two added in review). Every handler is wrapped in Go's
+  `http.NewCrossOriginProtection`, so a cross-site POST, such as a forged
+  `/logout`, is refused with 403.
+- `--insecure-cookies` refuses to start unless `--redirect-url`'s host is
+  `localhost`, `127.0.0.1` or `[::1]`.
 - Commits use imperative subjects of 72 characters or fewer, with a
   why-body and no attribution.
 
@@ -105,6 +114,8 @@ Interfaces: produces
   	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<html") {
   		t.Fatalf("SPA fallback: %d %s", rec.Code, rec.Body.String())
   	}
+  	// Since review, the test pins the whole CSP string, including
+  	// form-action 'self' and base-uri 'none'.
   	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
   		t.Fatalf("CSP = %q", got)
   	}
@@ -145,8 +156,21 @@ Files:
 - `go.mod`: `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
 
 Interfaces: consumes `Config` from Task 1. Produces `Identity`, the cookies
-`ksync_session`, `ksync_state` and `ksync_nonce` (the verifier and state
-live in `ksync_state`, which expires after 10 minutes), and `ErrNoSession`.
+`ksync_session` and `ksync_state` (the state, PKCE verifier and nonce are
+sealed together in `ksync_state`, which expires after 10 minutes; a separate
+`ksync_nonce` cookie was dropped in review), and `ErrNoSession`.
+The callback checks the state before it looks at `?error=`, and shows only
+the RFC 6749 error codes, mapped to fixed text, never `error_description`.
+When the username claim is `email`, an `email_verified` claim that is
+present but not the boolean `true` (for example the string `"false"`) is
+refused with 403.
+It also produces `type Authenticator interface{ Identity(*http.Request) (Identity, error) }`
+and `(*Server).UseAuthenticator(Authenticator)`: `*Auth` implements it and
+adds the sign-in routes, while Task 4's fake and Task 7's stub `Auth` are
+plain `Authenticator`s. A failed sign-in step answers with its status code
+(400, 403 or 503) and a small page that returns the browser to
+`/login?error=<reason>` for the "Sign-in failed" alert. When the username
+claim is `email`, a token whose `email_verified` is false is refused with 403.
 
 - [ ] Write `internal/console/auth_test.go`. It holds an in-process issuer
       (`newTestIssuer(t)`) that serves discovery and JWKS, and signs RS256 ID
@@ -234,7 +258,19 @@ Files:
 - `internal/console/kube_test.go`.
 
 Interfaces: consumes `Identity`. Produces `UserClient` and
-`ErrWriteRefused`.
+`ErrWriteRefused`, plus `ErrForbiddenPath` and `ErrNotImpersonated`. client-go
+applies `WrapTransport` inside its impersonation wrapper, so
+`readOnlyTransport` sees the final request: besides refusing non-GETs and
+Secret paths, it refuses a request whose `Impersonate-User` is missing, a
+`system:` identity or not the session user, a `system:` `Impersonate-Group`,
+and any `Upgrade` header. Paths are checked against an allowlist of shapes
+rather than a denylist: only discovery (`/api`, `/api/v1`, `/apis`,
+`/apis/<group>[/<version>]`) and lists or gets of a resource, with no
+subresource, pass, minus core Secrets and the legacy `/watch/` and `/proxy/`
+prefixes. Empty segments are dropped first and `.` or `..` segments are
+refused, so `/api/v1//namespaces/a/secrets` and `/api/v1/watch/secrets`
+cannot slip through. The managed kinds on the Resources tab can be any
+group, so the allowlist is by shape, not by group.
 
 - [ ] Write `internal/console/kube_test.go`:
   ```go
@@ -269,8 +305,8 @@ Interfaces: consumes `Identity`. Produces `UserClient` and
   expect it to FAIL to compile with "undefined: readOnlyTransport".
 - [ ] Implement `kube.go`. The client comes from `client.New` with
       `rest.CopyConfig` and `WrapTransport` set to wrap in `readOnlyTransport`.
-      Watch requests are GETs with `?watch=true` and stay allowed, although the
-      UI never issues them.
+      Watch requests (`?watch`) are refused as well, since the console only
+      polls.
 - [ ] Run `go test ./internal/console/`, and expect PASS.
 - [ ] Commit "Read the cluster as the console user, read-only".
 
@@ -294,15 +330,22 @@ Files:
 - `internal/console/api_test.go`: envtest with RBAC.
 
 Interfaces: consumes `UserClient` and `Identity`, plus
-`applier.ListManaged(ctx, reader, app, metadataOnly)` from the rebrand
-code. Produces JSON shapes the SPA types mirror in `web/src/api/types.ts`:
+`applier.ListManaged(ctx, reader, app, applier.ListOptions{MetadataOnly, Exclude})`
+from the rebrand code; it returns `(objects, skippedKinds, error)`, and this
+task adds the `Exclude` option so the console never lists Secrets at all.
+Produces JSON shapes the SPA types mirror in `web/src/api/types.ts`:
 
-- `AppRow{name, namespace, repository, path, render, commit, sync, health, lastReconcile}`;
-- `Cause{resource, reason, message, chain[{kind, name, state}]}`;
-- `PlanView{revision, digest, phase, summary{create, update, delete, unchanged}, resources[{action, ref, changes[{path, before, after}], warnings}]}`;
-- `RevisionRow{name, application, commit, phase, plan, approvedBy, attempts, started}`;
+- `AppRow{name, namespace, destination, repository, path, render, commit, sync, health, lastReconcile}`;
+- `AppDetail{...AppRow, state, desiredRevision, deployedRevision, source{repository, revision, path, render}, policy{automatic, prune, selfHeal, suspend, conflictPolicy, failureAction, deletionPolicy, serviceAccountName}, conditions[{type, status, reason, message, lastTransitionTime}], diagnosis[]Cause, plan PlanView|null, planVisible}`;
+- `Cause{resource, reason, message, chain[{kind, name, state}]}`. Status
+  records only the chain's references, so only the root link's `state`
+  is known: the cause's reason. The other links show `"—"`;
+- `PlanView{revision, commit, digest, phase, summary{create, update, delete, unchanged}, truncated, resources[{action, ref{apiVersion, kind, namespace, name}, changes[{path, before, after, redacted}], warnings}]}`.
+  Changes are redacted by the same rule as `ksync plan`;
+- `RevisionRow{name, namespace, application, commit, phase, plan{create, update, delete, unchanged}, digest, approvedBy, attempts, started, failure}`;
 - `ResourceRow{kind, name, apiVersion, sync, health, visible}`;
-- `RepoRow{name, namespace, url, ref, observed, state, message, apps, poll, webhook, lastFetch}`;
+- `RepoRow{name, namespace, url, ref, observed, state, message, apps, poll, webhook, lastFetch}`,
+  where `apps` is `null` when the user may not list Applications;
 - `ImagePolicyRow{name, namespace, image, rule, latest, digest, lastScan}`.
 
 A cluster-wide 403 returns `{"error":"forbidden","needNamespace":true}` with
@@ -340,17 +383,33 @@ status 403.
   	}
   }
   ```
-  Run `go test ./internal/console/ -run 'TestConsoleFollowsUserRBAC|TestConsoleNeverReturnsSecrets'`,
-  and expect it to FAIL to compile with "undefined: newAPIServer".
+  Run `go test ./internal/console/ -run 'TestConsoleFollowsUserRBAC|TestConsoleNeverReturnsSecrets'`.
+  `newAPIServer`, `get` and the fake Auth are test helpers in the same file,
+  so it compiles, and expect it to FAIL with "cluster-wide list for a
+  namespaced user = 404". `TestConsoleNeverReturnsSecrets` passes trivially
+  against 404s, so `TestConsoleAPIShowsWhatTheUserMayRead` pins the content
+  each endpoint returns, and a Secret `a/creds` labelled as managed by `web`
+  makes any Secret listing leak into the Resources response.
 - [ ] Implement `api.go` and `views.go`.
-  - **Resources:** the endpoint lists managed objects with metadata only, and
-    drops Secret-kind rows, replacing each with a row `{kind:"Secret", name,
-visible:false}` that carries only the name recorded in
-    `status.managedKinds` inventory, never the data.
+  - **Resources:** the endpoint lists managed objects with
+    `MetadataOnly: graph.IdentityOnly`, so ConfigMaps and ServiceAccounts are
+    read as metadata only, while workloads are read in full to evaluate their
+    health. It never lists Secrets (`Exclude`). `status.managedKinds` records
+    kinds, not names, so when the inventory includes Secrets, each Secret the
+    newest Revision's plan names becomes a row `{kind:"Secret", name,
+visible:false}`, or a single row named `"—"` when no plan names one.
+    Kinds the user may not list become `{kind, name:"—", visible:false}`
+    rows.
   - **Namespaces:** `/api/namespaces` lists namespaces as the user and
     returns 403 with `{"error":"forbidden"}` when that is not allowed.
   - **Timeouts:** every handler uses a 10-second context timeout, and on
     timeout returns 504 `{"error":"timeout"}`.
+  - **Names:** a `{ns}` that is not a DNS label or a `{name}` that is not a
+    DNS subdomain returns 400 `{"error":"invalid name"}` before any request
+    is built, and logs nothing (added in review: client-go's path errors
+    had surfaced as 502 with an error log).
+  - **Revision failure:** `"Reason: Message"`, the reason or the message
+    alone when the other is empty, and `"—"` when both are.
 - [ ] Run `go test ./internal/console/`, and expect PASS.
 - [ ] Commit "Serve the console's read-only API as the signed-in user".
 
@@ -359,22 +418,33 @@ visible:false}` that carries only the name recorded in
 Files:
 
 - `web/package.json`: `react@19`, `react-dom@19`, `react-router-dom@7`,
-  `vite@7`, `typescript@5`, `@vitejs/plugin-react`, `@playwright/test` and
-  `@axe-core/playwright`, with the scripts `dev`, `build`, `test:e2e` and
-  `typecheck`. `web/package-lock.json` is committed.
+  `vite@7`, `typescript@5`, `@vitejs/plugin-react@5` (6 needs Vite 8),
+  `vitest@5`, `@playwright/test` and `@axe-core/playwright`, with the scripts
+  `dev`, `build`, `test`, `test:e2e` and `typecheck`. `web/package-lock.json`
+  is committed.
 - `web/vite.config.ts`: `build.outDir` is `../internal/console/ui/dist`, and
-  `emptyOutDir` is true.
+  `emptyOutDir` is true. A small plugin rewrites the tracked `.gitkeep` that
+  `emptyOutDir` deletes, and `assetsInlineLimit: 0` keeps fonts and images
+  out of `data:` URIs, which the CSP's `default-src 'self'` would block for
+  fonts.
 - `web/tsconfig.json` and `web/index.html`.
 - `web/src/azrty/`: vendored from design-system project
   `c1ca7a31-5e20-46fb-8f31-9f912b546f68`:
   - `tokens/*.css` and `components/components.css`;
   - `assets/fonts/*.woff2` and `assets/icons/lucide.woff2`;
-  - `components/{actions/Button, brand/Icon, brand/Logo, brand/ProductLogo, forms/Input, feedback/Alert, feedback/Badge, feedback/EmptyState, data/StatCard, data/Table, data/CodeBlock, navigation/Tabs, navigation/Topbar, navigation/Sidebar, panels/Drawer}.jsx`,
-    each with its `.d.ts`;
+  - `components/{actions/Button, brand/Icon, brand/Logo, brand/ProductLogo, forms/Input, feedback/Alert, feedback/Badge, feedback/EmptyState, data/StatCard, data/Table, data/CodeBlock, navigation/Tabs, navigation/Topbar, navigation/Sidebar, panels/Drawer}.jsx`
+    and their dependencies (IconButton, Select, Avatar, Sparkline). The
+    `.d.ts` files were not vendored: `tsconfig.json` sets `allowJs` and
+    imports the `.jsx` directly, and the directory is read-only (wrappers go
+    in `web/src/ui/`);
   - `README.md` recording the source project ID, file list and sync date.
 - `web/src/assets/kuvryn-sync-emblem-dark.png` and
-  `web/src/assets/kuvryn-sync-emblem-light.png`: from design project
-  `c45e001b-cc5a-4b61-8f11-122044379a06`.
+  `web/src/assets/kuvryn-sync-emblem-light.png`: 640x640 PNGs from the
+  maintainer; the design tool truncates them. Until they are committed, local
+  builds use untracked placeholders listed in `.git/info/exclude`, and the
+  image and CI UI builds fail on the missing import.
+- `web/src/brand.ts`: the emblem imports and the shared ProductLogo props
+  (`name="Kuvryn" sub="Sync" tagline="GitOps that sticks" pillar="build"`).
 - `web/src/main.tsx` and `web/src/App.tsx`: the routes `/login`, `/apps`,
   `/apps/:ns/:name/:tab?`, `/repositories`, `/revisions` and
   `/imagepolicies`.
@@ -385,11 +455,16 @@ Files:
 - `web/src/theme.ts`: `useTheme()`, stored in localStorage `ksync.theme`,
   with dark as the default.
 - `Makefile`: the targets `web-build` (`npm --prefix web ci && npm --prefix web run build`)
-  and `test-ui` (`npm --prefix web run test:e2e`).
+  and `test-ui` (`npm --prefix web run build && npm --prefix web run test:e2e`:
+  `go run ./hack/console-dev` embeds `internal/console/ui/dist` at compile
+  time, so the UI must be built first).
 - `Dockerfile`: a `node:22-alpine` stage that builds `web`, whose output the
   Go stage copies to `internal/console/ui/dist` before `go build`.
-- `.github/workflows/test.yml`: a step
-  `npm --prefix web ci && npm --prefix web run typecheck && npm --prefix web run build`.
+  `.dockerignore` re-includes `internal/console/ui/placeholder/**`, the
+  dist `.gitkeep` and `web/**` (without `node_modules`), since it otherwise
+  admits only `.go` files and `go:embed` would find no placeholder.
+- `.github/workflows/test.yml`: `actions/setup-node` (pinned) and a step
+  `npm --prefix web ci && npm --prefix web run typecheck && npm --prefix web test && npm --prefix web run build`.
 
 Interfaces: consumes the Task 4 JSON shapes. Produces `usePoll`, `getJSON`,
 `useTheme` and the vendored components imported from `web/src/azrty/...`.
@@ -414,8 +489,8 @@ Interfaces: consumes the Task 4 JSON shapes. Produces `usePoll`, `getJSON`,
     });
   });
   ```
-  Run `npm --prefix web test`, and expect it to FAIL with "Failed to resolve
-  import ./client".
+  Run `npm --prefix web test`, and expect it to FAIL with "Cannot find module
+  './client'" (Vitest 5's wording).
 - [ ] Vendor the design-system files. Read each file listed under Files with
       DesignSync `get_file` and write it verbatim under `web/src/azrty/`; binary
       files come back as base64. Record the file list in
@@ -455,9 +530,23 @@ Files:
     explained."
 - `web/src/pages/login.css`: layout only; colours come from tokens.
 - `internal/console/server.go`: `/login` serves the SPA. Before the session
-  exists, `/api/me` returns `{authenticated:false, connectors, cluster, ssoName, docsURL, statusURL}`.
+  exists, `/api/me` returns `{authenticated:false, connectors, cluster, ssoName, docsURL, statusURL}`,
+  with status 200; with a session it adds `username` and `groups`. `ssoName`
+  comes from a new flag `--sso-name` (`Config.SSOName`, empty by default,
+  when the button reads "Single sign-on"), which Task 1's flag list lacked.
+- `web/src/ui/azrty.ts`: typed re-exports of the vendored components, since
+  TypeScript infers every destructured prop of an untyped `.jsx` as required.
+- `hack/console-dev/main.go`, minimal: the console with a stub viewer `Auth`,
+  `--sso-name Dex`, the `github` connector and cluster `prod-eu-1` on
+  `127.0.0.1:5174`. Task 7 adds envtest and the seed data. The login page
+  does not redirect a signed-in user, so the stub does not hide it.
 - `web/e2e/login.spec.ts` and `web/playwright.config.ts`. The latter's
-  `webServer` is `go run ./hack/console-dev` (Task 7).
+  `webServer` is `go run ./hack/console-dev`. Besides the steps below, the
+  suite asserts that the visible emblem's `naturalWidth` is at least 512 (a
+  truncated emblem fails) and that the page logs no console errors, which is
+  how CSP violations surface. The design's password form is replaced by the
+  "Sign in with email" button, and "Ask your cluster admin for access." is
+  plain text rather than a link with no target.
 
 Interfaces: consumes `/api/me` (unauthenticated shape), `/auth/start`,
 `ProductLogo`, `Button`, `Alert` and `Logo`. Produces the route `/login` and
@@ -495,8 +584,9 @@ the test `TestLoginPage` (the `login.spec.ts` suite).
     }
   }
   ```
-  Run `make test-ui`, and expect it to FAIL with a timeout finding the
-  "Welcome back" heading.
+  Run `make test-ui`, and expect it to FAIL. Task 5's stand-in page already
+  shows the heading, so all four cases fail at `getByRole('button', { name: /Sign in with/ })`:
+  "element(s) not found".
 - [ ] Implement `Login.tsx` and `login.css` from "Kuvryn Sync Login.dc.html",
       using the component props that file uses.
 - [ ] Run `make test-ui`, and expect all four TestLoginPage cases to pass.
@@ -515,6 +605,13 @@ Files:
     It runs the console with a stub `Auth` that always returns
     `Identity{Username: "viewer", Groups: ["viewers"]}`, bound to a view-all
     ClusterRole, on `:5174`. It prints `ready` when it is serving.
+  - The seed lives in `hack/console-dev/seed.go`: Applications, Repositories,
+    Revisions and ImagePolicies in namespace `default` (the design's
+    "Application · default"), with destinations `payments`, `shop`, `ingress`,
+    `cert-manager` and `finance`, plus each Application's managed Deployment,
+    Service, ConfigMap, ServiceAccount and PodDisruptionBudget. `.golangci.yml`
+    exempts `hack/console-dev/*` from `lll`, as it does `internal/*`, for the
+    seed tables.
 - `web/src/layout/Shell.tsx`: a Sidebar with the brand lockup and cluster,
   and navigation for Applications (with a degraded-count badge),
   Repositories, Revisions and Image policies. The footer shows "Watching
@@ -543,7 +640,24 @@ Files:
   Input on 403, and stores the choice in localStorage `ksync.namespace`.
 - `web/src/components/StatusBadge.tsx`: the sync, health, phase and action
   tone maps from the design's `SYNC_T`, `HEALTH_T`, `PHASE_T` and `ACT_T`.
+- `web/src/layout/context.ts`, `web/src/pages/common.tsx`, `pages.css` and
+  `web/src/format.ts`: the shell context (namespace, refresh time,
+  breadcrumb), the page heading, and the poll-failure rendering: the
+  namespace picker for `needNamespace`, or a "Refresh failed" banner that
+  keeps the last data.
 - `web/e2e/console.spec.ts` and `web/e2e/refresh.spec.ts`.
+- Changes to Task 4's API that the pages needed:
+  - Revisions sort newest first by `status.startedAt`, falling back to
+    creation, since creation timestamps have one-second resolution;
+  - poll intervals read `60s`, `5m` or `2h`;
+  - diagnosis references are `namespace/name`, as the design shows them.
+- Deviations from the design:
+  - there is no "Discovered from" or "History limit" property, and no
+    "Writes to" column on Image policies, because the API has no such data;
+  - the webhook column reads "Signed" or "—", since the provider is unknown;
+  - chain links show a state only where one is recorded;
+  - the shell adds the signed-in user with "Sign out" (spec S-2), a
+    theme toggle (spec S-8), and the chosen namespace with "All".
 
 Interfaces: consumes the Task 4 endpoints, `usePoll`, and the vendored
 components. Produces the tests `TestConsolePages` and `TestLiveRefresh`, and
@@ -597,10 +711,12 @@ the dev server `go run ./hack/console-dev`, which listens on
     });
     await expect(
       page.getByRole("row", { name: /catalog.*Degraded/ }),
-    ).toBeVisible({ timeout: 11000 });
+    ).toBeVisible({ timeout: 15000 }); // one 10s poll plus room for slow runners
   });
   ```
   Run `make test-ui`, and expect both to FAIL: the stat cards are not found.
+  `refresh.spec.ts` also resets catalog to Healthy before it starts, so it
+  passes against a reused dev server.
 - [ ] Implement `hack/console-dev`, including the subcommand
       `set-health <app> <state>`, which patches the seeded Application's status
       through the envtest kubeconfig the server writes to
@@ -621,17 +737,35 @@ Files:
   `console.sessionKey.secretName` and `.key`, `console.clusterName`,
   `console.connectors`, `console.docsURL`, `console.statusURL`,
   `console.ingress.{enabled, className, host, tls}`, and
-  `console.resources`.
+  `console.resources`, plus `console.ssoName` (Task 6's `--sso-name`) and
+  `console.ingress.annotations` and `console.replicas` (default 1). The key
+  Secret is mounted only when `sessionKey.secretName` is set; the chart never
+  generates a key, because `lookup` and random values differ on every
+  client-side render (`helm template`, Argo CD, Kuvryn Sync itself), so a
+  GitOps-managed install would drift and sign everyone out on each
+  reconcile. `replicas > 1` without `sessionKey.secretName` fails to render.
+  `TestConsoleChartRendersDeterministically` and
+  `TestConsoleReplicasNeedASharedSessionKey` cover this. When `redirectURL` is empty,
+  it defaults to `https://<ingress.host>/auth/callback`; with no ingress host
+  either, the chart fails to render (`TestConsoleChartRequiresARedirectURL`).
 - `charts/kuvryn-sync/templates/console.yaml`: a Deployment
   (`<release>-kuvryn-sync-console`, args `console` with flags, Secrets
   mounted read-only at `/etc/ksync/oidc` and `/etc/ksync/session`,
   runAsNonRoot, readOnlyRootFilesystem), a ServiceAccount, a Service on port
   80 → 8080, an optional Ingress, and a ClusterRole plus ClusterRoleBinding
-  that grant `impersonate` on `users` and `groups` only.
+  that grant `impersonate` on `users` and `groups` only. That grant is
+  effectively cluster-admin (it includes `system:masters`), so the docs and
+  values say so, and optional `console.impersonation.users` and `.groups`
+  render `resourceNames` on the two impersonate rules to restrict it. The console pods are
+  labelled `app.kubernetes.io/name: kuvryn-sync-console`, so the
+  controller's Services never select them.
 - `internal/console/selfcheck.go`: at startup, it creates two
   `SelfSubjectAccessReview`s for impersonate on users and groups, logs the
   result, and sets the `/healthz` `"impersonation":"granted"` or `"missing"`
-  field.
+  field. `ksync console` runs it once at startup; creating a
+  SelfSubjectAccessReview needs no grant beyond `system:basic-user`, so the
+  ClusterRole stays impersonate-only. `selfcheck_test.go` covers it against a
+  fake API server.
 - `docs/console.md`: the Dex setup end to end:
   - a Dex static client with the redirect URL;
   - GitHub and GitLab connectors, and the local password connector;
@@ -641,9 +775,18 @@ Files:
     group;
   - troubleshooting for claims, `system:` identities and namespace-scoped
     viewers.
-- `docs/index.md` and `README.md`: add the console, with a screenshot taken
-  from `make test-ui`.
-- `internal/controller/rbac_manifest_test.go`: the new tests.
+- `docs/index.md` and `README.md`: add the console. The screenshots wait for
+  the real emblem files, since committing ones with placeholder emblems would
+  mislead: `web/e2e/screenshots.spec.ts`, skipped unless
+  `KSYNC_SCREENSHOTS=1`, writes `docs/images/console-{login,applications,diagnosis}.png`
+  for that.
+- `docs/cli.md`, `docs/operations.md`, `docs/security.md` and
+  `CHANGELOG.md`: the console's command, chart pointer, security model and
+  changelog entry.
+- `internal/controller/rbac_manifest_test.go`: the new tests, and the
+  helpers `helmTemplate` (renders the chart in process with Helm's
+  `strvals` for `--set`, so no helm binary is needed) and
+  `clusterRoleNamed`.
 
 Interfaces: consumes the `ksync console` flags from Task 1. Produces the
 chart values listed above, and the console names
@@ -683,6 +826,16 @@ chart values listed above, and the console names
 - [ ] Run `go test ./internal/controller/ ./internal/console/ && make test && make lint`,
       and expect PASS.
 - [ ] Commit "Ship the console in the chart with Dex docs and a self-check".
+
+## Known follow-ups
+
+- **Per-request discovery.** `UserClient` calls `client.New` for every API
+  request, and its REST mapper runs API discovery each time as the user, so
+  each 10-second poll costs a few extra discovery GETs per user. The review
+  kept this for the first release: the fix is a per-identity client cache
+  (keyed by username and groups, expiring with the session), or a shared
+  mapper. A shared mapper needs care, because the console must never read
+  as itself, so it is left for a follow-up rather than done in review.
 
 ## Task 9: Review, merge, and hand over to the release
 

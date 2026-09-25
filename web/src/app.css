@@ -1,0 +1,21 @@
+/* Layout only; colours come from the Azrty tokens. */
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--az-bg);
+  color: var(--az-text);
+  font-family: var(--az-font-sans);
+}
+
+a {
+  color: var(--az-accent-text);
+}
+
+a:hover {
+  color: var(--az-text);
+}

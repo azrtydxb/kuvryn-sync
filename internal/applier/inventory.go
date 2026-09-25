@@ -57,6 +57,9 @@ type ListOptions struct {
 	// MetadataOnly reports kinds to list as metadata only, for callers that
 	// need only their identity, such as Secrets whose data they must not read.
 	MetadataOnly func(schema.GroupVersionKind) bool
+	// Exclude reports kinds never to list, for callers that must not read
+	// them at all, such as the console and Secrets.
+	Exclude func(schema.GroupVersionKind) bool
 }
 
 // ListManaged inventories, in the destination namespace, the objects labelled
@@ -72,6 +75,9 @@ func ListManaged(ctx context.Context, reader client.Reader, application *corev1a
 	out := []unstructured.Unstructured{}
 	skipped := []string{}
 	for _, gvk := range kinds {
+		if opts.Exclude != nil && opts.Exclude(gvk) {
+			continue
+		}
 		items, err := listKind(ctx, reader, gvk, opts.MetadataOnly != nil && opts.MetadataOnly(gvk),
 			client.InNamespace(application.DestinationNamespace()), client.MatchingLabels{ApplicationLabelKey: application.Name})
 		if err != nil {

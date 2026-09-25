@@ -46,6 +46,7 @@ Change:
   ksync resume <application>                     Resume reconciling an Application
 
 Other:
+  ksync console [flags]                          Serve the read-only web console
   ksync install                                  Print the install commands
   ksync version                                  Print the version
   ksync help                                     Print this help
@@ -62,6 +63,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 	switch args[0] {
 	case "apps", "applications":
 		err = runApplications(ctx, args[1:], stdout, stderr)
+	case "console":
+		err = runConsole(ctx, args[1:], stdout, stderr)
 	case "install":
 		err = runInstall(args[1:], stdout)
 	case "repos", "repositories":

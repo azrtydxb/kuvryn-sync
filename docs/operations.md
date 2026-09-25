@@ -8,6 +8,13 @@ nav_order: 8
 Kuvryn Sync is installed from generated CRDs plus the controller manifests in
 `config/` or the alpha Helm chart in `charts/kuvryn-sync`.
 
+## Web console
+
+The chart installs the optional read-only web console with
+`console.enabled=true`. It needs an OIDC issuer, such as Dex, and a viewer
+ClusterRole for the people who use it. See [Web console](console.md) for the
+setup, every value, and troubleshooting.
+
 ## Day-two commands
 
 Core commands use Kubernetes CRDs directly:

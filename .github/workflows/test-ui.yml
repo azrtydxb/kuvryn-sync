@@ -1,0 +1,66 @@
+name: UI
+
+# push covers main; pull_request covers every other branch. An unfiltered push trigger ran each PR commit twice (#1).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  test-ui:
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    name: Console Playwright tests
+    # Pull requests from forks run untrusted code, so they get GitHub-hosted
+    # runners; the lab runners sit on the internal network.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-azrtydxb-amd64' || 'ubuntu-latest' }}
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install make
+        run: command -v make >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq make; }
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the UI dependencies and Chromium
+        run: |
+          npm --prefix web ci
+          npx --prefix web playwright install --with-deps chromium
+
+      - name: Install the envtest binaries
+        run: make setup-envtest
+
+      - name: Run the Playwright tests
+        env:
+          CI: "true"
+        run: make test-ui
+
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7

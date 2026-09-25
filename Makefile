@@ -141,6 +141,14 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
+.PHONY: web-build
+web-build: ## Build the console UI into internal/console/ui/dist, which the binary embeds.
+	npm --prefix web ci && npm --prefix web run build
+
+.PHONY: test-ui
+test-ui: ## Run the console's Playwright tests against hack/console-dev (builds the UI first).
+	npm --prefix web run build && npm --prefix web run test:e2e
+
 .PHONY: build
 build: manifests generate fmt vet ## Build the ksync binary (CLI and manager).
 	go build -ldflags "$(LDFLAGS)" -o bin/ksync cmd/main.go

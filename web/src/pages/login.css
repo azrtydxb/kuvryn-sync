@@ -1,0 +1,240 @@
+/* Login layout from "Kuvryn Sync Login.dc.html". Colours come from tokens. */
+.ks-login {
+  min-height: 100vh;
+  display: flex;
+  background: var(--az-bg);
+  color: var(--az-text);
+  font-family: var(--az-font-sans);
+}
+
+.ks-login__main {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(32px, 5vw, 64px) clamp(24px, 8vw, 120px);
+  min-width: 0;
+}
+
+.ks-login__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ks-login__logo.az-plogo--icon {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.ks-login__word {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--az-font-display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ks-login__word-sub {
+  color: var(--az-pillar-text);
+  font-weight: 600;
+}
+
+.ks-login__form {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 48px 0;
+}
+
+.ks-login__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ks-login__eyebrow {
+  font-family: var(--az-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--az-muted);
+}
+
+.ks-login__title {
+  margin: 0;
+  font-family: var(--az-font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.ks-login__lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--az-text-2);
+}
+
+.ks-login__social {
+  display: flex;
+  gap: 10px;
+}
+
+.ks-login__social > .az-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ks-login__divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--az-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--az-muted);
+}
+
+.ks-login__divider::before,
+.ks-login__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--az-border);
+}
+
+.ks-login__note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--az-muted);
+}
+
+.ks-login__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--az-muted);
+}
+
+.ks-login__maker,
+.ks-login__links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ks-login__links {
+  gap: 18px;
+}
+
+.ks-login__links a {
+  color: var(--az-muted);
+}
+
+.ks-login__links a:hover {
+  color: var(--az-text);
+}
+
+.ks-login__cluster {
+  font-family: var(--az-font-mono);
+  font-size: 11px;
+}
+
+.ks-login__panel {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  padding: 64px;
+  background: color-mix(in oklch, var(--az-pillar) 7%, var(--az-bg));
+  border-left: 1px solid var(--az-border);
+  text-align: center;
+}
+
+.ks-login__rings {
+  position: relative;
+  width: min(380px, 28vw);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.ks-login__ring {
+  position: absolute;
+  transform: rotate(-12deg);
+}
+
+.ks-login__ring--1 {
+  inset: 0;
+  border-radius: 96px;
+  background: color-mix(in oklch, var(--az-pillar) 5%, transparent);
+}
+
+.ks-login__ring--2 {
+  inset: 10.5%;
+  border-radius: 76px;
+  background: color-mix(in oklch, var(--az-pillar) 7%, transparent);
+}
+
+.ks-login__ring--3 {
+  inset: 21%;
+  border-radius: 56px;
+  border: 1px solid color-mix(in oklch, var(--az-pillar) 55%, transparent);
+  background: color-mix(in oklch, var(--az-pillar) 8%, transparent);
+}
+
+.ks-login__panel-logo.az-plogo--icon {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.ks-login__panel-text {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 560px;
+}
+
+.ks-login__panel-title {
+  margin: 0;
+  font-family: var(--az-font-display);
+  font-size: clamp(36px, 3.6vw, 56px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.ks-login__panel-lead {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--az-text-2);
+}
+
+/* Narrow screens get the centred layout without the brand panel. */
+@media (max-width: 899px) {
+  .ks-login__panel {
+    display: none;
+  }
+}

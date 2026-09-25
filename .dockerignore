@@ -9,3 +9,13 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# The console UI: the embedded placeholder, the build directory's .gitkeep,
+# and the web sources the node stage builds (without node_modules)
+!internal/console/ui/placeholder/**
+!internal/console/ui/dist/.gitkeep
+!web/**
+web/node_modules
+web/test-results
+web/playwright-report
+web/e2e

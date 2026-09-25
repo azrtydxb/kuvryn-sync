@@ -26,6 +26,14 @@ first._
   `conflictPolicy: adopt`.
 - The Go module is `github.com/azrtydxb/kuvryn-sync`, and the product
   specification is `kuvryn-sync-full-spec.md`.
+- **New:** an optional, read-only web console, `ksync console`, installed
+  by the chart with `console.enabled=true`. It signs people in with OIDC
+  (PKCE, state and nonce; Dex's GitHub, GitLab and email connectors on the
+  login page), keeps the identity in an encrypted cookie, and reads the
+  cluster by impersonating each person, so what they see follows their own
+  RBAC. Its ServiceAccount may only impersonate users and groups, and it
+  sends only GET requests and never reads Secrets. See
+  [Web console](docs/console.md).
 
 ## 0.3.0
 
