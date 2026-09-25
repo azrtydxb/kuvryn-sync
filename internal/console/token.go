@@ -93,7 +93,9 @@ func tokenExpiry(token string, now time.Time) (time.Time, error) {
 		return limit, nil
 	}
 	seconds, err := claims.Exp.Float64()
-	if err != nil {
+	if err != nil || seconds >= float64(limit.Unix()) {
+		// Unreadable, or later than the cap: the cap applies. This also
+		// keeps values too large for an int64 away from the conversion.
 		return limit, nil
 	}
 	exp := time.Unix(int64(seconds), 0)
@@ -113,8 +115,12 @@ func tokenExpiry(token string, now time.Time) (time.Time, error) {
 func (a *Auth) selfSubjectReview(ctx context.Context, token string) (reviewedUser, error) {
 	cfg := tokenConfig(a.base, token)
 	cfg.Timeout = reviewTimeout
+	origin, err := apiOrigin(cfg)
+	if err != nil {
+		return reviewedUser{}, fmt.Errorf("%w: %w", errClusterUnavailable, err)
+	}
 	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
-		return reviewOnlyTransport{next: rt, token: token}
+		return reviewOnlyTransport{next: rt, token: token, origin: origin}
 	}
 	c, err := authenticationclient.NewForConfig(cfg)
 	if err != nil {
@@ -143,13 +149,13 @@ func (a *Auth) selfSubjectReview(ctx context.Context, token string) (reviewedUse
 // no Impersonate-* header, the same credential checks as a token session's
 // reads.
 type reviewOnlyTransport struct {
-	next  http.RoundTripper
-	token string
+	next          http.RoundTripper
+	token, origin string
 }
 
 // RoundTrip implements http.RoundTripper.
 func (t reviewOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Method != http.MethodPost || r.URL.Path != reviewPath || r.Header.Get("Upgrade") != "" {
+	if !sameOrigin(r, t.origin) || r.Method != http.MethodPost || r.URL.Path != reviewPath || r.Header.Get("Upgrade") != "" {
 		return nil, fmt.Errorf("%w: %s %s", ErrForbiddenPath, r.Method, r.URL.Path)
 	}
 	return readOnlyTransport{next: t.next, token: t.token}.roundTripToken(r)

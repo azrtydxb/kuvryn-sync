@@ -99,6 +99,13 @@ func unsignedJWT(exp time.Time) string {
 	return enc.EncodeToString([]byte(`{"alg":"RS256"}`)) + "." + enc.EncodeToString(payload) + "." + enc.EncodeToString([]byte("sig"))
 }
 
+// jwtWithExp builds a JWT-shaped token whose exp claim is the raw JSON exp.
+func jwtWithExp(t *testing.T, exp string) string {
+	t.Helper()
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString([]byte(`{"alg":"RS256"}`)) + "." + enc.EncodeToString([]byte(`{"exp":`+exp+`}`)) + "." + enc.EncodeToString([]byte("sig"))
+}
+
 // fakeReviewServer answers SelfSubjectReviews with user, or with status when
 // it is not 200, and counts the requests it gets.
 func fakeReviewServer(t *testing.T, status int, user authenticationv1.UserInfo) (*httptest.Server, *atomic.Int32) {
@@ -213,6 +220,10 @@ func TestTokenSignIn(t *testing.T) {
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != tc.want || (sessionOf(rec) != nil) != (tc.want == "/apps") {
 			t.Errorf("%s: %d to %q (session %v), want 303 to %s", name, rec.Code, rec.Header().Get("Location"), sessionOf(rec) != nil, tc.want)
 		}
+	}
+	// An exp too large for a time still caps the session at 8 hours.
+	if exp, err := tokenExpiry(jwtWithExp(t, "1e300"), time.Unix(1000, 0)); err != nil || !exp.Equal(time.Unix(1000, 0).Add(8*time.Hour)) {
+		t.Errorf("exp 1e300: session ends %v (%v), want 8 hours after sign-in", exp, err)
 	}
 	down, _ := tokenServer(t, &rest.Config{Host: "https://127.0.0.1:1"})
 	if rec := postToken(down.Handler(), "opaque-static-token", context.Background()); rec.Header().Get("Location") != "/login?error=cluster" {

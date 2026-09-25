@@ -45,6 +45,10 @@ func UserClient(base *rest.Config, scheme *runtime.Scheme, id Identity) (client.
 	}
 	cfg := rest.CopyConfig(base)
 	cfg.Impersonate = rest.ImpersonationConfig{UserName: id.Username, Groups: append([]string(nil), id.Groups...)}
+	origin, err := apiOrigin(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Timeout == 0 || cfg.Timeout > userClientTimeout {
 		cfg.Timeout = userClientTimeout
 	}
@@ -52,7 +56,7 @@ func UserClient(base *rest.Config, scheme *runtime.Scheme, id Identity) (client.
 	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
 		// client-go applies WrapTransport inside the impersonation wrapper, so
 		// this is the last check before the request leaves the process.
-		rt = readOnlyTransport{next: rt, user: id.Username}
+		rt = readOnlyTransport{next: rt, user: id.Username, origin: origin}
 		if outer != nil {
 			rt = outer(rt)
 		}
@@ -89,10 +93,14 @@ func TokenClient(base *rest.Config, scheme *runtime.Scheme, id Identity) (client
 	}
 	token := id.Token.Reveal()
 	cfg := tokenConfig(base, token)
+	origin, err := apiOrigin(cfg)
+	if err != nil {
+		return nil, err
+	}
 	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
 		// client-go applies WrapTransport inside the bearer-token wrapper, so
 		// this sees the final headers just before the request is sent.
-		return readOnlyTransport{next: rt, token: token}
+		return readOnlyTransport{next: rt, token: token, origin: origin}
 	}
 	return client.New(cfg, client.Options{Scheme: scheme})
 }
@@ -107,10 +115,31 @@ type readOnlyTransport struct {
 	user string
 	// token, when set, puts the transport in token mode.
 	token string
+	// origin, when set, is the scheme://host every request must go to. The
+	// HTTP client follows redirects and client-go re-adds credentials to each
+	// hop, so a redirect elsewhere would otherwise hand that host the token.
+	origin string
+}
+
+// apiOrigin returns the scheme://host of cfg's API server.
+func apiOrigin(cfg *rest.Config) (string, error) {
+	u, _, err := rest.DefaultServerUrlFor(cfg)
+	if err != nil {
+		return "", err
+	}
+	return u.Scheme + "://" + u.Host, nil
+}
+
+// sameOrigin reports whether r goes to origin, or origin is unset.
+func sameOrigin(r *http.Request, origin string) bool {
+	return origin == "" || r.URL.Scheme+"://"+r.URL.Host == origin
 }
 
 // RoundTrip implements http.RoundTripper.
 func (t readOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !sameOrigin(r, t.origin) {
+		return nil, fmt.Errorf("%w: %s is not the API server", ErrForbiddenPath, r.URL.Host)
+	}
 	if r.Method != http.MethodGet {
 		return nil, fmt.Errorf("%w: %s %s", ErrWriteRefused, r.Method, r.URL.Path)
 	}

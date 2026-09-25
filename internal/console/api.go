@@ -18,7 +18,6 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 	"github.com/azrtydxb/kuvryn-sync/internal/graph"
 	"github.com/azrtydxb/kuvryn-sync/internal/health"
-	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 )
 
 // apiTimeout bounds every API call, cluster reads included.
@@ -61,20 +60,20 @@ func (s *Server) api(h apiHandler) http.HandlerFunc {
 		}
 		out, err := h(ctx, r, reader)
 		if err != nil {
-			s.writeError(ctx, w, r, err)
+			s.writeError(ctx, w, r, id, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
 }
 
-func (s *Server) writeError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
+func (s *Server) writeError(ctx context.Context, w http.ResponseWriter, r *http.Request, id Identity, err error) {
 	switch {
 	case errors.Is(err, errInvalidName):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid name"})
 	case errors.Is(err, errNeedNamespace):
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "needNamespace": true})
-	case apierrors.IsForbidden(err), errors.Is(err, ErrForbiddenPath), errors.Is(err, ErrWriteRefused), errors.Is(err, ErrNotImpersonated):
+	case apierrors.IsForbidden(err), errors.Is(err, ErrForbiddenPath), errors.Is(err, ErrWriteRefused), errors.Is(err, ErrNotImpersonated), errors.Is(err, ErrNotTheSessionToken):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 	case apierrors.IsNotFound(err):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -89,7 +88,7 @@ func (s *Server) writeError(ctx context.Context, w http.ResponseWriter, r *http.
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	default:
-		ctrllog.FromContext(r.Context()).Error(errors.New(redact.String(err.Error())), "Could not read the cluster", "path", r.URL.Path)
+		ctrllog.FromContext(r.Context()).Error(errors.New(scrub(err.Error(), id.Token.Reveal())), "Could not read the cluster", "path", r.URL.Path)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "cluster read failed"})
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,5 +226,52 @@ func TestTokenTransportRefusesOtherCredentials(t *testing.T) {
 	}
 	if _, err := TokenClient(&rest.Config{Host: "https://k8s"}, scheme.Scheme, Identity{Username: "u", Method: MethodToken, Expiry: time.Now().Add(time.Hour)}); err == nil {
 		t.Fatal("TokenClient accepted a session without a token")
+	}
+}
+
+// TestTokenNeverFollowsARedirectElsewhere fails if a token session's request,
+// or the sign-in review, follows a redirect to another host, which would
+// hand that host the user's token.
+func TestTokenNeverFollowsARedirectElsewhere(t *testing.T) {
+	var stolen atomic.Int32
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			stolen.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"kind":"ConfigMap","apiVersion":"v1","metadata":{"name":"x","namespace":"a"}}`)
+	}))
+	defer evil.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api":
+			_, _ = io.WriteString(w, `{"kind":"APIVersions","versions":["v1"]}`)
+		case "/apis":
+			_, _ = io.WriteString(w, `{"kind":"APIGroupList","groups":[]}`)
+		case "/api/v1":
+			_, _ = io.WriteString(w, `{"kind":"APIResourceList","groupVersion":"v1","resources":[{"name":"configmaps","namespaced":true,"kind":"ConfigMap","verbs":["get"]}]}`)
+		default:
+			http.Redirect(w, r, evil.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		}
+	}))
+	defer api.Close()
+	id := Identity{Username: "system:serviceaccount:a:viewer", Expiry: time.Now().Add(time.Hour), Method: MethodToken, Token: "user-token"}
+	reader, err := TokenClient(&rest.Config{Host: api.URL}, scheme.Scheme, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Get(context.Background(), client.ObjectKey{Namespace: "a", Name: "x"}, &corev1.ConfigMap{}); err == nil {
+		t.Error("a read redirected to another host succeeded")
+	}
+	a, err := NewAuth(t.Context(), Config{}, &rest.Config{Host: api.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.selfSubjectReview(context.Background(), "user-token"); err == nil {
+		t.Error("a review redirected to another host succeeded")
+	}
+	if n := stolen.Load(); n != 0 {
+		t.Fatalf("the token reached another host %d times", n)
 	}
 }

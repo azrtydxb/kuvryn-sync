@@ -49,8 +49,13 @@ else:
 - The token is kept only in the encrypted session cookie, never logged,
   never returned by an API and never put in a URL. The session ends at the
   token's `exp` or 8 hours after sign-in, whichever is first, and a 401 from
-  the API server ends it early. Signing out does not revoke the token; delete
-  its ServiceAccount, or the object it is bound to, for that.
+  the API server ends it early. The sealed cookie carries the token, so a
+  copied cookie works like the token until the session ends; signing out
+  only clears it from the browser and does not revoke the token. Delete the
+  token's ServiceAccount, or the object it is bound to, for that.
+- Requests go only to the API server's own scheme and host: a redirect to
+  another host is refused rather than followed, since client-go would send
+  the token with it.
 - A token-only console's ServiceAccount has no permissions: the chart
   renders no ClusterRole or binding for it.
 

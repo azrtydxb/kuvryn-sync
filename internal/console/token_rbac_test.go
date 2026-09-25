@@ -2,7 +2,9 @@ package console
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -148,5 +150,30 @@ func TestReaderCacheSeparatesTokens(t *testing.T) {
 		if key := readerKey(id); strings.Contains(key, id.Token.Reveal()) {
 			t.Fatalf("reader key %q holds the token", key)
 		}
+	}
+}
+
+// A read refused for carrying the wrong credential is Forbidden, not a
+// cluster failure, and no error the console logs holds the session's token.
+func TestReadErrorsNeverLogTheToken(t *testing.T) {
+	s, err := NewServer(Config{ClusterName: "test"}, &restConfigForTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := &logSink{}
+	id := Identity{Username: "system:serviceaccount:a:viewer", Expiry: time.Now().Add(time.Hour), Method: MethodToken, Token: "secret-session-token"}
+	for err, want := range map[error]int{
+		ErrNotTheSessionToken: http.StatusForbidden,
+		errors.New(`Get "https://k8s/api": dial tcp: secret-session-token refused`): http.StatusBadGateway,
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/applications", nil).WithContext(logs.ctx())
+		s.writeError(req.Context(), rec, req, id, err)
+		if rec.Code != want {
+			t.Errorf("%v: status %d, want %d", err, rec.Code, want)
+		}
+	}
+	if strings.Contains(logs.all(), "secret-session-token") {
+		t.Fatalf("a read error logged the token: %s", logs.all())
 	}
 }
