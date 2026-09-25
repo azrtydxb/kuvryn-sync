@@ -3,4 +3,4 @@
 # not ask about them.
 maintainers = ["piwi3910"]
 # The version-bearing files `procoder release` verifies stay in sync.
-files = ["charts/solder/Chart.yaml", "dist/install.yaml"]
+files = ["charts/kuvryn-sync/Chart.yaml", "dist/install.yaml"]

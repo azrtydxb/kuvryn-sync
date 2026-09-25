@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-_Solder is now Kuvryn Sync, part of the Kuvryn family of Azrty products. Only
-the names change; behaviour is the same. Read
+_Solder is now Kuvryn Sync, part of the Kuvryn family of Azrty products, and
+ships an optional read-only web console that signs people in with OIDC and
+shows them what their own RBAC allows. Apart from the new console, only the
+names change; behaviour is the same. Read
 [Moving from Solder 0.3.x to Kuvryn Sync 0.4.0](docs/upgrade.md#moving-from-solder-03x-to-kuvryn-sync-040)
 first._
 
