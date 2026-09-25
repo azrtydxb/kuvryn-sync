@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestReleaseImageIsPublic pulls the release manifest anonymously. GHCR
@@ -18,7 +19,9 @@ func TestReleaseImageIsPublic(t *testing.T) {
 	if version == "" {
 		t.Fatal("set RELEASE_VERSION, for example v0.4.0")
 	}
-	resp, err := http.Get("https://ghcr.io/token?scope=repository:azrtydxb/kuvryn-sync:pull")
+	// A stalled registry must fail the gate, not hang it.
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get("https://ghcr.io/token?scope=repository:azrtydxb/kuvryn-sync:pull")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +36,7 @@ func TestReleaseImageIsPublic(t *testing.T) {
 	}
 	req.Header.Set("Authorization", "Bearer "+tok.Token)
 	req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json")
-	res, err := http.DefaultClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
