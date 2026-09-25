@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	FieldManager                 = "solder"
+	FieldManager                 = "kuvryn-sync"
 	ApplicationLabelKey          = "sync.kuvryn.io/application"
 	ApplicationNamespaceLabelKey = "sync.kuvryn.io/application-namespace"
 	RevisionAnnotationKey        = "sync.kuvryn.io/revision"

@@ -33,7 +33,7 @@ const RequestedAtAnnotation = "sync.kuvryn.io/reconcile-requested-at"
 const maxBody = 1 << 20
 
 var requests = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Name: "solder_webhook_receiver_requests_total",
+	Name: "kuvryn_sync_webhook_receiver_requests_total",
 	Help: "Webhook receiver requests by result.",
 }, []string{"result"})
 

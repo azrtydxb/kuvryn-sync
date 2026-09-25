@@ -82,3 +82,9 @@ func configMap(name, value string) unstructured.Unstructured {
 		"data": map[string]any{"value": value},
 	}}
 }
+
+func TestApplyUsesTheKuvrynSyncFieldManager(t *testing.T) {
+	if FieldManager != "kuvryn-sync" {
+		t.Fatalf("FieldManager = %q, want kuvryn-sync", FieldManager)
+	}
+}

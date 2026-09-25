@@ -10,19 +10,19 @@ import (
 
 var (
 	ReconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "solder_application_reconcile_total",
+		Name: "kuvryn_sync_application_reconcile_total",
 		Help: "Total Application reconciliations by bounded lifecycle labels.",
 	}, []string{"namespace", "sync", "health", "phase", "result"})
 
 	ReconcileDurationSeconds = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "solder_application_reconcile_duration_seconds",
+		Name:    "kuvryn_sync_application_reconcile_duration_seconds",
 		Help:    "Application reconciliation duration by bounded lifecycle labels.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"namespace", "sync", "health", "phase", "result"})
 
 	LifecycleEventsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "solder_lifecycle_events_total",
-		Help: "Total bounded Solder lifecycle events.",
+		Name: "kuvryn_sync_lifecycle_events_total",
+		Help: "Total bounded Kuvryn Sync lifecycle events.",
 	}, []string{"namespace", "sync", "health", "phase", "reason"})
 )
 

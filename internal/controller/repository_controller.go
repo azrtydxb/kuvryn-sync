@@ -49,7 +49,7 @@ import (
 )
 
 const (
-	defaultSourceCacheDir      = "solder-source-cache"
+	defaultSourceCacheDir      = "kuvryn-sync-source-cache"
 	solderConfigFileName       = ".solder.yaml"
 	repositoryApplicationLabel = "sync.kuvryn.io/repository"
 )

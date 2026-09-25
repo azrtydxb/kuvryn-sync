@@ -39,7 +39,7 @@ type Registry struct {
 }
 
 var scans = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Name: "solder_image_scans_total",
+	Name: "kuvryn_sync_image_scans_total",
 	Help: "Registry requests made by image scans, by result.",
 }, []string{"result"})
 

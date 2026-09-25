@@ -198,7 +198,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "e3d625f0.solder.io",
+		LeaderElectionID:       "kuvryn-sync.kuvryn.io",
 		// Git credential Secrets are read directly so the controller never
 		// caches every Secret in the cluster.
 		Client: client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}}},

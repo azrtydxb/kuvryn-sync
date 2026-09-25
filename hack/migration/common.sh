@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # The field manager Solder applies with (internal/applier.FieldManager).
-SOLDER_FIELD_MANAGER=solder
+SOLDER_FIELD_MANAGER=kuvryn-sync
 
 k() { kubectl --context "kind-$C" "$@"; }
 

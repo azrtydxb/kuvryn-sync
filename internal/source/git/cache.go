@@ -49,7 +49,7 @@ import (
 const (
 	defaultRevision = "HEAD"
 	// checkoutMarker marks a fully written worktree; no Git entry may use it.
-	checkoutMarker = ".solder-checkout"
+	checkoutMarker = ".kuvryn-sync-checkout"
 	// maxSymlinkHops bounds symlink resolution like the kernel's loop limit.
 	maxSymlinkHops = 40
 )
@@ -536,7 +536,7 @@ func AuthMethod(repository source.GitRepository) (transport.AuthMethod, error) {
 }
 
 func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
-	file, err := os.CreateTemp("", "solder-known-hosts-*")
+	file, err := os.CreateTemp("", "kuvryn-sync-known-hosts-*")
 	if err != nil {
 		return nil, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git known_hosts", err)
 	}

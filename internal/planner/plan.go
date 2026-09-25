@@ -17,7 +17,7 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
-const solderFieldManager = "solder"
+const fieldManager = "kuvryn-sync"
 
 // Change describes one resource-level plan action.
 type Change struct {
@@ -136,7 +136,7 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 		if _, declared := df[path]; declared {
 			continue
 		}
-		if slices.Contains(owners[path], solderFieldManager) {
+		if slices.Contains(owners[path], fieldManager) {
 			paths[path] = struct{}{}
 		}
 	}
@@ -243,7 +243,7 @@ func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanF
 	conflicts := []corev1alpha1.PlanConflict{}
 	for _, field := range fields {
 		for _, manager := range owners[field.Path] {
-			if manager == solderFieldManager {
+			if manager == fieldManager {
 				continue
 			}
 			conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})

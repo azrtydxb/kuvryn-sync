@@ -21,7 +21,7 @@ import (
 	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
 )
 
-const defaultReleaseName = "solder"
+const defaultReleaseName = "kuvryn-sync"
 
 // Renderer renders a chart like `helm template`, without a helm binary and
 // without contacting the cluster or any chart or values URL.

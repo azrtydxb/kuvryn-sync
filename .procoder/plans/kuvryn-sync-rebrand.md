@@ -226,8 +226,18 @@ Files:
   names and logger names.
 - `api/v1alpha1/repository_types.go`: the Git author default
   `kuvryn-sync@localhost`.
+- `internal/planner/plan.go`: its own copy of the field manager name,
+  renamed `fieldManager`, which must match the applier's or conflicts are
+  misreported.
+- The other runtime names the old brand appeared in: the notification
+  headers `X-Kuvryn-Sync-Signature` and `X-Kuvryn-Sync-Event`, the default
+  Helm release name `kuvryn-sync`, the `ksync graph` DOT name `kuvryn_sync`,
+  the Git checkout marker `.kuvryn-sync-checkout`, the known-hosts temp file
+  prefix, and the field manager in `hack/migration/common.sh`.
 - `internal/applier/applier_test.go` and `internal/ops/metrics_test.go`: new
-  or extended.
+  or extended. The metrics test records one sample per vector first,
+  because a vector without samples is not gathered, and also requires the
+  three `kuvryn_sync_` families to be present.
 
 Interfaces: produces `applier.FieldManager == "kuvryn-sync"` and metric
 names `kuvryn_sync_application_reconcile_total`,

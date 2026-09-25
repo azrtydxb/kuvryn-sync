@@ -90,8 +90,8 @@ func TestSetupTracingNamesTheServiceSolder(t *testing.T) {
 	}
 	for _, attr := range spans[0].Resource().Attributes() {
 		if attr.Key == "service.name" {
-			if attr.Value.AsString() != "solder" {
-				t.Fatalf("service.name = %q, want solder", attr.Value.AsString())
+			if attr.Value.AsString() != "kuvryn-sync" {
+				t.Fatalf("service.name = %q, want kuvryn-sync", attr.Value.AsString())
 			}
 			return
 		}

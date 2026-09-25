@@ -169,7 +169,7 @@ func TestGraphDOT(t *testing.T) {
 	}
 	dot := stdout.String()
 	for _, want := range []string{
-		"digraph solder {",
+		"digraph kuvryn_sync {",
 		`"apps/v1/Deployment/payments/api" -> "apps/v1/ReplicaSet/payments/api-1" [label="Owns"];`,
 		`"v1/Secret/payments/db" [label="Secret\npayments/db", style=dashed, color=red, xlabel="missing"];`,
 	} {

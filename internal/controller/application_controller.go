@@ -1427,7 +1427,7 @@ func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application 
 }
 
 // validateHelmReleaseName returns an error when a Helm Application's release
-// name breaks Helm's naming rule. An empty name renders as "solder", which is
+// name breaks Helm's naming rule. An empty name renders as "kuvryn-sync", which is
 // valid.
 func validateHelmReleaseName(application *corev1alpha1.Application) error {
 	render := application.Spec.Source.Render

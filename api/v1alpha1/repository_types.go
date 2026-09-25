@@ -67,10 +67,10 @@ type ImageUpdateSpec struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 	// authorName and authorEmail sign the commits.
-	// +kubebuilder:default:="Solder"
+	// +kubebuilder:default:="Kuvryn Sync"
 	// +optional
 	AuthorName string `json:"authorName,omitempty"`
-	// +kubebuilder:default:="solder@localhost"
+	// +kubebuilder:default:="kuvryn-sync@localhost"
 	// +optional
 	AuthorEmail string `json:"authorEmail,omitempty"`
 }

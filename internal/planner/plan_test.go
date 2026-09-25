@@ -186,7 +186,7 @@ func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
 	live.SetLabels(map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments"})
 	_ = unstructured.SetNestedField(live.Object, "defaulted", "data", "serverDefault")
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:kustomize.toolkit.fluxcd.io/name":{}}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
@@ -202,7 +202,7 @@ func TestRemovingAFieldSolderOwnedIsAChange(t *testing.T) {
 	desired := cm("shrinking", "same")
 	live := cm("shrinking", "same")
 	_ = unstructured.SetNestedField(live.Object, "old", "data", "removed")
-	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("kuvryn-sync", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 	live.SetLabels(map[string]string{"team": "search"})
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
 		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:team":{}}}}`),
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
 	if err != nil {
@@ -238,7 +238,7 @@ func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
 	live := cm("shared", "live")
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
 		managedBy("kubectl", `{"f:data":{"f:value":{}}}`),
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{cm("shared", "desired")}, []unstructured.Unstructured{live})
 	if err != nil {
@@ -253,7 +253,7 @@ func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
 	removed := cm("shared", "live")
 	_ = unstructured.SetNestedField(removed.Object, "old", "data", "removed")
 	removed.SetManagedFields([]metav1.ManagedFieldsEntry{
-		managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{},"f:removed":{}}}`),
 		managedBy("kubectl", `{"f:data":{"f:removed":{}}}`),
 	})
 	plan, err = Build([]unstructured.Unstructured{cm("shared", "live")}, []unstructured.Unstructured{removed})
@@ -279,7 +279,7 @@ func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
 		}}
 	}
 	live := deployment("nginx:1", map[string]any{"imagePullPolicy": "Always", "terminationMessagePath": "/dev/termination-log"})
-	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder",
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("kuvryn-sync",
 		`{"f:spec":{"f:template":{"f:spec":{"f:containers":{"k:{\"name\":\"api\"}":{".":{},"f:image":{},"f:name":{}}}}}}}`)})
 
 	unchanged, err := Build([]unstructured.Unstructured{deployment("nginx:1", nil)}, []unstructured.Unstructured{live})

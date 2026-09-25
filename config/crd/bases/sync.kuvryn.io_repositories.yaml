@@ -110,10 +110,10 @@ spec:
                     as `# {"$imagepolicy": "<namespace>:<policy>"}`.
                   properties:
                     authorEmail:
-                      default: solder@localhost
+                      default: kuvryn-sync@localhost
                       type: string
                     authorName:
-                      default: Solder
+                      default: Kuvryn Sync
                       description: authorName and authorEmail sign the commits.
                       type: string
                     branch:

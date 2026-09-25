@@ -63,7 +63,7 @@ func SetupTracing(ctx context.Context, log logr.Logger) (func(context.Context) e
 	// the default name.
 	res, err := resource.New(ctx,
 		resource.WithTelemetrySDK(),
-		resource.WithAttributes(attribute.String("service.name", "solder")),
+		resource.WithAttributes(attribute.String("service.name", "kuvryn-sync")),
 		resource.WithFromEnv(),
 	)
 	if err != nil {

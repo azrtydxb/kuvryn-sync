@@ -83,7 +83,7 @@ var _ = Describe("Image write-back", func() {
 			Spec: corev1alpha1.RepositorySpec{
 				Type:        corev1alpha1.RepositoryTypeGit,
 				Git:         &corev1alpha1.GitRepositorySpec{URL: bare, Revision: "main"},
-				ImageUpdate: &corev1alpha1.ImageUpdateSpec{SecretRef: corev1alpha1.SecretReference{Name: "writer"}, AuthorName: "Solder", AuthorEmail: "solder@localhost"},
+				ImageUpdate: &corev1alpha1.ImageUpdateSpec{SecretRef: corev1alpha1.SecretReference{Name: "writer"}, AuthorName: "Kuvryn Sync", AuthorEmail: "kuvryn-sync@localhost"},
 			},
 		})).To(Succeed())
 	})

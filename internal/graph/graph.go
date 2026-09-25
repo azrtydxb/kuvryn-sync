@@ -193,7 +193,7 @@ func (g Graph) MarshalJSON() ([]byte, error) {
 // unreadable nodes dotted and grey, and optional references dashed.
 func (g Graph) DOT() string {
 	var b bytes.Buffer
-	b.WriteString("digraph solder {\n")
+	b.WriteString("digraph kuvryn_sync {\n")
 	for _, unread := range g.Unread {
 		_, _ = fmt.Fprintf(&b, "  // %s\n", strings.ReplaceAll(unread, "\n", " "))
 	}

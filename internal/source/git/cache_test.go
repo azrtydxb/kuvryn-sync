@@ -460,7 +460,7 @@ func TestCacheRefusesSymlinkChainsOutOfTheCheckout(t *testing.T) {
 	for name, entries := range map[string][]treeEntry{
 		// Every link is inside on its own, but on disk s is the parent
 		// directory, so writing the marker would follow the chain out.
-		"marker through a chain": {link(".solder-checkout", "s/x"), regular, link("s", "t/.."), link("t", ".")},
+		"marker through a chain": {link(".kuvryn-sync-checkout", "s/x"), regular, link("s", "t/.."), link("t", ".")},
 		"climbing chain":         {regular, link("s0", "."), link("s1", "s0/.."), link("s2", "s1/.."), link("s3", "s2/..")},
 		// A tree may repeat a name, so a file can land below an earlier link.
 		"file below a link": {link("a", "."), link("s", "a/.."), {name: "s", entries: []treeEntry{{name: "x", mode: filemode.Regular, contents: "pwned"}}}},
