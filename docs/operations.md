@@ -11,8 +11,9 @@ Kuvryn Sync is installed from generated CRDs plus the controller manifests in
 ## Web console
 
 The chart installs the optional read-only web console with
-`console.enabled=true`. It needs an OIDC issuer, such as Dex, and a viewer
-ClusterRole for the people who use it. See [Web console](console.md) for the
+`console.enabled=true`. People sign in with a Kubernetes token, so it needs
+nothing but a viewer ClusterRole for the people who use it; an OIDC issuer,
+such as Dex, is optional. See [Web console](console.md) for the
 setup, every value, and troubleshooting.
 
 ## Day-two commands

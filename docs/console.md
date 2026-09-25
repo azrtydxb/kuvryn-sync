@@ -26,8 +26,162 @@ an action is needed, it shows the exact `ksync` command instead.
 
 ## How access works
 
-The console signs people in with OpenID Connect, then reads the cluster as
-them. It does not have a permission model of its own:
+The console has no permission model of its own. People sign in, and every
+read is made with their own Kubernetes identity, so RBAC decides what each
+person sees and the API server's audit log records the reads under their
+name. There are two ways to sign in:
+
+- **A Kubernetes token**, always available and the default. It works on any
+  cluster, with nothing to install: an operator mints a token, for example
+  with `kubectl create token`, and the person pastes it on the login page.
+  The console's own ServiceAccount then needs no permissions at all.
+- **OIDC**, optional, for clusters that already have single sign-on such as
+  Dex. It appears next to the token form once `console.oidc.issuerURL` and
+  `console.oidc.clientID` are set. See
+  [Set up OIDC sign-in with Dex](#set-up-oidc-sign-in-with-dex).
+
+Either way, the console's client sends only GET requests, never reads
+Secrets, and refuses subresources such as logs and exec. The console runs as
+its own Deployment and ServiceAccount, and never shares the controller's
+credentials.
+
+## Sign in with a Kubernetes token
+
+The login page always shows a **Kubernetes token** field. The form posts the
+token in the request body to `POST /auth/token`; it never goes in a URL.
+
+1. The console trims surrounding whitespace and a `Bearer ` prefix, and
+   refuses a token larger than 16 KiB, and a JWT whose `exp` has already
+   passed, before sending anything.
+2. It asks the API server who the token belongs to, with an
+   `authentication.k8s.io/v1` SelfSubjectReview sent with that token. That
+   needs Kubernetes 1.28 or later. The request carries only the token: none
+   of the console's own credentials, and no impersonation. It times out after
+   10 seconds.
+3. It refuses `system:anonymous`, anyone in `system:unauthenticated`, and
+   `system:` users other than ServiceAccounts. ServiceAccount tokens are
+   accepted, since the token is used as it is and nothing is impersonated.
+4. It seals the token, with the username and groups, into the encrypted
+   session cookie (`ksync_session`, AES-256-GCM, HttpOnly, Secure,
+   SameSite=Lax). Nothing is stored on the server, and the token is never
+   logged or returned by any API.
+
+The session ends at the token's own expiry when it is a JWT, and at most
+8 hours after sign-in, whichever comes first. A token that expires or is
+revoked earlier makes the next read fail with 401, and the console then
+clears the session and returns to the login page. Signing out clears the
+console's session only; it does not revoke the token.
+
+Every read in a token session carries the token as its bearer token, so the
+console sees exactly what the token's RBAC allows, and the audit log names
+the token's user. The console never falls back to its own ServiceAccount.
+
+## Create a viewer token
+
+The built-in `view` ClusterRole does not cover Kuvryn Sync's resources, and
+the per-kind `kuvryn-sync-*-viewer-role` ClusterRoles in `dist/install.yaml`
+do not aggregate into it; the chart does not install them at all. Give
+viewers the `kuvryn-sync-viewer` ClusterRole from
+[Grant viewers access](#grant-viewers-access), which reads the
+`sync.kuvryn.io` resources and the common kinds the Resources tab shows.
+
+To let someone see the Applications in `team-a`, create a ServiceAccount
+there and bind it to that ClusterRole with a RoleBinding, which grants it in
+`team-a` only:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: console-viewer
+  namespace: team-a
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-viewer
+  namespace: team-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kuvryn-sync-viewer
+subjects:
+  - kind: ServiceAccount
+    name: console-viewer
+    namespace: team-a
+```
+
+Then mint a token and hand it over:
+
+```sh
+kubectl create token console-viewer -n team-a --duration=8h
+```
+
+A console session never lasts longer than 8 hours, whatever the token's
+duration, and the API server may cap `--duration` lower. The person signs in
+with the token, picks `team-a` in the namespace picker, and sees what the
+RoleBinding allows. For a viewer of every namespace, bind the ClusterRole with
+a ClusterRoleBinding instead. Anyone holding the token can read what it can,
+so share it like a password, keep durations short, and delete the
+ServiceAccount to revoke every token minted for it.
+
+## Install the console with the chart
+
+With no OIDC values the chart renders a token-only console:
+
+```sh
+helm upgrade --install kuvryn-sync charts/kuvryn-sync \
+  --namespace kuvryn-sync-system \
+  --set console.enabled=true --set console.clusterName=prod-eu-1
+kubectl -n kuvryn-sync-system rollout status deployment/kuvryn-sync-kuvryn-sync-console
+```
+
+The chart creates, all named `<release>-kuvryn-sync-console`:
+
+- the Deployment, running `ksync console` as non-root with a read-only root
+  filesystem;
+- its ServiceAccount, which has no permissions in a token-only console;
+- a Service on port 80;
+- the optional Ingress (`console.ingress`);
+- with OIDC only, a ClusterRole and ClusterRoleBinding that grant
+  `impersonate` on `users` and `groups`.
+
+The console's cookies are `Secure`, so serve it over TLS, for example with
+`console.ingress` and a TLS Secret. To try it without an ingress, forward the
+Service and open `http://localhost:8080`; browsers treat `localhost` as a
+secure origin, and Chrome and Firefox keep the `Secure` cookie there:
+
+```sh
+kubectl -n kuvryn-sync-system port-forward svc/kuvryn-sync-kuvryn-sync-console 8080:80
+```
+
+Without `console.sessionKey.secretName` the console keeps a random session
+key in memory, so a restart signs everyone out; see
+[Create the Secrets](#3-create-the-secrets) for a key that lasts.
+
+## Add the console to a raw-manifest install
+
+The raw install, `dist/install.yaml`, does not include the console. Render the
+chart's console template on its own and apply it next to it, from a checkout
+of the same release tag, so the image matches the controller:
+
+```sh
+helm template kuvryn-sync charts/kuvryn-sync --namespace kuvryn-sync-system \
+  --set console.enabled=true --set console.clusterName=prod-eu-1 \
+  --show-only templates/console.yaml | kubectl apply -f -
+```
+
+That is the token-only console: a ServiceAccount, a Deployment and a Service
+in `kuvryn-sync-system`, and nothing cluster-wide. Add
+`--set console.ingress.enabled=true --set console.ingress.host=...` for an
+Ingress, `--set image.pullSecrets[0]=<secret>` for a private image, or the
+OIDC values from [Install with OIDC](#4-install-the-console-with-oidc) for
+single sign-on. Render again with the same values after upgrading, and remove
+it with `kubectl delete -f -` on the same output.
+
+## Set up OIDC sign-in with Dex
+
+OIDC sign-in is optional and sits next to the token form. With it:
 
 - Sign-in uses the authorization code flow with PKCE (S256), state and
   nonce. The ID token's signature, issuer, audience and expiry are verified
@@ -48,32 +202,23 @@ them. It does not have a permission model of its own:
   > (`oidc:acme:platform`). Also restrict the IdP to the organizations and
   > groups that should reach the console, as the Dex examples below do.
 
-- The identity is kept only in an encrypted cookie (`ksync_session`,
-  AES-256-GCM, HttpOnly, Secure, SameSite=Lax) that expires with the ID
-  token. Nothing is stored on the server, and no refresh token is kept, so
-  users sign in again when the token expires.
-- Every cluster read impersonates the signed-in user and their groups, so
-  Kubernetes RBAC decides what each person sees, and the API server's audit
-  log records the reads under their name.
-- The console's ServiceAccount may only impersonate `users` and `groups`. Its
-  client sends only GET requests, never reads Secrets, and refuses
-  usernames or groups that start with `system:`.
+- The session cookie expires with the ID token, and no refresh token is
+  kept, so users sign in again when it expires.
+- Every read impersonates the signed-in user and their groups. The console's
+  ServiceAccount may only impersonate `users` and `groups`, and the console
+  refuses usernames or groups that start with `system:`.
 
-The console runs as its own Deployment and ServiceAccount. It never shares
-the controller's credentials.
-
-> **The console's ServiceAccount is as powerful as cluster-admin.** Kubernetes
-> lets a holder of `impersonate` on `users` and `groups` act as any user or
-> group, `system:masters` included. The console refuses `system:` identities,
-> but that check lives only in the console process: anyone who obtains the
-> ServiceAccount's token can impersonate cluster-admin directly. Treat the
-> release namespace like a cluster-admin credential. Allow nobody but
-> cluster admins to exec into its pods, create pods there, or read its
+> **With OIDC, the console's ServiceAccount is as powerful as cluster-admin.**
+> Kubernetes lets a holder of `impersonate` on `users` and `groups` act as any
+> user or group, `system:masters` included. The console refuses `system:`
+> identities, but that check lives only in the console process: anyone who
+> obtains the ServiceAccount's token can impersonate cluster-admin directly.
+> Treat the release namespace like a cluster-admin credential. Allow nobody
+> but cluster admins to exec into its pods, create pods there, or read its
 > Secrets. Where you can, list the users and groups the console may
 > impersonate in `console.impersonation`, as shown under
 > [Restrict whom the console may impersonate](#restrict-whom-the-console-may-impersonate).
-
-## Set up Dex
+> A token-only console has no such permission.
 
 Any OIDC issuer works. This walk-through uses
 [Dex](https://dexidp.io/), which the login page's GitHub, GitLab and email
@@ -149,7 +294,7 @@ kubectl -n kuvryn-sync-system create secret generic ksync-console-oidc \
   --from-literal=client-secret='<the Dex client secret>'
 ```
 
-The session key is 32 bytes. Without one, the console generates a random key
+The session key is 32 bytes, and token sessions use it too. Without one, the console generates a random key
 in memory at startup and logs that it did: every restart then signs everyone
 out, and replicas cannot share sessions. The chart never generates the key
 itself, because a random value in the chart would change on every render, and
@@ -167,7 +312,7 @@ Rotating the session key signs everyone out. `console.replicas` above 1
 requires `console.sessionKey.secretName`; the chart refuses to render
 otherwise.
 
-### 4. Install the console with the chart
+### 4. Install the console with OIDC
 
 ```yaml
 # console-values.yaml
@@ -202,58 +347,55 @@ helm upgrade --install kuvryn-sync charts/kuvryn-sync \
 kubectl -n kuvryn-sync-system rollout status deployment/kuvryn-sync-kuvryn-sync-console
 ```
 
-The redirect URL defaults to `https://<ingress.host>/auth/callback`; set
-`console.redirectURL` when the console is exposed some other way. With
-neither set, the chart refuses to render. The
-console's cookies are `Secure`, so serve it over TLS.
+`console.oidc.issuerURL` and `console.oidc.clientID` go together: with only
+one of them the chart refuses to render. The redirect URL defaults to
+`https://<ingress.host>/auth/callback`; set `console.redirectURL` when the
+console is exposed some other way. With OIDC and neither set, the chart
+refuses to render. With OIDC the chart also renders the impersonate
+ClusterRole and ClusterRoleBinding.
 
-The chart creates, all named `<release>-kuvryn-sync-console`:
-
-- the Deployment, running `ksync console` as non-root with a read-only root
-  filesystem;
-- its ServiceAccount;
-- a Service on port 80;
-- the optional Ingress;
-- a ClusterRole and ClusterRoleBinding that grant only `impersonate` on
-  `users` and `groups`.
+## Chart values
 
 Every chart value:
 
-| Value                                  | Default         | Meaning                                                           |
-| -------------------------------------- | --------------- | ----------------------------------------------------------------- |
-| `console.replicas`                     | `1`             | More than 1 needs `sessionKey.secretName`.                        |
-| `console.enabled`                      | `false`         | Install the console.                                              |
-| `console.oidc.issuerURL`               | (required)      | OIDC issuer URL.                                                  |
-| `console.oidc.clientID`                | (required)      | OIDC client ID.                                                   |
-| `console.oidc.clientSecret.secretName` | `""`            | Secret with the client secret; empty for a public client.         |
-| `console.oidc.clientSecret.key`        | `client-secret` | Key in that Secret.                                               |
-| `console.redirectURL`                  | from ingress    | `https://<host>/auth/callback`; required without an ingress host. |
-| `console.usernameClaim`                | `email`         | Claim impersonated as the username.                               |
-| `console.groupsClaim`                  | `groups`        | Claim impersonated as the groups.                                 |
-| `console.usernamePrefix`               | `""`            | Prefix added to the username.                                     |
-| `console.groupsPrefix`                 | `""`            | Prefix added to each group.                                       |
-| `console.sessionKey.secretName`        | `""`            | Secret with the 32-byte session key; empty keeps a key in memory. |
-| `console.sessionKey.key`               | `session-key`   | Key in that Secret.                                               |
-| `console.clusterName`                  | `cluster`       | Name shown in the console.                                        |
-| `console.ssoName`                      | `""`            | Names the "Sign in with" button.                                  |
-| `console.connectors`                   | `[]`            | Dex connectors offered: `github`, `gitlab`, `local`.              |
-| `console.docsURL`, `console.statusURL` | `""`            | Links on the login page.                                          |
-| `console.ingress.enabled`              | `false`         | Create an Ingress.                                                |
-| `console.ingress.className`, `.host`   | `""`            | Ingress class and host.                                           |
-| `console.ingress.annotations`, `.tls`  | `{}`, `[]`      | Ingress annotations and TLS.                                      |
-| `console.resources`                    | small           | Container resources.                                              |
+| Value                                  | Default         | Meaning                                                             |
+| -------------------------------------- | --------------- | ------------------------------------------------------------------- |
+| `console.replicas`                     | `1`             | More than 1 needs `sessionKey.secretName`.                          |
+| `console.enabled`                      | `false`         | Install the console.                                                |
+| `console.oidc.issuerURL`               | `""`            | OIDC issuer URL; set with `clientID`, or neither for tokens only.   |
+| `console.oidc.clientID`                | `""`            | OIDC client ID; set with `issuerURL`.                               |
+| `console.oidc.clientSecret.secretName` | `""`            | Secret with the client secret; empty for a public client.           |
+| `console.oidc.clientSecret.key`        | `client-secret` | Key in that Secret.                                                 |
+| `console.redirectURL`                  | from ingress    | With OIDC: `https://<host>/auth/callback`; required without a host. |
+| `console.usernameClaim`                | `email`         | Claim impersonated as the username.                                 |
+| `console.groupsClaim`                  | `groups`        | Claim impersonated as the groups.                                   |
+| `console.usernamePrefix`               | `""`            | Prefix added to the username.                                       |
+| `console.groupsPrefix`                 | `""`            | Prefix added to each group.                                         |
+| `console.sessionKey.secretName`        | `""`            | Secret with the 32-byte session key; empty keeps a key in memory.   |
+| `console.sessionKey.key`               | `session-key`   | Key in that Secret.                                                 |
+| `console.clusterName`                  | `cluster`       | Name shown in the console.                                          |
+| `console.ssoName`                      | `""`            | Names the "Sign in with" button.                                    |
+| `console.connectors`                   | `[]`            | Dex connectors offered: `github`, `gitlab`, `local`.                |
+| `console.docsURL`, `console.statusURL` | `""`            | Links on the login page.                                            |
+| `console.ingress.enabled`              | `false`         | Create an Ingress.                                                  |
+| `console.ingress.className`, `.host`   | `""`            | Ingress class and host.                                             |
+| `console.ingress.annotations`, `.tls`  | `{}`, `[]`      | Ingress annotations and TLS.                                        |
+| `console.resources`                    | small           | Container resources.                                                |
 
-The same settings are `ksync console` flags when you run it yourself: `--listen`, `--oidc-issuer-url`,
-`--oidc-client-id`, `--oidc-client-secret-file`, `--redirect-url`,
-`--username-claim`, `--groups-claim`, `--username-prefix`,
-`--groups-prefix`, `--session-key-file`, `--cluster-name`, `--sso-name`,
-`--connectors`, `--docs-url`, `--status-url` and, for local development over
-plain HTTP only, `--insecure-cookies`, which refuses to start unless
-`--redirect-url` is on `localhost`, `127.0.0.1` or `[::1]`.
+The same settings are `ksync console` flags when you run it yourself:
+`--listen`, `--session-key-file`, `--cluster-name`, `--docs-url` and
+`--status-url`; for OIDC, `--oidc-issuer-url` and `--oidc-client-id`, which
+go together, `--oidc-client-secret-file`, `--redirect-url`,
+`--username-claim`, `--groups-claim`, `--username-prefix`, `--groups-prefix`,
+`--sso-name` and `--connectors`; and, for local development over plain HTTP
+only, `--insecure-cookies`, which refuses to start unless `--redirect-url`
+(with OIDC) or `--listen` (without) is on `localhost`, `127.0.0.1` or
+`[::1]`.
 
 ## Restrict whom the console may impersonate
 
-By default the console's ClusterRole may impersonate any user and any group.
+This applies with OIDC only; a token-only console impersonates nobody. By
+default the console's ClusterRole may impersonate any user and any group.
 To limit it, list the users and groups that may use the console. Each
 non-empty list becomes `resourceNames` on its impersonate rule:
 
@@ -272,8 +414,8 @@ both to close the gap.
 
 ## Grant viewers access
 
-The console adds no permissions: a person sees what their own RBAC lets them
-read. A viewer needs `get` and `list` on the Kuvryn Sync resources, and on
+The console adds no permissions: a person sees what their own RBAC, or their
+token's, lets them read. A viewer needs `get` and `list` on the Kuvryn Sync resources, and on
 the kinds their Applications manage to see the Resources tab. This
 ClusterRole covers the common kinds; add the others your Applications manage.
 
@@ -323,7 +465,21 @@ kubectl -n team-a create rolebinding kuvryn-sync-viewers \
 
 ## Troubleshooting
 
-- **"Sign-in failed" right after starting:** the console could not reach
+- **"The token was not accepted":** the API server refused the token, it has
+  expired, it is larger than 16 KiB, or it belongs to `system:anonymous` or a
+  `system:` user other than a ServiceAccount. Paste the token alone, without
+  quotes; a leading `Bearer ` is fine. `kubectl create token` prints a fresh
+  one.
+- **"The console could not reach the Kubernetes API server":** the
+  SelfSubjectReview failed or timed out. The console logs why; a cluster
+  older than Kubernetes 1.28 does not serve SelfSubjectReview, and the log
+  says so.
+- **Pages are empty or Forbidden after a token sign-in:** the token signed
+  in, but its RBAC allows nothing there. Bind it to `kuvryn-sync-viewer` as
+  in [Create a viewer token](#create-a-viewer-token).
+- **Sent back to the login page mid-session:** the token expired or was
+  revoked, or 8 hours passed. Sign in with a fresh token.
+- **OIDC "Sign-in failed" right after starting:** the console could not reach
   the issuer yet. It retries discovery every 10 seconds, and `/healthz`
   reports `"oidc":"pending"` and answers 503 until it succeeds, so the pod
   is not Ready. Check the issuer URL and that the pod can reach it.
@@ -346,10 +502,11 @@ kubectl -n team-a create rolebinding kuvryn-sync-viewers \
 - **Rows read "not visible with your permissions":** the person may not list
   that kind in the destination namespace. Secrets always read that way,
   because the console never reads them.
-- **Every page is Forbidden:** the console's ServiceAccount cannot
-  impersonate. At startup it checks this with SelfSubjectAccessReviews, logs
+- **Every page is Forbidden for OIDC users:** the console's ServiceAccount
+  cannot impersonate. At startup it checks this with SelfSubjectAccessReviews, logs
   the result, and `/healthz` reports `"impersonation":"missing"`. Check the
-  `<release>-kuvryn-sync-console` ClusterRoleBinding.
+  `<release>-kuvryn-sync-console` ClusterRoleBinding. Without OIDC it
+  checks nothing and reports `"impersonation":"disabled"`.
 - **Signed out after an upgrade or restart:** the session key changed, or
   the console generated one in memory because `console.sessionKey.secretName`
   is not set. Keep it in a Secret you manage if restarts and upgrades must not
@@ -368,4 +525,6 @@ go run ./hack/console-dev
 ```
 
 `hack/console-dev` serves the console on `http://127.0.0.1:5174` against a
-local envtest API server with sample data, signed in as a viewer.
+local envtest API server with sample data. Without a session it signs you in
+as a stub viewer; `go run ./hack/console-dev token` prints a token for the
+`default/console-viewer` ServiceAccount to try token sign-in with.

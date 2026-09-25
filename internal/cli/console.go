@@ -25,6 +25,9 @@ func runConsole(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	restConfig, err := config.GetConfig()
 	if err != nil {
 		return fmt.Errorf("load cluster configuration: %w", err)
@@ -36,7 +39,7 @@ func runConsole(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ctx = ctrllog.IntoContext(ctx, zap.New())
-	auth, err := console.NewAuth(ctx, cfg)
+	auth, err := console.NewAuth(ctx, cfg, restConfig)
 	if err != nil {
 		return err
 	}

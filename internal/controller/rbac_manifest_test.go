@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -298,6 +299,17 @@ func helmTemplate(t *testing.T, args ...string) string {
 // chart must refuse.
 func renderChart(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return renderChartIn(t, root, nil, args...)
+}
+
+// renderChartIn renders charts/kuvryn-sync under workspace, keeping only the
+// objects keep accepts, or all of them when keep is nil.
+func renderChartIn(t *testing.T, workspace string, keep func(map[string]any) bool, args ...string) (string, error) {
+	t.Helper()
 	values := map[string]any{}
 	for i := 0; i+1 < len(args); i += 2 {
 		if args[i] != "--set" {
@@ -307,18 +319,17 @@ func renderChart(t *testing.T, args ...string) (string, error) {
 			t.Fatal(err)
 		}
 	}
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
 	objects, err := helmrenderer.Renderer{}.Render(context.Background(), renderer.Input{
-		Workspace: root, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system", Values: values,
+		Workspace: workspace, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system", Values: values,
 	})
 	if err != nil {
 		return "", err
 	}
 	var out strings.Builder
 	for _, obj := range objects {
+		if keep != nil && !keep(obj.Object) {
+			continue
+		}
 		doc, err := sigsyaml.Marshal(obj.Object)
 		if err != nil {
 			t.Fatal(err)
@@ -455,4 +466,138 @@ func TestHelmChartPassesImagePullSecrets(t *testing.T) {
 	if got := len(regexp.MustCompile(`imagePullSecrets:\s*\n\s*- name: ghcr-pull`).FindAllString(out, -1)); got != 2 {
 		t.Fatalf("imagePullSecrets rendered on %d Deployments, want 2 (manager and console):\n%s", got, out)
 	}
+}
+
+// isConsoleObject reports whether a rendered object belongs to the console.
+func isConsoleObject(obj map[string]any) bool {
+	metadata, _ := obj["metadata"].(map[string]any)
+	labels, _ := metadata["labels"].(map[string]any)
+	return labels["app.kubernetes.io/name"] == "kuvryn-sync-console"
+}
+
+// consoleGoldens are OIDC value sets whose console objects must render
+// exactly as v0.4.2's chart rendered them. The image tag is pinned, since
+// it follows the chart's appVersion.
+var consoleGoldens = map[string][]string{
+	"minimal": append(append([]string{}, consoleArgs...), "--set", "image.tag=v0.4.2"),
+	"full": {
+		"--set", "console.enabled=true", "--set", "image.tag=v0.4.2",
+		"--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync",
+		"--set", "console.oidc.clientSecret.secretName=ksync-console-oidc",
+		"--set", "console.sessionKey.secretName=ksync-console-session",
+		"--set", "console.impersonation.users={alice@acme.io}", "--set", "console.impersonation.groups={acme:platform}",
+		"--set", "console.usernameClaim=preferred_username", "--set", "console.usernamePrefix=oidc:", "--set", "console.groupsPrefix=oidc:",
+		"--set", "console.clusterName=prod-eu-1", "--set", "console.ssoName=Dex", "--set", "console.connectors={github,gitlab,local}",
+		"--set", "console.docsURL=https://docs.example", "--set", "console.statusURL=https://status.example",
+		"--set", "console.ingress.enabled=true", "--set", "console.ingress.className=nginx", "--set", "console.ingress.host=console.example",
+		"--set", "console.ingress.tls[0].secretName=console-tls", "--set", "console.ingress.tls[0].hosts[0]=console.example",
+		"--set", "image.pullSecrets[0]=ghcr-pull",
+	},
+	"replicas": append(append([]string{}, consoleArgs...), "--set", "image.tag=v0.4.2", "--set", "console.replicas=2", "--set", "console.sessionKey.secretName=ksync-session"),
+}
+
+// TestConsoleChartTokenOnly fails if the chart without OIDC values renders an
+// impersonate ClusterRole or ClusterRoleBinding, requires a redirect URL or
+// passes OIDC flags, or if the chart with OIDC values renders the console
+// differently from 0.4.2.
+//
+// The goldens under testdata/console-0.4.2 are v0.4.2's chart rendered with
+// consoleGoldens. To regenerate them, extract that chart and point
+// KSYNC_CONSOLE_GOLDEN_FROM at the directory holding charts/kuvryn-sync:
+//
+//	git archive v0.4.2 charts/kuvryn-sync | tar -x -C /tmp/v042
+//	KSYNC_CONSOLE_GOLDEN_FROM=/tmp/v042 go test ./internal/controller -run TestConsoleChartTokenOnly
+//
+// then format them with procoder format. They are compared by content, so
+// formatting does not matter.
+func TestConsoleChartTokenOnly(t *testing.T) {
+	root := mustAbs(t, filepath.Join("..", ".."))
+	dir := filepath.Join("testdata", "console-0.4.2")
+	if from := os.Getenv("KSYNC_CONSOLE_GOLDEN_FROM"); from != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, args := range consoleGoldens {
+			golden, err := renderChartIn(t, from, isConsoleObject, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(golden), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, extra := range [][]string{nil, {"--set", "console.ingress.enabled=true", "--set", "console.ingress.host=console.example"}} {
+		out, err := renderChart(t, append([]string{"--set", "console.enabled=true"}, extra...)...)
+		if err != nil {
+			t.Fatalf("the console without OIDC values did not render (%v): %v", extra, err)
+		}
+		console, err := renderChartIn(t, root, isConsoleObject, append([]string{"--set", "console.enabled=true"}, extra...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, kind := range []string{"kind: ClusterRole\n", "kind: ClusterRoleBinding\n", "impersonate"} {
+			if strings.Contains(console, kind) {
+				t.Errorf("token-only console renders %q:\n%s", strings.TrimSpace(kind), console)
+			}
+		}
+		for _, flag := range []string{"--oidc-", "--redirect-url", "--username-claim", "--groups-claim", "--username-prefix", "--groups-prefix", "--sso-name", "--connectors"} {
+			if strings.Contains(out, flag) {
+				t.Errorf("token-only console passes %s", flag)
+			}
+		}
+		if !strings.Contains(console, "- --cluster-name=cluster") || strings.Count(console, "kind: Deployment") != 1 {
+			t.Errorf("token-only console has no Deployment running ksync console:\n%s", console)
+		}
+	}
+	for _, half := range [][]string{
+		{"--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.redirectURL=https://c.example/auth/callback"},
+		{"--set", "console.enabled=true", "--set", "console.oidc.clientID=ksync", "--set", "console.redirectURL=https://c.example/auth/callback"},
+	} {
+		if _, err := renderChart(t, half...); err == nil || !strings.Contains(err.Error(), "must be set together") {
+			t.Errorf("%v rendered with only one OIDC value: %v", half, err)
+		}
+	}
+
+	for name, args := range consoleGoldens {
+		want, err := os.ReadFile(filepath.Join(dir, name+".yaml"))
+		if err != nil {
+			t.Fatalf("golden %s: %v", name, err)
+		}
+		got, err := renderChartIn(t, root, isConsoleObject, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(yamlObjects(t, got), yamlObjects(t, string(want))) {
+			t.Errorf("%s: the console renders differently from 0.4.2\n--- 0.4.2\n%s\n--- now\n%s", name, want, got)
+		}
+	}
+}
+
+// yamlObjects decodes every document in a multi-document YAML stream, so
+// renders compare by content rather than by formatting.
+func yamlObjects(t *testing.T, stream string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	decoder := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(stream), 4096)
+	for {
+		obj := map[string]any{}
+		if err := decoder.Decode(&obj); errors.Is(err, io.EOF) {
+			return out
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if len(obj) > 0 {
+			out = append(out, obj)
+		}
+	}
+}
+
+func mustAbs(t *testing.T, path string) string {
+	t.Helper()
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
 }

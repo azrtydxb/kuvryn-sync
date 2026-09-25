@@ -90,9 +90,13 @@ func seedRBAC(ctx context.Context, c client.Client) error {
 	binding := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: "kuvryn-sync-viewers"},
 		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: role.Name},
-		Subjects:   []rbacv1.Subject{{APIGroup: rbacv1.GroupName, Kind: "Group", Name: "viewers"}},
+		Subjects: []rbacv1.Subject{
+			{APIGroup: rbacv1.GroupName, Kind: "Group", Name: "viewers"},
+			{Kind: "ServiceAccount", Namespace: appNamespace, Name: viewerServiceAccount},
+		},
 	}
-	for _, obj := range []client.Object{role, binding} {
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: appNamespace, Name: viewerServiceAccount}}
+	for _, obj := range []client.Object{role, binding, sa} {
 		if err := c.Create(ctx, obj); err != nil {
 			return err
 		}

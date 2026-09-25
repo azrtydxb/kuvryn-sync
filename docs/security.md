@@ -27,7 +27,44 @@ surfaces while still giving operators useful plans, events, and diagnostics.
 ## Web console
 
 The optional [web console](console.md) runs as its own Deployment and
-ServiceAccount, whose only permission is `impersonate` on `users` and
+ServiceAccount. People sign in with a Kubernetes bearer token or, when it is
+configured, OIDC.
+
+A token session can read exactly what its token's RBAC allows, and nothing
+else:
+
+- Every read carries the session's own bearer token and nothing of the
+  console's: its client starts from the API server's address and CA only, so
+  the console ServiceAccount's token, client certificates, basic auth,
+  impersonation settings and credential plugins never reach the request, and
+  the transport refuses any `Impersonate-*` header or other `Authorization`
+  value before the request is sent. The audit log records the token's user.
+- A token session cannot write, read Secrets, or open logs, exec or other
+  subresources, whatever the token itself may do, because of the client
+  rules below.
+- The token is validated with a SelfSubjectReview sent with it (Kubernetes
+  1.28 or later). `system:anonymous`, the `system:unauthenticated` group and
+  `system:` users other than ServiceAccounts are refused, as are tokens over
+  16 KiB and JWTs past their `exp`. So is a token whose review names the
+  user or a group after the token itself, as some static-token files do,
+  because the identity is shown to the user and logged.
+- The token is kept only in the encrypted session cookie, never logged,
+  never returned by an API and never put in a URL. The session ends at the
+  token's `exp` or 8 hours after sign-in, whichever is first, and a 401 from
+  the API server ends it early. The sealed cookie carries the token, so a
+  copied cookie works like the token until the session ends; signing out
+  only clears it from the browser and does not revoke the token. Delete the
+  token's ServiceAccount, or the object it is bound to, for that. Running
+  the console with client-go verbosity 8 or higher (`-v=8`) makes client-go
+  log raw API response bodies, which the console does not filter; keep it at
+  the default in production.
+- Requests go only to the API server's own scheme and host: a redirect to
+  another host is refused rather than followed, since client-go would send
+  the token with it.
+- A token-only console's ServiceAccount has no permissions: the chart
+  renders no ClusterRole or binding for it.
+
+With OIDC, the console's ServiceAccount may `impersonate` `users` and
 `groups`. That permission is effectively cluster-admin: it covers any user
 and group, `system:masters` included, and the console's refusal of `system:`
 identities is enforced only inside the console process. Whoever holds the
@@ -37,7 +74,7 @@ admins, and limit the role with `console.impersonation.users` and
 `console.impersonation.groups`, which render `resourceNames` on the
 impersonate rules.
 
-- Every cluster read impersonates the signed-in user and their groups, so
+- Every OIDC read impersonates the signed-in user and their groups, so
   Kubernetes RBAC decides what each person sees, and the API server's audit
   log records the reads under their name. Usernames and groups starting with
   `system:` are refused.
@@ -46,14 +83,15 @@ impersonate rules.
   however the path is spelled, subresources such as proxies, exec, attach,
   port-forward and logs, watches, and connection upgrades. Secrets appear
   only as names recorded in a plan.
-- Sign-in is the OIDC code flow with PKCE (S256), state and nonce, and the ID
+- OIDC sign-in is the code flow with PKCE (S256), state and nonce, and the ID
   token is verified against the issuer's keys. The session is an AES-256-GCM
   encrypted, HttpOnly, Secure, SameSite=Lax cookie that expires with the ID
   token; no refresh token is stored.
 - Pages are served with a strict Content-Security-Policy:
   `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`.
-- Cross-site POSTs, such as a forged sign-out, are refused with 403, judged
-  by the browser's `Sec-Fetch-Site` or `Origin` header.
+- Cross-site POSTs, such as a forged sign-out or a forged token sign-in, are
+  refused with 403, judged by the browser's `Sec-Fetch-Site` or `Origin`
+  header.
 - Every message it returns goes through the same redaction as the CLI.
 
 ## Server-Side Apply ownership

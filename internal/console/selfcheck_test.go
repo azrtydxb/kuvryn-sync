@@ -48,7 +48,7 @@ func TestSelfCheckReportsImpersonationOnHealthz(t *testing.T) {
 		{nil, `"impersonation":"missing"`},
 	} {
 		api := fakeSSARServer(t, tc.allowed...)
-		s, err := NewServer(Config{}, &rest.Config{Host: api.URL, ContentConfig: rest.ContentConfig{ContentType: "application/json"}})
+		s, err := NewServer(Config{IssuerURL: "https://dex.example", ClientID: "ksync"}, &rest.Config{Host: api.URL, ContentConfig: rest.ContentConfig{ContentType: "application/json"}})
 		if err != nil {
 			t.Fatal(err)
 		}

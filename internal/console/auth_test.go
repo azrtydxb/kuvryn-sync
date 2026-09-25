@@ -195,7 +195,7 @@ func mustAuth(t *testing.T, issuerURL string) *Auth {
 
 func mustAuthWith(t *testing.T, cfg Config) *Auth {
 	t.Helper()
-	a, err := NewAuth(context.Background(), cfg)
+	a, err := NewAuth(context.Background(), cfg, &restConfigForTest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestServerReportsOIDCReadinessAndRoutesSignIn(t *testing.T) {
 
 func TestDiscoveryRetriesUntilTheIssuerAnswers(t *testing.T) {
 	cfg := testConfig(t, "http://127.0.0.1:1")
-	a, err := NewAuth(t.Context(), cfg)
+	a, err := NewAuth(t.Context(), cfg, &restConfigForTest)
 	if err != nil {
 		t.Fatalf("an unreachable issuer failed startup: %v", err)
 	}
@@ -519,9 +519,27 @@ func TestInsecureCookiesOnlyForLocalhost(t *testing.T) {
 	} {
 		cfg := testConfig(t, iss.URL)
 		cfg.InsecureCookies, cfg.RedirectURL = true, redirect
-		_, err := NewAuth(context.Background(), cfg)
+		_, err := NewAuth(context.Background(), cfg, &restConfigForTest)
 		if (err == nil) != ok {
 			t.Errorf("--insecure-cookies with %s: err = %v", redirect, err)
+		}
+	}
+}
+
+// Without OIDC there is no redirect URL, so --insecure-cookies is judged by
+// the address the console listens on.
+func TestInsecureCookiesWithoutOIDCOnlyOnLoopback(t *testing.T) {
+	for listen, ok := range map[string]bool{
+		":8080":          false,
+		"0.0.0.0:8080":   false,
+		"10.0.0.5:8080":  false,
+		"127.0.0.1:5174": true,
+		"localhost:5174": true,
+		"[::1]:5174":     true,
+	} {
+		err := Config{Listen: listen, InsecureCookies: true}.Validate()
+		if (err == nil) != ok {
+			t.Errorf("--insecure-cookies with --listen %s: err = %v", listen, err)
 		}
 	}
 }

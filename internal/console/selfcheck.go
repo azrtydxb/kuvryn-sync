@@ -14,8 +14,14 @@ import (
 // console's own ServiceAccount may impersonate users and groups, logs the
 // answer, and reports it on /healthz as "granted" or "missing". Without it
 // every read the console makes is Forbidden. The reviews are the only
-// requests the console sends as itself, and they read nothing.
+// requests the console sends as itself, and they read nothing. Without OIDC
+// the console impersonates nobody, so it checks nothing and reports
+// "disabled".
 func (s *Server) SelfCheck(ctx context.Context) error {
+	if !s.cfg.OIDCEnabled() {
+		s.impersonation.Store("disabled")
+		return nil
+	}
 	cs, err := kubernetes.NewForConfig(s.base)
 	if err != nil {
 		return err

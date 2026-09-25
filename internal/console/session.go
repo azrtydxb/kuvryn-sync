@@ -64,3 +64,25 @@ func newAEAD(key []byte) (cipher.AEAD, error) {
 	}
 	return cipher.NewGCM(block)
 }
+
+// Secret holds a bearer token. It prints and marshals as "[redacted]", so an
+// Identity that reaches a log line or a response never shows the token.
+type Secret string
+
+const redactedSecret = "[redacted]"
+
+// String implements fmt.Stringer.
+func (Secret) String() string { return redactedSecret }
+
+// GoString implements fmt.GoStringer, for %#v.
+func (Secret) GoString() string { return redactedSecret }
+
+// MarshalJSON implements json.Marshaler.
+func (Secret) MarshalJSON() ([]byte, error) { return json.Marshal(redactedSecret) }
+
+// MarshalText implements encoding.TextMarshaler.
+func (Secret) MarshalText() ([]byte, error) { return []byte(redactedSecret), nil }
+
+// Reveal returns the token, for the one place that sends it: the
+// Authorization header of the session's own requests.
+func (s Secret) Reveal() string { return string(s) }

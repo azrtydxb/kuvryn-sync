@@ -18,6 +18,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"k8s.io/client-go/rest"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/azrtydxb/kuvryn-sync/internal/redact"
@@ -29,24 +30,87 @@ const (
 	SessionCookie = "ksync_session"
 	StateCookie   = "ksync_state"
 
-	loginWindow        = 10 * time.Minute
-	maxSessionCookie   = 4000
-	discoveryRetry     = 10 * time.Second
-	systemPrefix       = "system:"
-	callbackTimeout    = 15 * time.Second
-	errTooManyGroups   = "too many groups for a session"
-	emailClaim         = "email"
-	emailVerifiedClaim = "email_verified"
+	loginWindow          = 10 * time.Minute
+	maxSessionCookie     = 4000
+	discoveryRetry       = 10 * time.Second
+	systemPrefix         = "system:"
+	anonymousUser        = "system:anonymous"
+	unauthenticatedGroup = "system:unauthenticated"
+	serviceAccountPrefix = "system:serviceaccount:"
+	callbackTimeout      = 15 * time.Second
+	errTooManyGroups     = "too many groups for a session"
+	emailClaim           = "email"
+	emailVerifiedClaim   = "email_verified"
 )
 
 // ErrNoSession reports a request without a valid, unexpired session.
 var ErrNoSession = errors.New("console: no session")
 
-// Identity is the signed-in user the console impersonates.
+// Sign-in methods, recorded in the session.
+const (
+	// MethodOIDC is an OIDC session, whose reads impersonate the user.
+	MethodOIDC = "oidc"
+	// MethodToken is a Kubernetes token session, whose reads carry the token.
+	MethodToken = "token"
+)
+
+// Identity is the signed-in user. An OIDC identity is impersonated; a token
+// identity reads with its own Token and is never impersonated.
 type Identity struct {
 	Username string    `json:"u"`
 	Groups   []string  `json:"g,omitempty"`
 	Expiry   time.Time `json:"e"`
+	// Method is MethodToken or MethodOIDC; empty means MethodOIDC, as in
+	// sessions from before token sign-in.
+	Method string `json:"m,omitempty"`
+	// Token is the bearer token of a token session. It never marshals or
+	// prints; the session cookie seals it through sessionData.
+	Token Secret `json:"-"`
+}
+
+// IsToken reports whether id is a token session.
+func (id Identity) IsToken() bool { return id.Method == MethodToken }
+
+// check applies the rules of id's sign-in method: a token session needs its
+// token and passes checkTokenIdentity; an OIDC session, including one from
+// before token sign-in with no method, passes checkIdentity.
+func (id Identity) check() error {
+	switch id.Method {
+	case MethodToken:
+		if id.Token == "" {
+			return errors.New("a token session has no token")
+		}
+		return checkTokenIdentity(id.Username, id.Groups)
+	case "", MethodOIDC:
+		if id.Token != "" {
+			return errors.New("an OIDC session carries a token")
+		}
+		return checkIdentity(id)
+	}
+	return fmt.Errorf("unknown sign-in method %q", id.Method)
+}
+
+// sessionData is the session cookie's sealed content. t, the bearer token,
+// is set only for a token session. A cookie without m is an OIDC session
+// from before token sign-in.
+type sessionData struct {
+	Username string    `json:"u"`
+	Groups   []string  `json:"g,omitempty"`
+	Expiry   time.Time `json:"e"`
+	Method   string    `json:"m,omitempty"`
+	Token    string    `json:"t,omitempty"`
+}
+
+func sessionFromIdentity(id Identity) sessionData {
+	return sessionData{Username: id.Username, Groups: id.Groups, Expiry: id.Expiry, Method: id.Method, Token: id.Token.Reveal()}
+}
+
+func (d sessionData) identity() Identity {
+	method := d.Method
+	if method == "" {
+		method = MethodOIDC
+	}
+	return Identity{Username: d.Username, Groups: d.Groups, Expiry: d.Expiry, Method: method, Token: Secret(d.Token)}
 }
 
 // Authenticator resolves the signed-in identity of a request.
@@ -80,34 +144,43 @@ type provider struct {
 	verifier *oidc.IDTokenVerifier
 }
 
-// Auth signs users in with the OIDC authorization code flow, using PKCE
-// (S256), state and nonce, and keeps the identity in an encrypted cookie.
+// Auth signs users in with a Kubernetes token or, when configured, the OIDC
+// authorization code flow, using PKCE (S256), state and nonce, and keeps the
+// identity in an encrypted cookie.
 type Auth struct {
-	cfg          Config
-	key          []byte
+	cfg  Config
+	key  []byte
+	base *rest.Config
+	// review validates a token; a SelfSubjectReview outside tests.
+	review       func(ctx context.Context, token string) (reviewedUser, error)
 	clientSecret string
 	provider     atomic.Pointer[provider]
 	now          func() time.Time
 }
 
-// NewAuth loads the session key and client secret and starts OIDC discovery.
-// An unreachable issuer does not fail startup: discovery is retried every ten
-// seconds until ctx is done, and Ready reports when it has succeeded.
-func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
-	if cfg.IssuerURL == "" || cfg.ClientID == "" || cfg.RedirectURL == "" {
-		return nil, errors.New("console: --oidc-issuer-url, --oidc-client-id and --redirect-url are required")
+// NewAuth loads the session key and, when OIDC is configured, the client
+// secret, and starts OIDC discovery. base is the console's own cluster
+// configuration; token sign-in uses only its address and CA, never its
+// credentials. An unreachable issuer does not fail startup: discovery is
+// retried every ten seconds until ctx is done, and Ready reports when it has
+// succeeded.
+func NewAuth(ctx context.Context, cfg Config, base *rest.Config) (*Auth, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
-	if cfg.UsernameClaim == "" {
-		return nil, errors.New("console: --username-claim must not be empty")
-	}
-	if cfg.InsecureCookies && !isLoopbackURL(cfg.RedirectURL) {
-		return nil, fmt.Errorf("console: --insecure-cookies is for local development only; --redirect-url %q must be on localhost, 127.0.0.1 or [::1]", cfg.RedirectURL)
+	if base == nil {
+		return nil, errors.New("console: a cluster configuration is required")
 	}
 	key, err := sessionKey(ctx, cfg.SessionKeyFile)
 	if err != nil {
 		return nil, err
 	}
-	a := &Auth{cfg: cfg, key: key, now: time.Now}
+	a := &Auth{cfg: cfg, key: key, base: rest.CopyConfig(base), now: time.Now}
+	a.review = a.selfSubjectReview
+	if !cfg.OIDCEnabled() {
+		ctrllog.FromContext(ctx).Info("Offering token sign-in only because --oidc-issuer-url and --oidc-client-id are not set")
+		return a, nil
+	}
 	if cfg.ClientSecretFile != "" {
 		secret, err := os.ReadFile(cfg.ClientSecretFile)
 		if err != nil {
@@ -121,6 +194,9 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 	}
 	return a, nil
 }
+
+// OIDCEnabled reports whether OIDC sign-in is configured.
+func (a *Auth) OIDCEnabled() bool { return a.cfg.OIDCEnabled() }
 
 // isLoopbackURL reports whether raw names localhost or a loopback address.
 func isLoopbackURL(raw string) bool {
@@ -156,8 +232,9 @@ func sessionKey(ctx context.Context, path string) ([]byte, error) {
 	return key, nil
 }
 
-// Ready reports whether OIDC discovery has succeeded.
-func (a *Auth) Ready() bool { return a.provider.Load() != nil }
+// Ready reports whether OIDC discovery has succeeded. Without OIDC there is
+// nothing to discover, so it is always ready.
+func (a *Auth) Ready() bool { return !a.cfg.OIDCEnabled() || a.provider.Load() != nil }
 
 func (a *Auth) discover(ctx context.Context) error {
 	p, err := oidc.NewProvider(ctx, a.cfg.IssuerURL)
@@ -203,6 +280,10 @@ func (a *Auth) retryDiscovery(ctx context.Context) {
 // Start redirects to the issuer's authorization endpoint, for
 // GET /auth/start?connector=.
 func (a *Auth) Start(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.OIDCEnabled() {
+		http.NotFound(w, r)
+		return
+	}
 	p := a.provider.Load()
 	if p == nil {
 		a.fail(w, http.StatusServiceUnavailable, "unavailable", "the identity provider is not reachable yet")
@@ -231,6 +312,10 @@ func (a *Auth) Start(w http.ResponseWriter, r *http.Request) {
 // redeems the code with the PKCE verifier, verifies the ID token's signature,
 // issuer, audience, expiry and nonce, and sets the session cookie.
 func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.OIDCEnabled() {
+		http.NotFound(w, r)
+		return
+	}
 	p := a.provider.Load()
 	if p == nil {
 		a.fail(w, http.StatusServiceUnavailable, "unavailable", "the identity provider is not reachable yet")
@@ -282,7 +367,7 @@ func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, code, "claims", err.Error())
 		return
 	}
-	sealed, err := seal(a.key, id)
+	sealed, err := seal(a.key, sessionFromIdentity(id))
 	if err != nil {
 		a.fail(w, http.StatusInternalServerError, "internal", "could not create the session")
 		return
@@ -314,7 +399,7 @@ func (a *Auth) identityFromToken(idToken *oidc.IDToken) (Identity, int, error) {
 			return Identity{}, http.StatusForbidden, errors.New("the ID token's email is not verified")
 		}
 	}
-	id := Identity{Username: a.cfg.UsernamePrefix + username, Expiry: idToken.Expiry}
+	id := Identity{Username: a.cfg.UsernamePrefix + username, Expiry: idToken.Expiry, Method: MethodOIDC}
 	if a.cfg.GroupsClaim != "" {
 		for _, g := range stringsClaim(claims[a.cfg.GroupsClaim]) {
 			id.Groups = append(id.Groups, a.cfg.GroupsPrefix+g)
@@ -360,6 +445,26 @@ func checkIdentity(id Identity) error {
 	return nil
 }
 
+// checkTokenIdentity refuses token identities the console must not serve:
+// no username, the anonymous user, anyone in system:unauthenticated, and
+// system: users other than ServiceAccounts. Groups such as
+// system:authenticated and system:serviceaccounts are expected, since the
+// token is used as is and nothing is impersonated.
+func checkTokenIdentity(username string, groups []string) error {
+	switch {
+	case username == "":
+		return errors.New("the token has no username")
+	case username == anonymousUser:
+		return errors.New("the token is not authenticated: the API server answered as system:anonymous")
+	case strings.HasPrefix(username, systemPrefix) && !strings.HasPrefix(username, serviceAccountPrefix):
+		return fmt.Errorf("the username %q is a system: identity other than a ServiceAccount", username)
+	}
+	if slices.Contains(groups, unauthenticatedGroup) {
+		return errors.New("the token is not authenticated: the API server placed it in system:unauthenticated")
+	}
+	return nil
+}
+
 // Logout clears the session, for POST /logout.
 func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, a.cookie(SessionCookie, "", "/", time.Unix(0, 0)))
@@ -368,11 +473,21 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 
 // Identity returns the request's signed-in identity, or ErrNoSession.
 func (a *Auth) Identity(r *http.Request) (Identity, error) {
-	var id Identity
-	if !a.readCookie(r, SessionCookie, &id) || !a.now().Before(id.Expiry) || checkIdentity(id) != nil {
+	var d sessionData
+	if !a.readCookie(r, SessionCookie, &d) {
+		return Identity{}, ErrNoSession
+	}
+	id := d.identity()
+	if !a.now().Before(id.Expiry) || id.check() != nil {
 		return Identity{}, ErrNoSession
 	}
 	return id, nil
+}
+
+// ClearSession expires the session cookie, for a session the API server no
+// longer accepts.
+func (a *Auth) ClearSession(w http.ResponseWriter) {
+	http.SetCookie(w, a.cookie(SessionCookie, "", "/", time.Unix(0, 0)))
 }
 
 func (a *Auth) readCookie(r *http.Request, name string, v any) bool {

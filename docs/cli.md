@@ -199,14 +199,17 @@ ksync drift payments -n default
 ## Web console
 
 ```sh
+ksync console --session-key-file /etc/ksync/session/session-key
 ksync console --oidc-issuer-url https://dex.example.com --oidc-client-id ksync \
   --redirect-url https://console.example.com/auth/callback \
   --session-key-file /etc/ksync/session/session-key
 ```
 
 Serves the read-only web console, which reads the cluster as each signed-in
-user. `ksync console --help` lists every flag. See [Web console](console.md)
-for the Dex setup and the Helm chart values.
+user. People sign in with a Kubernetes token; with `--oidc-issuer-url` and
+`--oidc-client-id`, which go together, OIDC is offered as well.
+`ksync console --help` lists every flag. See [Web console](console.md) for
+token sign-in, the Dex setup and the Helm chart values.
 
 ## Help
 
