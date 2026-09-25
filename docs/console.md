@@ -36,6 +36,18 @@ them. It does not have a permission model of its own:
   `email`) and the groups from `--groups-claim` (default `groups`). Both
   prefixes are empty by default, so RBAC bindings name users and groups
   exactly as the issuer sends them.
+
+  > **Warning:** with no prefix, the identity provider's users and groups
+  > share one namespace with every other way into the cluster. An IdP group
+  > named like a group from client certificates, another OIDC authenticator
+  > or a cloud provider's IAM mapping is the same group to RBAC, and so is
+  > an IdP user named like another authenticator's user. If the cluster has
+  > other authenticators, or RBAC bindings to groups the IdP does not own,
+  > set a prefix such as `oidc:` with `console.usernamePrefix` and
+  > `console.groupsPrefix`, and bind RBAC to the prefixed names
+  > (`oidc:acme:platform`). Also restrict the IdP to the organizations and
+  > groups that should reach the console, as the Dex examples below do.
+
 - The identity is kept only in an encrypted cookie (`ksync_session`,
   AES-256-GCM, HttpOnly, Secure, SameSite=Lax) that expires with the ID
   token. Nothing is stored on the server, and no refresh token is kept, so
@@ -98,9 +110,11 @@ connectors:
       clientID: $GITHUB_CLIENT_ID
       clientSecret: $GITHUB_CLIENT_SECRET
       redirectURI: https://dex.example.com/callback
+      # Only members of these teams can sign in. Their groups arrive as
+      # "acme:platform"; bind RBAC to those names.
       orgs:
         - name: acme
-      # Groups arrive as "acme:platform"; bind RBAC to those names.
+          teams: [platform, payments]
       teamNameField: slug
   - type: gitlab
     id: gitlab
@@ -110,6 +124,9 @@ connectors:
       clientID: $GITLAB_CLIENT_ID
       clientSecret: $GITLAB_CLIENT_SECRET
       redirectURI: https://dex.example.com/callback
+      # Only members of these GitLab groups can sign in, and only these
+      # groups are sent.
+      groups: [acme/platform, acme/payments]
 
 # The local connector: "Sign in with email" on the login page. Dex hosts the
 # password form, so the console never sees a password.

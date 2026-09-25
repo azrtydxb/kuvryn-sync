@@ -44,7 +44,9 @@ whose ServiceAccount may only impersonate users and groups.
   (unless `--insecure-cookies`) and SameSite=Lax, and expires at the ID
   token's `exp`. No refresh tokens are stored.
 - The username claim defaults to `email` and the groups claim to `groups`.
-  Both prefixes are empty by default.
+  Both prefixes are empty by default, by the maintainer's choice; the docs
+  and values warn that unprefixed names share RBAC's namespace with other
+  authenticators and recommend `oidc:` where that applies.
 - The UI refreshes every 10 seconds by polling. There are no server-side
   watches.
 - Namespaces: try a cluster-wide list first. On 403, the UI shows a picker

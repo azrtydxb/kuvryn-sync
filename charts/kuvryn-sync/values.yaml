@@ -82,6 +82,10 @@ console:
   # ID token claims mapped to the impersonated username and groups, and the
   # prefixes added to them. With empty prefixes, RBAC bindings name users and
   # groups exactly as the issuer sends them.
+  # WARNING: without a prefix, IdP users and groups share one namespace with
+  # every other authenticator, so an IdP group can collide with a group RBAC
+  # already binds. If the cluster has other authenticators or bindings to
+  # groups the IdP does not own, set a prefix such as "oidc:".
   usernameClaim: email
   groupsClaim: groups
   usernamePrefix: ""
