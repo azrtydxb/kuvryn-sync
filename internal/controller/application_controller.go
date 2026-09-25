@@ -49,36 +49,36 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/applier"
-	"github.com/azrtydxb/solder/internal/decrypt"
-	"github.com/azrtydxb/solder/internal/health"
-	"github.com/azrtydxb/solder/internal/history"
-	"github.com/azrtydxb/solder/internal/impersonate"
-	"github.com/azrtydxb/solder/internal/live"
-	"github.com/azrtydxb/solder/internal/notify"
-	"github.com/azrtydxb/solder/internal/ops"
-	"github.com/azrtydxb/solder/internal/ordering"
-	"github.com/azrtydxb/solder/internal/planner"
-	"github.com/azrtydxb/solder/internal/prune"
-	"github.com/azrtydxb/solder/internal/redact"
-	"github.com/azrtydxb/solder/internal/renderer"
-	helmrenderer "github.com/azrtydxb/solder/internal/renderer/helm"
-	kustomizerenderer "github.com/azrtydxb/solder/internal/renderer/kustomize"
-	yamlrenderer "github.com/azrtydxb/solder/internal/renderer/yaml"
-	"github.com/azrtydxb/solder/internal/resource"
-	"github.com/azrtydxb/solder/internal/retry"
-	"github.com/azrtydxb/solder/internal/rollback"
-	"github.com/azrtydxb/solder/internal/source"
-	gitcache "github.com/azrtydxb/solder/internal/source/git"
-	"github.com/azrtydxb/solder/internal/status"
-	"github.com/azrtydxb/solder/internal/syncpolicy"
-	"github.com/azrtydxb/solder/internal/validate"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt"
+	"github.com/azrtydxb/kuvryn-sync/internal/health"
+	"github.com/azrtydxb/kuvryn-sync/internal/history"
+	"github.com/azrtydxb/kuvryn-sync/internal/impersonate"
+	"github.com/azrtydxb/kuvryn-sync/internal/live"
+	"github.com/azrtydxb/kuvryn-sync/internal/notify"
+	"github.com/azrtydxb/kuvryn-sync/internal/ops"
+	"github.com/azrtydxb/kuvryn-sync/internal/ordering"
+	"github.com/azrtydxb/kuvryn-sync/internal/planner"
+	"github.com/azrtydxb/kuvryn-sync/internal/prune"
+	"github.com/azrtydxb/kuvryn-sync/internal/redact"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	helmrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/helm"
+	kustomizerenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/kustomize"
+	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/retry"
+	"github.com/azrtydxb/kuvryn-sync/internal/rollback"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
+	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
+	"github.com/azrtydxb/kuvryn-sync/internal/status"
+	"github.com/azrtydxb/kuvryn-sync/internal/syncpolicy"
+	"github.com/azrtydxb/kuvryn-sync/internal/validate"
 )
 
 const (
 	defaultPlanResourceLimit = 50
-	applicationFinalizer     = "applications.solder.io/finalizer"
+	applicationFinalizer     = "applications.sync.kuvryn.io/finalizer"
 )
 
 // RendererFactory builds a renderer for an Application render type.
@@ -113,16 +113,16 @@ type ApplicationReconciler struct {
 	healthChecks healthCheckCache
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=applications/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=applications/finalizers,verbs=update
-// +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch
-// +kubebuilder:rbac:groups=solder.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
-// +kubebuilder:rbac:groups=solder.io,resources=healthchecks,verbs=get;list;watch
-// +kubebuilder:rbac:groups=solder.io,resources=notificationsinks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=healthchecks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=notificationsinks,verbs=get;list;watch
 // Managed resources are read and changed as the Application's service account;
 // the controller itself only watches their metadata to notice drift.
 // +kubebuilder:rbac:groups="",resources=configmaps;services;secrets,verbs=list;watch
@@ -344,7 +344,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	// A hook value Solder does not know is refused rather than guessed at.
+	// A hook value Kuvryn Sync does not know is refused rather than guessed at.
 	if err := ordering.ValidateHooks(rendered); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered hook annotation is invalid"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -395,7 +395,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// pruning splits stale managed objects. Skipped ones, which opted out or
 	// are high-risk, stay out of the plan's deletes, so a Revision that only
 	// leaves them behind converges instead of retrying a delete that never
-	// happens, and they stay labelled, so Solder keeps tracking them.
+	// happens, and they stay labelled, so Kuvryn Sync keeps tracking them.
 	var pruning prune.Result
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
@@ -632,7 +632,7 @@ func (r *ApplicationReconciler) ensureWatches(ctx context.Context, kinds []schem
 }
 
 // warnSkippedKinds records kinds the service account may not list, whose
-// managed objects Solder therefore cannot find or delete.
+// managed objects Kuvryn Sync therefore cannot find or delete.
 func (r *ApplicationReconciler) warnSkippedKinds(application *corev1alpha1.Application, reason string, kinds []string) {
 	if len(kinds) == 0 {
 		return
@@ -874,7 +874,7 @@ func (r *ApplicationReconciler) ensureRevision(ctx context.Context, application 
 			Name:      name,
 			Namespace: application.Namespace,
 			Labels: map[string]string{
-				"solder.io/application": application.Name,
+				"sync.kuvryn.io/application": application.Name,
 			},
 		},
 		Spec: corev1alpha1.RevisionSpec{
@@ -1023,7 +1023,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 	if application.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources {
 		tenant, err := r.tenantClient(application)
 		if err != nil {
-			// Without a service account Solder may not delete anything, so the
+			// Without a service account Kuvryn Sync may not delete anything, so the
 			// managed resources are orphaned rather than blocking deletion forever.
 			r.event(application, corev1.EventTypeWarning, "ManagedResourcesOrphaned", safeMessage(err, "Application service account could not be used"))
 			controllerutil.RemoveFinalizer(application, applicationFinalizer)
@@ -1243,7 +1243,7 @@ func inventoryKinds(desired []unstructured.Unstructured, kept []prune.Rejected) 
 }
 
 // groupHealth reads and evaluates the live state of one group's objects,
-// all of which Solder has applied, and returns the live objects it read. A
+// all of which Kuvryn Sync has applied, and returns the live objects it read. A
 // missing object is not there yet and is Progressing, except a hook: one
 // that vanished before it was seen to succeed has failed, since it is never
 // applied twice.
@@ -1427,7 +1427,7 @@ func (r *ApplicationReconciler) rollbackTarget(ctx context.Context, application 
 }
 
 // validateHelmReleaseName returns an error when a Helm Application's release
-// name breaks Helm's naming rule. An empty name renders as "solder", which is
+// name breaks Helm's naming rule. An empty name renders as "kuvryn-sync", which is
 // valid.
 func validateHelmReleaseName(application *corev1alpha1.Application) error {
 	render := application.Spec.Source.Render
@@ -1611,7 +1611,7 @@ func (r *ApplicationReconciler) notify(ctx context.Context, application *corev1a
 			Message: redact.String(message), Plan: revision.Status.Plan.Summary, Time: time.Now().UTC(),
 		}
 		if event == corev1alpha1.NotificationAwaitingApproval {
-			msg.ApproveCommand = fmt.Sprintf("solder approve %s -n %s --revision %s", application.Name, application.Namespace, revision.Name)
+			msg.ApproveCommand = fmt.Sprintf("ksync approve %s -n %s --revision %s", application.Name, application.Namespace, revision.Name)
 		}
 		failed := application.DeepCopy()
 		sink := subscription.SinkRef.Name
@@ -1740,8 +1740,8 @@ func (r *ApplicationReconciler) dependentsOf(ctx context.Context, obj client.Obj
 	return requests
 }
 
-// DecryptionKeyLabel marks a Secret that Solder may use for decryption keys.
-const DecryptionKeyLabel = "solder.io/decryption-key"
+// DecryptionKeyLabel marks a Secret that Kuvryn Sync may use for decryption keys.
+const DecryptionKeyLabel = "sync.kuvryn.io/decryption-key"
 
 // decryptor loads the Application's age keys. Without spec.decryption it
 // returns nil, which refuses encrypted files rather than applying ciphertext.

@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	gitcache "github.com/azrtydxb/solder/internal/source/git"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
 )
 
 func TestKeptCommitsCoverRevisionsAndObservedCommits(t *testing.T) {

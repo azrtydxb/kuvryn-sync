@@ -25,10 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/diagnosis"
-	"github.com/azrtydxb/solder/internal/graph"
-	"github.com/azrtydxb/solder/internal/health"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/diagnosis"
+	"github.com/azrtydxb/kuvryn-sync/internal/graph"
+	"github.com/azrtydxb/kuvryn-sync/internal/health"
 )
 
 // diagnose records on the Application why its managed objects are not

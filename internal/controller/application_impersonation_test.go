@@ -34,7 +34,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 var _ = Describe("Application service account impersonation", func() {
@@ -123,7 +123,7 @@ var _ = Describe("Application service account impersonation", func() {
 		Expect(revision.Status.Failure.Message).To(ContainSubstring("clusterrolebindings"))
 
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: escalation}, &rbacv1.ClusterRoleBinding{})
-		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant escalated through Solder")
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant escalated through Kuvryn Sync")
 		Expect(drainEvents(recorder)).To(ContainElement(And(ContainSubstring("PruneInventoryIncomplete"), ContainSubstring("Secret"))))
 
 		By("keeping the Forbidden failure once retries are exhausted")
@@ -161,7 +161,7 @@ var _ = Describe("Application service account impersonation", func() {
 		createTenant(ctx, tenant, []string{"get", "list", "watch", "create", "patch"}, false)
 		stale := configMapObject("payments", "stale")
 		stale.SetName("stale-config")
-		stale.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		stale.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &stale)).To(Succeed())
 		DeferCleanup(deleteObject, ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "stale-config", Namespace: "payments"}})
 		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
@@ -189,7 +189,7 @@ var _ = Describe("Application service account impersonation", func() {
 		controllerutil.AddFinalizer(app, applicationFinalizer)
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		managed := configMapObject("payments", "managed")
-		managed.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		managed.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &managed)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, app)).To(Succeed())
 
@@ -211,7 +211,7 @@ var _ = Describe("Application service account impersonation", func() {
 		controllerutil.AddFinalizer(app, applicationFinalizer)
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		managed := configMapObject("payments", "kept")
-		managed.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		managed.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &managed)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, app)).To(Succeed())
 

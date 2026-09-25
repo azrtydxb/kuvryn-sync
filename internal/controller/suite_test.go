@@ -36,7 +36,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -45,7 +45,7 @@ import (
 
 // testServiceAccount is bound to cluster-admin and impersonated by default in
 // controller tests; impersonation tests use their own restricted accounts.
-const testServiceAccount = "solder-test-admin"
+const testServiceAccount = "kuvryn-sync-test-admin"
 
 var (
 	ctx       context.Context

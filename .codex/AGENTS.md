@@ -1,4 +1,4 @@
-# solder - AI Agent Guide
+# kuvryn-sync - AI Agent Guide
 
 ## Project Structure
 

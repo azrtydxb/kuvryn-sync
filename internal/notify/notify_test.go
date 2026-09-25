@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 func approvalMessage() Message {
 	return Message{
 		Event: corev1alpha1.NotificationAwaitingApproval, Application: "payments", Namespace: "default",
 		Revision: "payments-abc", SourceRevision: "abc123", Plan: corev1alpha1.PlanSummary{Create: 2},
-		ApproveCommand: "solder approve payments -n default --revision payments-abc",
+		ApproveCommand: "ksync approve payments -n default --revision payments-abc",
 	}
 }
 
@@ -114,7 +114,7 @@ func TestSlackBodyCarriesApproveCommand(t *testing.T) {
 	if err := json.Unmarshal(body, &slack); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(slack["text"], "solder approve payments") || !strings.Contains(slack["text"], "2 create") {
+	if !strings.Contains(slack["text"], "ksync approve payments") || !strings.Contains(slack["text"], "2 create") {
 		t.Fatalf("slack text = %q", slack["text"])
 	}
 }
@@ -144,5 +144,13 @@ func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
 	err := NewDispatcher(nil, 1).send(context.Background(), Delivery{Target: Target{Type: corev1alpha1.NotificationSinkWebhook, URL: redirector.URL}, Message: approvalMessage()})
 	if err == nil || followed.Load() {
 		t.Fatalf("redirect was followed: err = %v, followed = %v", err, followed.Load())
+	}
+}
+
+// Receivers verify these exact header names, so they are part of the public
+// contract and must not change with a refactor of the constants.
+func TestNotificationHeaderNames(t *testing.T) {
+	if SignatureHeader != "X-Kuvryn-Sync-Signature" || EventHeader != "X-Kuvryn-Sync-Event" {
+		t.Fatalf("headers = %q, %q; want X-Kuvryn-Sync-Signature, X-Kuvryn-Sync-Event", SignatureHeader, EventHeader)
 	}
 }

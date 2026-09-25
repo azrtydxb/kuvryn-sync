@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "solder.fullname" . }}
+  name: {{ include "kuvryn-sync.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "solder.name" . }}
+      app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "solder.name" . }}
+        app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
         # Services select this too, so two releases in one namespace never
         # route to each other's manager. It is not in the Deployment selector,
         # which is immutable on upgrade.
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      serviceAccountName: {{ include "solder.fullname" . }}
+      serviceAccountName: {{ include "kuvryn-sync.fullname" . }}
       containers:
         - name: manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}"
@@ -71,4 +71,4 @@ spec:
           emptyDir: {}
         - name: webhook-certs
           secret:
-            secretName: {{ include "solder.fullname" . }}-webhook-cert
+            secretName: {{ include "kuvryn-sync.fullname" . }}-webhook-cert

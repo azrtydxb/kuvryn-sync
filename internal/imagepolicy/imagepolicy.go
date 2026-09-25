@@ -22,7 +22,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // Registry reads tags and digests from an image repository. Requests to each
@@ -39,7 +39,7 @@ type Registry struct {
 }
 
 var scans = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Name: "solder_image_scans_total",
+	Name: "kuvryn_sync_image_scans_total",
 	Help: "Registry requests made by image scans, by result.",
 }, []string{"result"})
 

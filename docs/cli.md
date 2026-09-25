@@ -7,7 +7,7 @@ nav_order: 6
 
 The controller manager binary also exposes small operator-facing CLI commands.
 When invoked with Kubernetes manager flags, it starts the controller. When
-invoked with a Solder subcommand, it talks to the current kubeconfig context.
+invoked with a Kuvryn Sync subcommand, it talks to the current kubeconfig context.
 
 Every command that reads the cluster takes `-n` or `--namespace`. It defaults
 to `default`, not to the kubeconfig context's namespace. Flags may come before
@@ -18,47 +18,47 @@ or after the arguments.
 List Applications:
 
 ```sh
-solder apps -n default
-solder applications --namespace default
+ksync apps -n default
+ksync applications --namespace default
 ```
 
 List Repositories:
 
 ```sh
-solder repos -n default
-solder repositories --namespace default
+ksync repos -n default
+ksync repositories --namespace default
 ```
 
 Read one Repository:
 
 ```sh
-solder repo get platform -n default
+ksync repo get platform -n default
 ```
 
 Read one Application:
 
 ```sh
-solder get payments -n default
-solder status payments -n default
+ksync get payments -n default
+ksync status payments -n default
 ```
 
 List Application history:
 
 ```sh
-solder history payments -n default
+ksync history payments -n default
 ```
 
 Export the audit trail, oldest first, with approver, plan digest, start and
 completion times, and outcome. Failure messages are redacted:
 
 ```sh
-solder history payments -n default -o json
+ksync history payments -n default -o json
 ```
 
 Read one Revision summary:
 
 ```sh
-solder revision payments-abc123 -n default
+ksync revision payments-abc123 -n default
 ```
 
 ## Plan output
@@ -66,21 +66,21 @@ solder revision payments-abc123 -n default
 Print the newest Revision plan for an Application:
 
 ```sh
-solder plan payments -n default
+ksync plan payments -n default
 ```
 
 Render a plan from a saved Revision object:
 
 ```sh
 kubectl get revision payments-abc123 -o yaml > revision.yaml
-solder plan payments -f revision.yaml
+ksync plan payments -f revision.yaml
 ```
 
 Structured output is available:
 
 ```sh
-solder plan payments -n default -o json
-solder plan payments -n default -o yaml
+ksync plan payments -n default -o json
+ksync plan payments -n default -o yaml
 ```
 
 Plan output is bounded and redacted. Secret values and sensitive fields must not
@@ -88,16 +88,16 @@ appear in CLI output.
 
 ## Mutation commands
 
-Approve an exact Revision for a manual sync policy (`solder approve` is an
+Approve an exact Revision for a manual sync policy (`ksync approve` is an
 alias):
 
 ```sh
-solder sync payments -n default --revision payments-abc123
+ksync sync payments -n default --revision payments-abc123
 ```
 
 The command prints the Revision's plan digest and approves exactly that
 digest; if the plan changes before the request is admitted, it is refused and
-you review `solder plan` again. Running it again after an `ApprovalStale`
+you review `ksync plan` again. Running it again after an `ApprovalStale`
 Event re-approves the new plan. The approval is recorded under your own
 Kubernetes identity; see [Manual approval](operations.md#manual-approval).
 
@@ -106,26 +106,26 @@ earlier rollback, whose source revision is neither the desired nor the deployed
 one. The command fails when there is none:
 
 ```sh
-solder rollback payments -n default
+ksync rollback payments -n default
 ```
 
 Request rollback to a specific Revision object:
 
 ```sh
-solder rollback payments -n default --revision payments-abc123
+ksync rollback payments -n default --revision payments-abc123
 ```
 
 The command records the desired revision as the one rolled back from. Once the
 rollback completes, that revision is held: it is not deployed again, even with
 automatic sync, until a new commit arrives. Rolling back explicitly to a held
-Revision lifts its hold. The target must belong to the Application. `solder
+Revision lifts its hold. The target must belong to the Application. `ksync
 approve` refuses a held Revision. See [Rollback](concepts.md#rollback).
 
 Suspend or resume reconciliation:
 
 ```sh
-solder suspend payments -n default
-solder resume payments -n default
+ksync suspend payments -n default
+ksync resume payments -n default
 ```
 
 ## Diagnosis
@@ -138,7 +138,7 @@ with its chain from the unhealthy managed resource down to the root cause. When
 as the failure:
 
 ```sh
-solder diagnose payments -n default
+ksync diagnose payments -n default
 ```
 
 ```text
@@ -163,8 +163,8 @@ ReplicaSets, Pods and EndpointSlices below them, and the ConfigMaps, Secrets,
 claims, volumes and ServiceAccounts they refer to:
 
 ```sh
-solder graph payments -n default
-solder graph payments -n default -o dot | dot -Tsvg > payments.svg
+ksync graph payments -n default
+ksync graph payments -n default -o dot | dot -Tsvg > payments.svg
 ```
 
 `-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
@@ -193,19 +193,19 @@ reference you may not read is marked `unreadable`.
 `drift` currently aliases the Application read path:
 
 ```sh
-solder drift payments -n default
+ksync drift payments -n default
 ```
 
 ## Help
 
 ```sh
-solder help
+ksync help
 ```
 
 Lists every command. An unknown command prints the same list.
 
 ```sh
-solder version
+ksync version
 ```
 
 Prints the version.
@@ -213,7 +213,7 @@ Prints the version.
 ## Install helper
 
 ```sh
-solder install
+ksync install
 ```
 
 This prints the raw `kubectl` installation commands. It does not mutate a

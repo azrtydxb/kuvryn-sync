@@ -9,9 +9,9 @@ import (
 	"io"
 	"os"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/planoutput"
-	"github.com/azrtydxb/solder/internal/version"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
+	"github.com/azrtydxb/kuvryn-sync/internal/version"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,34 +23,34 @@ import (
 )
 
 // Usage lists the CLI commands.
-const Usage = `Usage: solder <command> [arguments] [-n namespace]
+const Usage = `Usage: ksync <command> [arguments] [-n namespace]
 
 Read:
-  apps                                     List Applications
-  repos                                    List Repositories
-  repo get <repository>                    Show one Repository
-  get <application>                        Show one Application (alias: status)
-  history <application> [-o table|json]    List an Application's Revisions
-  revision <revision>                      Show one Revision
-  plan <application> [-f file] [-o text|json|yaml]
-                                           Show the newest Revision's plan
-  diagnose <application>                   Explain why an Application is not Healthy
-  graph <application> [-o json|dot]        Print the live resource graph
-  drift <application>                      Show sync state (alias of get)
+  ksync apps                                     List Applications
+  ksync repos                                    List Repositories
+  ksync repo get <repository>                    Show one Repository
+  ksync get <application>                        Show one Application (alias: status)
+  ksync history <application> [-o table|json]    List an Application's Revisions
+  ksync revision <revision>                      Show one Revision
+  ksync plan <application> [-f file] [-o text|json|yaml]
+                                                 Show the newest Revision's plan
+  ksync diagnose <application>                   Explain why an Application is not Healthy
+  ksync graph <application> [-o json|dot]        Print the live resource graph
+  ksync drift <application>                      Show sync state (alias of get)
 
 Change:
-  sync <application> --revision <revision> Approve a Revision's plan (alias: approve)
-  rollback <application> [--revision <revision>]
-                                           Roll back to a healthy Revision
-  suspend <application>                    Stop reconciling an Application
-  resume <application>                     Resume reconciling an Application
+  ksync sync <application> --revision <revision> Approve a Revision's plan (alias: approve)
+  ksync rollback <application> [--revision <revision>]
+                                                 Roll back to a healthy Revision
+  ksync suspend <application>                    Stop reconciling an Application
+  ksync resume <application>                     Resume reconciling an Application
 
 Other:
-  install                                  Print the install commands
-  version                                  Print the version
-  help                                     Print this help
+  ksync install                                  Print the install commands
+  ksync version                                  Print the version
+  ksync help                                     Print this help
 
-Without a command, or with flags only, solder starts the controller manager.
+Without a command, or with flags only, ksync starts the controller manager.
 `
 
 // Run executes the CLI subcommand, returning false when args should start the controller manager.
@@ -91,7 +91,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 	case "resume":
 		err = runSuspend(ctx, args[1:], stdout, stderr, false)
 	case "version":
-		_, _ = fmt.Fprintln(stdout, "solder", version.Version)
+		_, _ = fmt.Fprintln(stdout, "ksync", version.Version)
 		return true, 0
 	case "help":
 		_, _ = fmt.Fprint(stdout, Usage)
@@ -100,7 +100,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 		if len(args[0]) > 0 && args[0][0] == '-' {
 			return false, 0
 		}
-		_, _ = fmt.Fprintf(stderr, "unknown solder command %q\n\n%s", args[0], Usage)
+		_, _ = fmt.Fprintf(stderr, "unknown ksync command %q\n\n%s", args[0], Usage)
 		return true, 1
 	}
 	if err != nil {
@@ -112,7 +112,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 
 func runInstall(args []string, stdout io.Writer) error {
 	if len(args) > 0 {
-		return fmt.Errorf("usage: solder install")
+		return fmt.Errorf("usage: ksync install")
 	}
 	_, _ = fmt.Fprintln(stdout, "kubectl apply -f dist/install.yaml")
 	_, _ = fmt.Fprintln(stdout, "# or: kubectl apply -k config/default")
@@ -120,7 +120,7 @@ func runInstall(args []string, stdout io.Writer) error {
 }
 
 func runApplications(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder apps", stderr)
+	fs, namespace := newFlagSet("ksync apps", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func runApplications(ctx context.Context, args []string, stdout, stderr io.Write
 }
 
 func runRepositories(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder repos", stderr)
+	fs, namespace := newFlagSet("ksync repos", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
@@ -155,14 +155,14 @@ func runRepositories(ctx context.Context, args []string, stdout, stderr io.Write
 
 func runRepo(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "get" {
-		return fmt.Errorf("usage: solder repo get <name> [-n namespace]")
+		return fmt.Errorf("usage: ksync repo get <name> [-n namespace]")
 	}
-	fs, namespace := newFlagSet("solder repo get", stderr)
+	fs, namespace := newFlagSet("ksync repo get", stderr)
 	if err := fs.Parse(interspersedFlags(args[1:])); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder repo get <name> [-n namespace]")
+		return fmt.Errorf("usage: ksync repo get <name> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -177,12 +177,12 @@ func runRepo(ctx context.Context, args []string, stdout, stderr io.Writer) error
 }
 
 func runGetApplication(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder get", stderr)
+	fs, namespace := newFlagSet("ksync get", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder get <application> [-n namespace]")
+		return fmt.Errorf("usage: ksync get <application> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -197,14 +197,14 @@ func runGetApplication(ctx context.Context, args []string, stdout, stderr io.Wri
 }
 
 func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder history", stderr)
+	fs, namespace := newFlagSet("ksync history", stderr)
 	output := fs.String("output", "table", "output format: table or json")
 	fs.StringVar(output, "o", "table", "output format: table or json")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || (*output != "table" && *output != "json") {
-		return fmt.Errorf("usage: solder history <application> [-n namespace] [-o table|json]")
+		return fmt.Errorf("usage: ksync history <application> [-n namespace] [-o table|json]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -240,12 +240,12 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 }
 
 func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder revision", stderr)
+	fs, namespace := newFlagSet("ksync revision", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder revision <name> [-n namespace]")
+		return fmt.Errorf("usage: ksync revision <name> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -260,13 +260,13 @@ func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) e
 }
 
 func runSync(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder sync", stderr)
+	fs, namespace := newFlagSet("ksync sync", stderr)
 	revision := fs.String("revision", "", "exact Revision object name to approve")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || *revision == "" {
-		return fmt.Errorf("usage: solder sync <application> --revision <revision> [-n namespace]")
+		return fmt.Errorf("usage: ksync sync <application> --revision <revision> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -291,7 +291,7 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 		return fmt.Errorf("revision %s belongs to application %q, not %q", rev.Name, rev.Spec.ApplicationRef.Name, app.Name)
 	}
 	if rolledBack(rev) {
-		return fmt.Errorf("revision %s was replaced by a rollback; push a new commit, delete the Revision, or run solder rollback --revision %s", rev.Name, rev.Name)
+		return fmt.Errorf("revision %s was replaced by a rollback; push a new commit, delete the Revision, or run ksync rollback --revision %s", rev.Name, rev.Name)
 	}
 	digest := rev.Status.Plan.Digest
 	if digest == "" {
@@ -316,13 +316,13 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 }
 
 func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder rollback", stderr)
+	fs, namespace := newFlagSet("ksync rollback", stderr)
 	revisionName := fs.String("revision", "", "Revision object to roll back to; defaults to the newest known-good one not desired or deployed")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder rollback <application> [--revision revision] [-n namespace]")
+		return fmt.Errorf("usage: ksync rollback <application> [--revision revision] [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -429,12 +429,12 @@ func runDrift(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 }
 
 func runDiagnose(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder diagnose", stderr)
+	fs, namespace := newFlagSet("ksync diagnose", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder diagnose <application> [-n namespace]")
+		return fmt.Errorf("usage: ksync diagnose <application> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -463,12 +463,12 @@ func diagnose(ctx context.Context, c client.Client, namespace, application strin
 }
 
 func runSuspend(ctx context.Context, args []string, stdout, stderr io.Writer, suspend bool) error {
-	fs, namespace := newFlagSet("solder suspend", stderr)
+	fs, namespace := newFlagSet("ksync suspend", stderr)
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder suspend|resume <application> [-n namespace]")
+		return fmt.Errorf("usage: ksync suspend|resume <application> [-n namespace]")
 	}
 	c, err := clusterClient()
 	if err != nil {
@@ -487,14 +487,14 @@ func runSuspend(ctx context.Context, args []string, stdout, stderr io.Writer, su
 }
 
 func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder plan", stderr)
+	fs, namespace := newFlagSet("ksync plan", stderr)
 	format := fs.String("o", "text", "output format: text, json, yaml")
 	file := fs.String("f", "", "read Revision YAML/JSON from file instead of the cluster")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: solder plan <application> [-n namespace] [-f revision.yaml] [-o text|json|yaml]")
+		return fmt.Errorf("usage: ksync plan <application> [-n namespace] [-f revision.yaml] [-o text|json|yaml]")
 	}
 	application := fs.Arg(0)
 	rev, err := loadRevision(ctx, application, *namespace, *file)

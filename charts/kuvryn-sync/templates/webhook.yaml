@@ -3,12 +3,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "solder.fullname" . }}-webhook
+  name: {{ include "kuvryn-sync.fullname" . }}-webhook
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
 spec:
   selector:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: webhook
@@ -18,35 +18,35 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "solder.fullname" . }}-selfsigned
+  name: {{ include "kuvryn-sync.fullname" . }}-selfsigned
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
 spec:
   selfSigned: {}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "solder.fullname" . }}-webhook
+  name: {{ include "kuvryn-sync.fullname" . }}-webhook
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
 spec:
   dnsNames:
-    - {{ include "solder.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
-    - {{ include "solder.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+    - {{ include "kuvryn-sync.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "kuvryn-sync.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: {{ include "solder.fullname" . }}-selfsigned
-  secretName: {{ include "solder.fullname" . }}-webhook-cert
+    name: {{ include "kuvryn-sync.fullname" . }}-selfsigned
+  secretName: {{ include "kuvryn-sync.fullname" . }}-webhook-cert
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ include "solder.fullname" . }}-validating
+  name: {{ include "kuvryn-sync.fullname" . }}-validating
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "solder.fullname" . }}-webhook
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kuvryn-sync.fullname" . }}-webhook
 webhooks:
   - name: vhealthcheck-v1alpha1.kb.io
     admissionReviewVersions: ["v1"]
@@ -54,11 +54,11 @@ webhooks:
     failurePolicy: Fail
     clientConfig:
       service:
-        name: {{ include "solder.fullname" . }}-webhook
+        name: {{ include "kuvryn-sync.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
-        path: /validate-solder-io-v1alpha1-healthcheck
+        path: /validate-sync-kuvryn-io-v1alpha1-healthcheck
     rules:
-      - apiGroups: ["solder.io"]
+      - apiGroups: ["sync.kuvryn.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["healthchecks"]
@@ -66,11 +66,11 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: {{ include "solder.fullname" . }}-mutating
+  name: {{ include "kuvryn-sync.fullname" . }}-mutating
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "solder.fullname" . }}-webhook
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kuvryn-sync.fullname" . }}-webhook
 webhooks:
   # Records who approved an Application's plan, and which plan digest.
   - name: mapplication-v1alpha1.kb.io
@@ -79,11 +79,11 @@ webhooks:
     failurePolicy: Fail
     clientConfig:
       service:
-        name: {{ include "solder.fullname" . }}-webhook
+        name: {{ include "kuvryn-sync.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
-        path: /mutate-solder-io-v1alpha1-application
+        path: /mutate-sync-kuvryn-io-v1alpha1-application
     rules:
-      - apiGroups: ["solder.io"]
+      - apiGroups: ["sync.kuvryn.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["applications"]

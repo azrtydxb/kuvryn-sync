@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: applications.solder.io
+  name: applications.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: Application
     listKind: ApplicationList
@@ -74,7 +74,7 @@ spec:
                     secretRef:
                       description: |-
                         secretRef names a Secret in the Application namespace, labelled
-                        solder.io/decryption-key=true, whose entries ending in .agekey hold age
+                        sync.kuvryn.io/decryption-key=true, whose entries ending in .agekey hold age
                         private keys.
                       properties:
                         name:
@@ -192,9 +192,9 @@ spec:
                 serviceAccountName:
                   description: |-
                     serviceAccountName is the service account in the Application namespace
-                    that Solder impersonates to read, apply, and prune managed resources.
+                    that Kuvryn Sync impersonates to read, apply, and prune managed resources.
                     When empty, the controller's default service account is used; when
-                    neither is set, Solder refuses to touch managed resources.
+                    neither is set, Kuvryn Sync refuses to touch managed resources.
                   maxLength: 253
                   pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                   type: string
@@ -229,7 +229,7 @@ spec:
                                   type: string
                                 secretRef:
                                   description: |-
-                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    secretRef names a Secret, labelled sync.kuvryn.io/registry-credentials=true,
                                     with `username` and `password` for the repository.
                                   properties:
                                     name:
@@ -254,7 +254,7 @@ spec:
                               description: |-
                                 releaseName is the Helm release name used for template rendering. Like
                                 Helm, it must be a lowercase DNS subdomain of at most 53 characters.
-                                Empty means the default, solder.
+                                Empty means the default, kuvryn-sync.
                               maxLength: 53
                               pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$
                               type: string
@@ -376,7 +376,7 @@ spec:
                   type: object
                 suspend:
                   description:
-                    suspend stops Solder from mutating managed resources
+                    suspend stops Kuvryn Sync from mutating managed resources
                     while retaining status.
                   type: boolean
                 sync:
@@ -386,8 +386,8 @@ spec:
                   properties:
                     automatic:
                       description:
-                        automatic allows Solder to apply approved plans without
-                        a separate command.
+                        automatic allows Kuvryn Sync to apply approved plans
+                        without a separate command.
                       type: boolean
                     conflictPolicy:
                       default: fail
@@ -402,7 +402,7 @@ spec:
                         no longer in desired state.
                       type: boolean
                     selfHeal:
-                      description: selfHeal allows Solder to correct managed drift.
+                      description: selfHeal allows Kuvryn Sync to correct managed drift.
                       type: boolean
                   type: object
               required:
@@ -483,7 +483,7 @@ spec:
                 desiredRevision:
                   description:
                     desiredRevision is the source revision Git currently
-                    asks Solder to run.
+                    asks Kuvryn Sync to run.
                   type: string
                 diagnosis:
                   description: |-
@@ -595,13 +595,13 @@ spec:
                   type: object
                 managedKinds:
                   description: |-
-                    managedKinds lists the kinds Solder last applied for this Application.
+                    managedKinds lists the kinds Kuvryn Sync last applied for this Application.
                     Pruning and drift watches use it to find managed objects of any kind,
                     including after a controller restart.
                   items:
                     description:
-                      ManagedKind identifies a kind of object Solder manages
-                      for an Application.
+                      ManagedKind identifies a kind of object Kuvryn Sync
+                      manages for an Application.
                     properties:
                       apiVersion:
                         description: apiVersion is the group/version of the kind.
@@ -648,7 +648,7 @@ spec:
                   type: object
                 serviceAccountName:
                   description: |-
-                    serviceAccountName is the service account Solder last impersonated for
+                    serviceAccountName is the service account Kuvryn Sync last impersonated for
                     this Application.
                   type: string
                 state:

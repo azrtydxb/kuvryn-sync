@@ -27,38 +27,38 @@ import (
 // authenticated request and restores them on every other change.
 const (
 	// ApprovedRevisionAnnotation names the Revision being approved.
-	ApprovedRevisionAnnotation = "solder.io/approved-revision"
+	ApprovedRevisionAnnotation = "sync.kuvryn.io/approved-revision"
 	// ApproveDigestAnnotation requests an approval of the plan digest the
 	// approver reviewed. The admission webhook rejects it when the Revision's
 	// plan has since changed, and never stores it.
-	ApproveDigestAnnotation = "solder.io/approve-digest"
+	ApproveDigestAnnotation = "sync.kuvryn.io/approve-digest"
 	// ApprovedByAnnotation is the authenticated user who approved.
-	ApprovedByAnnotation = "solder.io/approved-by"
+	ApprovedByAnnotation = "sync.kuvryn.io/approved-by"
 	// ApprovedAtAnnotation is when the approval was admitted, in RFC 3339.
-	ApprovedAtAnnotation = "solder.io/approved-at"
+	ApprovedAtAnnotation = "sync.kuvryn.io/approved-at"
 	// ApprovedDigestAnnotation is the plan digest the approval binds to.
-	ApprovedDigestAnnotation = "solder.io/approved-digest"
+	ApprovedDigestAnnotation = "sync.kuvryn.io/approved-digest"
 )
 
-// Rollback request annotations on an Application. `solder rollback` and a
-// rollback failure policy set all three; Solder removes them once the
+// Rollback request annotations on an Application. `ksync rollback` and a
+// rollback failure policy set all three; Kuvryn Sync removes them once the
 // rollback completes or is abandoned.
 const (
 	// RollbackRevisionAnnotation is the source revision to roll back to.
-	RollbackRevisionAnnotation = "solder.io/rollback-revision"
+	RollbackRevisionAnnotation = "sync.kuvryn.io/rollback-revision"
 	// RollbackFromAnnotation is the source revision rolled back from. Once
 	// the rollback completes, every Revision of that source revision is held:
-	// Solder does not deploy it again until a new commit arrives.
-	RollbackFromAnnotation = "solder.io/rollback-from"
+	// Kuvryn Sync does not deploy it again until a new commit arrives.
+	RollbackFromAnnotation = "sync.kuvryn.io/rollback-from"
 	// RollbackKindAnnotation is RollbackKindManual or RollbackKindAutomatic.
-	RollbackKindAnnotation = "solder.io/rollback-kind"
+	RollbackKindAnnotation = "sync.kuvryn.io/rollback-kind"
 	// RollbackKindManual is a rollback a user requested.
 	RollbackKindManual = "manual"
 	// RollbackKindAutomatic is a rollback the failure policy started after a
 	// failed rollout.
 	RollbackKindAutomatic = "automatic"
 	// RolledBackCondition is True on a Revision a completed rollback
-	// replaced; Solder does not deploy it again.
+	// replaced; Kuvryn Sync does not deploy it again.
 	RolledBackCondition = "RolledBack"
 )
 
@@ -86,13 +86,13 @@ type ApplicationSpec struct {
 	// +kubebuilder:default:=Orphan
 	// +optional
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
-	// suspend stops Solder from mutating managed resources while retaining status.
+	// suspend stops Kuvryn Sync from mutating managed resources while retaining status.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
 	// serviceAccountName is the service account in the Application namespace
-	// that Solder impersonates to read, apply, and prune managed resources.
+	// that Kuvryn Sync impersonates to read, apply, and prune managed resources.
 	// When empty, the controller's default service account is used; when
-	// neither is set, Solder refuses to touch managed resources.
+	// neither is set, Kuvryn Sync refuses to touch managed resources.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
@@ -121,7 +121,7 @@ type DecryptionSpec struct {
 	// +kubebuilder:validation:Enum=sops
 	Provider string `json:"provider"`
 	// secretRef names a Secret in the Application namespace, labelled
-	// solder.io/decryption-key=true, whose entries ending in .agekey hold age
+	// sync.kuvryn.io/decryption-key=true, whose entries ending in .agekey hold age
 	// private keys.
 	SecretRef SecretReference `json:"secretRef"`
 }
@@ -180,7 +180,7 @@ type RenderSpec struct {
 type HelmRenderSpec struct {
 	// releaseName is the Helm release name used for template rendering. Like
 	// Helm, it must be a lowercase DNS subdomain of at most 53 characters.
-	// Empty means the default, solder.
+	// Empty means the default, kuvryn-sync.
 	// +kubebuilder:validation:MaxLength=53
 	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$`
 	// +optional
@@ -218,7 +218,7 @@ type HelmChartSource struct {
 	// version is the exact chart version to pull.
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version"`
-	// secretRef names a Secret, labelled solder.io/registry-credentials=true,
+	// secretRef names a Secret, labelled sync.kuvryn.io/registry-credentials=true,
 	// with `username` and `password` for the repository.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
@@ -246,13 +246,13 @@ type ApplicationDestination struct {
 
 // SyncPolicy controls sync behavior.
 type SyncPolicy struct {
-	// automatic allows Solder to apply approved plans without a separate command.
+	// automatic allows Kuvryn Sync to apply approved plans without a separate command.
 	// +optional
 	Automatic bool `json:"automatic,omitempty"`
 	// prune allows deletion of previously managed objects no longer in desired state.
 	// +optional
 	Prune bool `json:"prune,omitempty"`
-	// selfHeal allows Solder to correct managed drift.
+	// selfHeal allows Kuvryn Sync to correct managed drift.
 	// +optional
 	SelfHeal bool `json:"selfHeal,omitempty"`
 	// conflictPolicy controls SSA ownership conflict behavior.
@@ -295,13 +295,13 @@ type ApplicationStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Progressing;Healthy;Degraded;Suspended
 	// +optional
 	State HealthState `json:"state,omitempty"`
-	// desiredRevision is the source revision Git currently asks Solder to run.
+	// desiredRevision is the source revision Git currently asks Kuvryn Sync to run.
 	// +optional
 	DesiredRevision string `json:"desiredRevision,omitempty"`
 	// deployedRevision is the source revision currently deployed after rollback.
 	// +optional
 	DeployedRevision string `json:"deployedRevision,omitempty"`
-	// serviceAccountName is the service account Solder last impersonated for
+	// serviceAccountName is the service account Kuvryn Sync last impersonated for
 	// this Application.
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
@@ -322,7 +322,7 @@ type ApplicationStatus struct {
 	// +kubebuilder:validation:MaxItems=10
 	// +optional
 	Diagnosis []DiagnosisCause `json:"diagnosis,omitempty"`
-	// managedKinds lists the kinds Solder last applied for this Application.
+	// managedKinds lists the kinds Kuvryn Sync last applied for this Application.
 	// Pruning and drift watches use it to find managed objects of any kind,
 	// including after a controller restart.
 	// +listType=atomic
@@ -376,7 +376,7 @@ type DiagnosisCause struct {
 	Chain []ResourceRef `json:"chain"`
 }
 
-// ManagedKind identifies a kind of object Solder manages for an Application.
+// ManagedKind identifies a kind of object Kuvryn Sync manages for an Application.
 type ManagedKind struct {
 	// apiVersion is the group/version of the kind.
 	APIVersion string `json:"apiVersion"`

@@ -1,8 +1,8 @@
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: ImagePolicy
 metadata:
   labels:
-    app.kubernetes.io/name: solder
+    app.kubernetes.io/name: kuvryn-sync
     app.kubernetes.io/managed-by: kustomize
   name: api
 spec:

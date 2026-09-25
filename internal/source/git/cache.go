@@ -43,13 +43,13 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/azrtydxb/solder/internal/source"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 const (
 	defaultRevision = "HEAD"
 	// checkoutMarker marks a fully written worktree; no Git entry may use it.
-	checkoutMarker = ".solder-checkout"
+	checkoutMarker = ".kuvryn-sync-checkout"
 	// maxSymlinkHops bounds symlink resolution like the kernel's loop limit.
 	maxSymlinkHops = 40
 )
@@ -536,7 +536,7 @@ func AuthMethod(repository source.GitRepository) (transport.AuthMethod, error) {
 }
 
 func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
-	file, err := os.CreateTemp("", "solder-known-hosts-*")
+	file, err := os.CreateTemp("", "kuvryn-sync-known-hosts-*")
 	if err != nil {
 		return nil, classified(source.FailureReasonAuthenticationFailure, "Could not prepare Git known_hosts", err)
 	}
@@ -555,7 +555,7 @@ func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
 	return callback, nil
 }
 
-// RemoteURL reports whether rawURL uses a network transport Solder accepts.
+// RemoteURL reports whether rawURL uses a network transport Kuvryn Sync accepts.
 func RemoteURL(rawURL string) bool {
 	for _, scheme := range []string{"https://", "http://", "ssh://", "git://"} {
 		if strings.HasPrefix(rawURL, scheme) {

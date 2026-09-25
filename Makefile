@@ -1,10 +1,10 @@
 # Image URL to use all building/pushing image targets
-IMG ?= solder:latest
-# VERSION is embedded in the binary and printed by `solder version`: the Git
+IMG ?= kuvryn-sync:latest
+# VERSION is embedded in the binary and printed by `ksync version`: the Git
 # tag of the checkout, or sha-<short commit> when HEAD is not tagged, either
 # suffixed -dirty when the working tree has changes.
 VERSION ?= $(shell git describe --tags --exact-match --dirty 2>/dev/null || echo "sha-$$(git describe --always --dirty --exclude='*' 2>/dev/null || echo unknown)")
-LDFLAGS ?= -X github.com/azrtydxb/solder/internal/version.Version=$(VERSION)
+LDFLAGS ?= -X github.com/azrtydxb/kuvryn-sync/internal/version.Version=$(VERSION)
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -79,7 +79,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # - KUBECTL_KUBERC=true
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= solder-test-e2e
+KIND_CLUSTER ?= kuvryn-sync-test-e2e
 KIND_LOAD_IMAGE ?= false
 
 .PHONY: setup-test-e2e
@@ -99,8 +99,8 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 
 .PHONY: require-e2e-img
 require-e2e-img:
-	@test "$(IMG)" != "solder:latest" -a "$(IMG)" != "example.com/solder:v0.0.1" || { \
-		echo "Set IMG to a prebuilt pullable image, e.g. make test-e2e IMG=registry/solder:dev"; \
+	@test "$(IMG)" != "kuvryn-sync:latest" -a "$(IMG)" != "example.com/kuvryn-sync:v0.0.1" || { \
+		echo "Set IMG to a prebuilt pullable image, e.g. make test-e2e IMG=registry/kuvryn-sync:dev"; \
 		exit 1; \
 	}
 
@@ -127,6 +127,10 @@ lint lint-fix lint-config: export GOTOOLCHAIN := $(LINT_GOTOOLCHAIN)
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: docs-check
+docs-check: ## Check relative links and anchors in the docs
+	python3 hack/check-links.py docs README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix
@@ -138,8 +142,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
-	go build -ldflags "$(LDFLAGS)" -o bin/manager cmd/main.go
+build: manifests generate fmt vet ## Build the ksync binary (CLI and manager).
+	go build -ldflags "$(LDFLAGS)" -o bin/ksync cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -174,10 +178,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name solder-builder
-	$(CONTAINER_TOOL) buildx use solder-builder
+	- $(CONTAINER_TOOL) buildx create --name kuvryn-sync-builder
+	$(CONTAINER_TOOL) buildx use kuvryn-sync-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg VERSION=$(VERSION) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm solder-builder
+	- $(CONTAINER_TOOL) buildx rm kuvryn-sync-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer
@@ -248,7 +252,7 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
 GOLANGCI_LINT_VERSION ?= v2.11.4
 .PHONY: helm-template
 helm-template: ## Render the Helm chart for validation.
-	$(HELM) template solder charts/solder --namespace solder-system >/tmp/solder-chart.yaml
+	$(HELM) template kuvryn-sync charts/kuvryn-sync --namespace kuvryn-sync-system >/tmp/kuvryn-sync-chart.yaml
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

@@ -29,8 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 type recordingSourceResolver struct {
@@ -107,9 +107,9 @@ var _ = Describe("Repository Controller", func() {
 		Expect(resolver.repository.Auth.Token).To(Equal("super-secret-token"))
 	})
 
-	It("discovers multiple Applications from a root .solder.yaml file", func() {
+	It("discovers multiple Applications from a root .ksync.yaml file", func() {
 		workspace := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications:
+		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:
 - metadata:
     name: payments
   spec:
@@ -166,11 +166,11 @@ var _ = Describe("Repository Controller", func() {
 		Expect(search.Spec.Source.Render.Type).To(Equal(corev1alpha1.RenderTypeYAML))
 	})
 
-	It("discovers Applications from configured .solder.yaml paths", func() {
+	It("discovers Applications from configured .ksync.yaml paths", func() {
 		workspace := GinkgoT().TempDir()
 		Expect(os.MkdirAll(filepath.Join(workspace, "teams/payments"), 0o700)).To(Succeed())
 		Expect(os.MkdirAll(filepath.Join(workspace, "teams/search"), 0o700)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(workspace, "teams/payments/.solder.yaml"), []byte(`applications:
+		Expect(os.WriteFile(filepath.Join(workspace, "teams/payments/.ksync.yaml"), []byte(`applications:
 - metadata:
     name: payments
   spec:
@@ -181,7 +181,7 @@ var _ = Describe("Repository Controller", func() {
     destination:
       namespace: payments
 `), 0o600)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(workspace, "teams/search/.solder.yaml"), []byte(`applications:
+		Expect(os.WriteFile(filepath.Join(workspace, "teams/search/.ksync.yaml"), []byte(`applications:
 - metadata:
     name: search
   spec:
@@ -198,7 +198,7 @@ var _ = Describe("Repository Controller", func() {
 			Spec: corev1alpha1.RepositorySpec{
 				Type:                   corev1alpha1.RepositoryTypeGit,
 				Git:                    &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
-				ApplicationConfigPaths: []string{"teams/payments/.solder.yaml", "teams/search/.solder.yaml"},
+				ApplicationConfigPaths: []string{"teams/payments/.ksync.yaml", "teams/search/.ksync.yaml"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -210,20 +210,20 @@ var _ = Describe("Repository Controller", func() {
 
 		payments := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, payments)).To(Succeed())
-		Expect(payments.Annotations["solder.io/discovered-from"]).To(Equal("teams/payments/.solder.yaml"))
+		Expect(payments.Annotations["sync.kuvryn.io/discovered-from"]).To(Equal("teams/payments/.ksync.yaml"))
 		search := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "search", Namespace: "default"}, search)).To(Succeed())
 		Expect(search.Spec.Source.RepositoryRef.Name).To(Equal(resourceName))
-		Expect(search.Annotations["solder.io/discovered-from"]).To(Equal("teams/search/.solder.yaml"))
+		Expect(search.Annotations["sync.kuvryn.io/discovered-from"]).To(Equal("teams/search/.ksync.yaml"))
 	})
 
-	It("rejects unsafe configured .solder.yaml paths", func() {
+	It("rejects unsafe configured .ksync.yaml paths", func() {
 		resource := &corev1alpha1.Repository{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
 			Spec: corev1alpha1.RepositorySpec{
 				Type:                   corev1alpha1.RepositoryTypeGit,
 				Git:                    &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
-				ApplicationConfigPaths: []string{"../.solder.yaml"},
+				ApplicationConfigPaths: []string{"../.ksync.yaml"},
 			},
 		}
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -239,9 +239,9 @@ var _ = Describe("Repository Controller", func() {
 		Expect(updated.Status.Conditions[0].Reason).To(Equal(string(source.FailureReasonValidationFailure)))
 	})
 
-	It("prunes Applications removed from .solder.yaml", func() {
+	It("prunes Applications removed from .ksync.yaml", func() {
 		workspace := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications: []
+		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications: []
 `), 0o600)).To(Succeed())
 		resource := &corev1alpha1.Repository{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
@@ -273,7 +273,7 @@ var _ = Describe("Repository Controller", func() {
 			if declared != "" {
 				serviceAccountLine = "\n    serviceAccountName: " + declared
 			}
-			Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications:
+			Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:
 - metadata:
     name: payments
   spec:`+serviceAccountLine+`
@@ -318,9 +318,9 @@ var _ = Describe("Repository Controller", func() {
 		Entry("rejects any account when nothing is pinned", "", "cluster-operator", "", "may not set serviceAccountName"),
 	)
 
-	It("reports invalid .solder.yaml files as validation failures", func() {
+	It("reports invalid .ksync.yaml files as validation failures", func() {
 		workspace := GinkgoT().TempDir()
-		Expect(os.WriteFile(filepath.Join(workspace, ".solder.yaml"), []byte(`applications:
+		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:
 - metadata:
     name: broken
   spec:

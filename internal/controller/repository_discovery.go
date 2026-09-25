@@ -28,24 +28,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/renderer"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
-type solderRepositoryFile struct {
+type repositoryConfigFile struct {
 	metav1.TypeMeta `json:",inline"`
 	Applications    []corev1alpha1.Application `json:"applications,omitempty"`
 }
 
 func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Context, repository *corev1alpha1.Repository, resolved source.ResolvedSource) error {
-	paths, err := solderConfigPaths(repository)
+	paths, err := configPaths(repository)
 	if err != nil {
 		return err
 	}
 	seen := map[string]struct{}{}
 	for _, configPath := range paths {
-		apps, found, err := applicationsFromSolderFile(repository, resolved.CacheDir, configPath)
+		apps, found, err := applicationsFromConfigFile(repository, resolved.CacheDir, configPath)
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		return app, fmt.Errorf("%s application at index %d is missing metadata.name", configPath, index)
 	}
 	if _, duplicate := seen[app.Name]; duplicate {
-		return app, fmt.Errorf("application %q is declared by more than one Solder config file", app.Name)
+		return app, fmt.Errorf("application %q is declared by more than one .ksync.yaml file", app.Name)
 	}
 	if app.Namespace == "" {
 		app.Namespace = repository.Namespace
@@ -88,7 +88,7 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 	if app.Spec.Source.Render.Type == "" {
 		return app, fmt.Errorf("%s application %q must set spec.source.render.type", configPath, app.Name)
 	}
-	// Git write access must not choose which service account Solder acts as;
+	// Git write access must not choose which service account Kuvryn Sync acts as;
 	// the Repository owner decides.
 	pinned := repository.Spec.ApplicationServiceAccountName
 	if name := app.Spec.ServiceAccountName; name != "" && name != pinned {
@@ -109,10 +109,10 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 	return app, nil
 }
 
-func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
+func configPaths(repository *corev1alpha1.Repository) ([]string, error) {
 	paths := repository.Spec.ApplicationConfigPaths
 	if len(paths) == 0 {
-		paths = []string{solderConfigFileName}
+		paths = []string{configFileName}
 	}
 	out := make([]string, 0, len(paths))
 	seen := map[string]struct{}{}
@@ -128,8 +128,8 @@ func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
 		if clean == "." || !filepath.IsLocal(clean) {
 			return nil, fmt.Errorf("applicationConfigPaths path %q must stay inside the repository", raw)
 		}
-		if filepath.Base(clean) != solderConfigFileName {
-			return nil, fmt.Errorf("applicationConfigPaths path %q must name a %s file", raw, solderConfigFileName)
+		if filepath.Base(clean) != configFileName {
+			return nil, fmt.Errorf("applicationConfigPaths path %q must name a %s file", raw, configFileName)
 		}
 		if _, duplicate := seen[clean]; duplicate {
 			return nil, fmt.Errorf("applicationConfigPaths path %q is listed more than once", clean)
@@ -140,9 +140,9 @@ func solderConfigPaths(repository *corev1alpha1.Repository) ([]string, error) {
 	return out, nil
 }
 
-func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, configPath string) ([]corev1alpha1.Application, bool, error) {
+func applicationsFromConfigFile(repository *corev1alpha1.Repository, workspace, configPath string) ([]corev1alpha1.Application, bool, error) {
 	path := filepath.Join(workspace, filepath.FromSlash(configPath))
-	// solderConfigPaths checks the path lexically, and the Git cache refuses
+	// configPaths checks the path lexically, and the Git cache refuses
 	// links out of a checkout. The file and the directories above it are still
 	// repository content, so check the resolved path too: a link out would have
 	// the controller create Applications from any file on its filesystem.
@@ -154,7 +154,7 @@ func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, 
 		return nil, true, fmt.Errorf("could not resolve %s: %w", configPath, err)
 	}
 	if !inside {
-		return nil, true, fmt.Errorf("%s resolves outside the repository; Solder config files and links to them must stay inside it", configPath)
+		return nil, true, fmt.Errorf("%s resolves outside the repository; .ksync.yaml files and links to them must stay inside it", configPath)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -168,7 +168,7 @@ func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, 
 		return nil, true, fmt.Errorf("could not parse %s: %w", configPath, err)
 	}
 	if _, ok := raw["applications"]; ok {
-		var envelope solderRepositoryFile
+		var envelope repositoryConfigFile
 		if err := yaml.Unmarshal(data, &envelope); err != nil {
 			return nil, true, fmt.Errorf("could not parse %s: %w", configPath, err)
 		}
@@ -184,8 +184,8 @@ func applicationsFromSolderFile(repository *corev1alpha1.Repository, workspace, 
 	return nil, true, fmt.Errorf("%s must contain kind: Application or an applications list for repository %q", configPath, repository.Name)
 }
 
-// upsertDiscoveredApplication creates or updates the Application a Solder
-// config file declares, refusing one another controller owns.
+// upsertDiscoveredApplication creates or updates the Application a .ksync.yaml
+// file declares, refusing one another controller owns.
 func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, repository *corev1alpha1.Repository, desired *corev1alpha1.Application, configPath string) error {
 	app := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: desired.Namespace, Name: desired.Name}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, app, func() error {
@@ -203,7 +203,7 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 
 func ensureDiscoveredApplicationMetadata(repository *corev1alpha1.Repository, app *corev1alpha1.Application, configPath string) {
 	metav1.SetMetaDataLabel(&app.ObjectMeta, repositoryApplicationLabel, repository.Name)
-	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "solder.io/discovered-from", configPath)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "sync.kuvryn.io/discovered-from", configPath)
 }
 
 func (r *RepositoryReconciler) pruneRemovedDiscoveredApplications(ctx context.Context, repository *corev1alpha1.Repository, seen map[string]struct{}) error {

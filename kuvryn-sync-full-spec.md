@@ -1,6 +1,6 @@
-# Solder — Full Product Concept & Engineering Specification
+# Kuvryn Sync — Full Product Concept & Engineering Specification
 
-> **Solder — GitOps that sticks.**
+> **Kuvryn Sync — an Azrty product.**
 >
 > Lightweight, deterministic, Kubernetes-native GitOps built in Go.
 
@@ -12,11 +12,11 @@
 
 ## 1. Vision
 
-Solder is a lightweight Kubernetes-native GitOps deployment and reconciliation engine intended as a modern alternative to heavier or fragmented GitOps stacks.
+Kuvryn Sync is a lightweight Kubernetes-native GitOps deployment and reconciliation engine intended as a modern alternative to heavier or fragmented GitOps stacks.
 
-Solder is **not “Argo CD rewritten.”** It rethinks GitOps around a small Go operator, Kubernetes-native state, Server-Side Apply, first-class deployment plans, dependency-aware health, deterministic rollback, and clean integration boundaries.
+Kuvryn Sync is **not “Argo CD rewritten.”** It rethinks GitOps around a small Go operator, Kubernetes-native state, Server-Side Apply, first-class deployment plans, dependency-aware health, deterministic rollback, and clean integration boundaries.
 
-The name is literal: solder sticks things together. Solder joins desired state in Git to actual state in Kubernetes and continuously keeps that connection intact.
+Kuvryn Sync joins desired state in Git to actual state in Kubernetes and continuously keeps that connection intact.
 
 ```text
  Any CI system or person
@@ -27,7 +27,7 @@ The name is literal: solder sticks things together. Solder joins desired state i
        |
        v
 +-----------------------+
-|        SOLDER         |
+|      KUVRYN SYNC      |
 |-----------------------|
 | Source                |
 | Render                |
@@ -44,9 +44,9 @@ The name is literal: solder sticks things together. Solder joins desired state i
        Kubernetes
 ```
 
-The boundary is deliberate: **Solder** owns desired state -> running state -> continuous reconciliation. Building artifacts, promoting desired state, and visualizing or operating clusters belong to other tools, which integrate with Solder only through its public interfaces (see section 23).
+The boundary is deliberate: **Kuvryn Sync** owns desired state -> running state -> continuous reconciliation. Building artifacts, promoting desired state, and visualizing or operating clusters belong to other tools, which integrate with Kuvryn Sync only through its public interfaces (see section 23).
 
-Solder MUST be universal: useful on its own and with any CI system, UI or operations tool, and never built for one specific product.
+Kuvryn Sync MUST be universal: useful on its own and with any CI system, UI or operations tool, and never built for one specific product.
 
 ---
 
@@ -69,7 +69,7 @@ Solder MUST be universal: useful on its own and with any CI system, UI or operat
 15. Avoid CRD sprawl.
 16. Prefer immutable artifact digests.
 17. Default to conservative, explainable behavior over magic.
-18. Keep status and history bounded so Solder does not abuse etcd.
+18. Keep status and history bounded so Kuvryn Sync does not abuse etcd.
 
 ---
 
@@ -77,7 +77,7 @@ Solder MUST be universal: useful on its own and with any CI system, UI or operat
 
 ### Goals
 
-Solder should provide:
+Kuvryn Sync should provide:
 
 - simple operator installation;
 - Git desired-state sources;
@@ -129,9 +129,9 @@ Do NOT initially build:
 Default installation:
 
 ```text
-Namespace/solder-system
-Deployment/solder-controller
-ServiceAccount/solder-controller
+Namespace/kuvryn-sync-system
+Deployment/kuvryn-sync-controller
+ServiceAccount/kuvryn-sync-controller
 ClusterRole
 ClusterRoleBinding
 
@@ -144,8 +144,8 @@ CRDs:
 Binaries:
 
 ```text
-solder-controller
-solder
+kuvryn-sync-controller
+ksync
 ```
 
 Controller implementation:
@@ -160,7 +160,7 @@ Controller implementation:
 Initial development API may use a placeholder such as:
 
 ```text
-solder.io/v1alpha1
+sync.kuvryn.io/v1alpha1
 ```
 
 The real API domain MUST be verified before public release.
@@ -198,11 +198,11 @@ Do not create CRDs merely because an internal concept exists.
 A Repository represents a desired-state source and its authentication.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: platform
-  namespace: solder-system
+  namespace: kuvryn-sync-system
 spec:
   type: git
   git:
@@ -240,11 +240,11 @@ Future source adapters may include OCI and Helm repositories without changing th
 Application is the main user-facing deployment abstraction.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: payments
-  namespace: solder-system
+  namespace: kuvryn-sync-system
 spec:
   source:
     repositoryRef:
@@ -348,18 +348,18 @@ render:
       - values-production.yaml
 ```
 
-Do not unnecessarily recreate Helm or Kustomize functionality. Solder's responsibility is to safely obtain normalized Kubernetes objects.
+Do not unnecessarily recreate Helm or Kustomize functionality. Kuvryn Sync's responsibility is to safely obtain normalized Kubernetes objects.
 
 ### 5.4 Revision
 
 Every attempted deployment creates a Revision.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Revision
 metadata:
   name: payments-8c51af2
-  namespace: solder-system
+  namespace: kuvryn-sync-system
 spec:
   applicationRef:
     name: payments
@@ -446,7 +446,7 @@ status:
 CLI:
 
 ```text
-$ solder plan payments
+$ ksync plan payments
 
 Application: payments
 Revision:    8c51af2
@@ -555,10 +555,10 @@ The reconciler MUST be idempotent, restart-safe, duplicate-event-safe, context/d
 
 ## 8. Server-Side Apply and Ownership
 
-Solder uses Kubernetes Server-Side Apply with a stable field manager such as:
+Kuvryn Sync uses Kubernetes Server-Side Apply with a stable field manager such as:
 
 ```text
-solder
+kuvryn-sync
 ```
 
 Managed resources receive discovery metadata:
@@ -566,9 +566,9 @@ Managed resources receive discovery metadata:
 ```yaml
 metadata:
   labels:
-    solder.io/application: payments
+    sync.kuvryn.io/application: payments
   annotations:
-    solder.io/revision: 8c51af2
+    sync.kuvryn.io/revision: 8c51af2
 ```
 
 Labels and annotations aid discovery; managed fields provide field ownership semantics.
@@ -593,14 +593,14 @@ sync:
   prune: true
 ```
 
-Solder may delete objects that were previously managed by the Application, no longer exist in desired state, and pass pruning safety policy.
+Kuvryn Sync may delete objects that were previously managed by the Application, no longer exist in desired state, and pass pruning safety policy.
 
 Per-resource opt-out:
 
 ```yaml
 metadata:
   annotations:
-    solder.io/prune: "disabled"
+    sync.kuvryn.io/prune: "disabled"
 ```
 
 High-risk resources require conservative handling. Deletion should follow reverse dependency order where practical.
@@ -620,7 +620,7 @@ sync:
   selfHeal: true
 ```
 
-Solder reconciles managed drift. With `false`, it reports drift without mutation.
+Kuvryn Sync reconciles managed drift. With `false`, it reports drift without mutation.
 
 The drift engine MUST distinguish meaningful desired/live differences from normal mutations produced by Kubernetes and cooperating controllers.
 
@@ -628,7 +628,7 @@ The drift engine MUST distinguish meaningful desired/live differences from norma
 
 ## 10. Resource Dependency Graph
 
-Solder builds an application-level resource graph.
+Kuvryn Sync builds an application-level resource graph.
 
 Common inferable relationships include:
 
@@ -823,7 +823,7 @@ Observe
 RolledBack / RollbackFailed
 ```
 
-A crucial semantic: Git may still request the failed version after cluster rollback. Solder MUST expose this honestly:
+A crucial semantic: Git may still request the failed version after cluster rollback. Kuvryn Sync MUST expose this honestly:
 
 ```text
 Desired Revision:  bad123
@@ -866,8 +866,8 @@ new source revision
 CLI:
 
 ```text
-solder plan payments
-solder sync payments
+ksync plan payments
+ksync sync payments
 ```
 
 Approval should identify the exact Revision being approved to prevent TOCTOU errors if Git changes between planning and approval.
@@ -879,28 +879,28 @@ Approval should identify the exact Revision being approved to prevent TOCTOU err
 Core commands:
 
 ```text
-solder version
-solder install
-solder status
+ksync version
+ksync install
+ksync status
 
-solder repos
-solder repo get <name>
+ksync repos
+ksync repo get <name>
 
-solder apps
-solder get <application>
+ksync apps
+ksync get <application>
 
-solder plan <application>
-solder sync <application>
+ksync plan <application>
+ksync sync <application>
 
-solder history <application>
-solder revision <revision>
-solder rollback <application> [revision]
+ksync history <application>
+ksync revision <revision>
+ksync rollback <application> [revision]
 
-solder drift <application>
-solder diagnose <application>
+ksync drift <application>
+ksync diagnose <application>
 
-solder suspend <application>
-solder resume <application>
+ksync suspend <application>
+ksync resume <application>
 ```
 
 Useful flags:
@@ -916,7 +916,7 @@ Useful flags:
 --timeout
 ```
 
-CLI should primarily interact with Kubernetes APIs/CRDs rather than requiring a proprietary always-on Solder API server.
+CLI should primarily interact with Kubernetes APIs/CRDs rather than requiring a proprietary always-on Kuvryn Sync API server.
 
 ---
 
@@ -926,8 +926,8 @@ Recommended initial repository layout:
 
 ```text
 cmd/
-  solder-controller/
-  solder/
+  kuvryn-sync-controller/
+  ksync/
 
 api/
   v1alpha1/
@@ -991,7 +991,7 @@ config/
   samples/
 
 charts/
-  solder/
+  kuvryn-sync/
 
 docs/
 ```
@@ -1040,7 +1040,7 @@ A separate controller is optional. Do not create one unless lifecycle complexity
 
 ## 18. Concurrency and Scaling
 
-Solder should support many Applications without turning every source poll into expensive full-cluster scans.
+Kuvryn Sync should support many Applications without turning every source poll into expensive full-cluster scans.
 
 Design requirements:
 
@@ -1063,7 +1063,7 @@ Applications should be independent failure domains: one broken repo/render must 
 
 ## 19. Source Cache
 
-Solder does not need a separate repo-server, but it DOES need an efficient local source cache.
+Kuvryn Sync does not need a separate repo-server, but it DOES need an efficient local source cache.
 
 Requirements:
 
@@ -1099,7 +1099,7 @@ Principles:
 - validate manifests before apply;
 - bounded decompression/file sizes for source inputs.
 
-Solder itself should not become a secret-management system.
+Kuvryn Sync itself should not become a secret-management system.
 
 Support references to normal Kubernetes Secrets and later integrate cleanly with external-secret/sealed-secret ecosystems.
 
@@ -1127,27 +1127,27 @@ Never log secret payloads.
 Initial metric families should cover:
 
 ```text
-solder_reconcile_total
-solder_reconcile_duration_seconds
-solder_reconcile_errors_total
+kuvryn_sync_reconcile_total
+kuvryn_sync_reconcile_duration_seconds
+kuvryn_sync_reconcile_errors_total
 
-solder_applications
-solder_application_health
-solder_application_sync_state
+kuvryn_sync_applications
+kuvryn_sync_application_health
+kuvryn_sync_application_sync_state
 
-solder_source_fetch_total
-solder_source_fetch_duration_seconds
-solder_source_errors_total
+kuvryn_sync_source_fetch_total
+kuvryn_sync_source_fetch_duration_seconds
+kuvryn_sync_source_errors_total
 
-solder_plan_resources
-solder_apply_total
-solder_apply_errors_total
+kuvryn_sync_plan_resources
+kuvryn_sync_apply_total
+kuvryn_sync_apply_errors_total
 
-solder_drift_detected_total
-solder_drift_reconciled_total
+kuvryn_sync_drift_detected_total
+kuvryn_sync_drift_reconciled_total
 
-solder_rollbacks_total
-solder_rollback_errors_total
+kuvryn_sync_rollbacks_total
+kuvryn_sync_rollback_errors_total
 ```
 
 Keep metric labels bounded; never put arbitrary commit IDs/resource names into high-cardinality labels without careful design.
@@ -1179,7 +1179,7 @@ OTel export can remain optional.
 
 ## 22. Event Model
 
-Solder should expose stable structured lifecycle events from the start.
+Kuvryn Sync should expose stable structured lifecycle events from the start.
 
 Canonical event types:
 
@@ -1210,7 +1210,7 @@ Initially these map to CRD status, Kubernetes Events and internal typed events.
 Later consumers may include:
 
 ```text
-              Solder Events
+              Kuvryn Sync Events
                    |
         +----------+----------+
         |          |          |
@@ -1226,13 +1226,13 @@ Do not require a message broker for the initial implementation.
 
 ## 23. Integrations
 
-Solder is universal. It has no integration built for a specific product, and any tool, whether a CI system, a UI, an operations tool or a script, integrates through the same public surfaces:
+Kuvryn Sync is universal. It has no integration built for a specific product, and any tool, whether a CI system, a UI, an operations tool or a script, integrates through the same public surfaces:
 
 - **CRDs:** create and change Repositories and Applications, and read Revisions, with ordinary Kubernetes API calls and RBAC;
 - **status:** Application sync and health state, conditions such as `Ready`, the deployed and desired revisions, and the diagnosis; Revision phase, plan, health and failure;
 - **Events:** the Kubernetes Events of the event model in section 22;
 - **metrics:** Prometheus metrics for reconciles, Revisions and lifecycle events;
-- **CLI:** `solder` commands, some of which print JSON for machines.
+- **CLI:** `ksync` commands, some of which print JSON for machines.
 
 A CI system that promotes desired state commits to Git and, if it wants the result, watches the Revision for that commit until it is Healthy or Failed. It does not push deployment commands into the cluster.
 
@@ -1252,14 +1252,14 @@ payments:latest
 
 ## 24. Integration Boundaries
 
-Solder has no mandatory UI, and nothing in Solder depends on a particular integrating product.
+Kuvryn Sync has no mandatory UI, and nothing in Kuvryn Sync depends on a particular integrating product.
 
 External tools:
 
-- MUST use Solder's public Kubernetes API, never private controller internals;
+- MUST use Kuvryn Sync's public Kubernetes API, never private controller internals;
 - perform actions such as plan, approve, sync, rollback, suspend and resume through the same CRD fields and annotations the CLI uses, under their own RBAC;
 - read state from status, Events and metrics rather than from logs;
-- are optional: Solder behaves the same whether or not any tool is watching.
+- are optional: Kuvryn Sync behaves the same whether or not any tool is watching.
 
 New integration needs are met by extending these public surfaces for every consumer, not by adding product-specific fields, controllers or code paths.
 
@@ -1269,7 +1269,7 @@ New integration needs are met by extending these public surfaces for every consu
 
 AI belongs above deterministic diagnosis.
 
-Solder produces structured evidence:
+Kuvryn Sync produces structured evidence:
 
 ```json
 {
@@ -1355,11 +1355,11 @@ Suspension stops mutation/reconciliation while retaining visibility.
 CLI:
 
 ```text
-solder suspend payments
-solder resume payments
+ksync suspend payments
+ksync resume payments
 ```
 
-Solder should continue enough observation to report state appropriately, but MUST NOT silently apply desired changes while suspended.
+Kuvryn Sync should continue enough observation to report state appropriately, but MUST NOT silently apply desired changes while suspended.
 
 ---
 
@@ -1428,7 +1428,7 @@ Before apply:
 
 Where possible, a failed resource should be detected before partial deployment begins.
 
-Solder must still assume Kubernetes operations are not globally transactional.
+Kuvryn Sync must still assume Kubernetes operations are not globally transactional.
 
 ---
 
@@ -1476,7 +1476,7 @@ Rules:
 - truncate diagnostics safely with explicit `truncated: true`;
 - external integrations may persist richer history later.
 
-Solder must remain lightweight at the storage layer as well as runtime layer.
+Kuvryn Sync must remain lightweight at the storage layer as well as runtime layer.
 
 ---
 
@@ -1555,7 +1555,7 @@ CRD + CR deployment
 
 ### End-to-end
 
-CI should create an ephemeral cluster, install Solder, use a fixture Git repository and prove the complete lifecycle.
+CI should create an ephemeral cluster, install Kuvryn Sync, use a fixture Git repository and prove the complete lifecycle.
 
 ### Performance
 
@@ -1615,7 +1615,7 @@ The first implementation should perfect local-cluster reconciliation.
 
 Future multi-cluster options may include:
 
-- one Solder controller per cluster;
+- one Kuvryn Sync controller per cluster;
 - central desired-state management with distributed agents;
 - cluster registration;
 - environment promotion;
@@ -1629,7 +1629,7 @@ The preferred long-term security model should retain pull-based, cluster-local r
 
 ## 37. OCI Desired State — Later Phase
 
-Solder should eventually support immutable OCI artifacts as desired-state sources.
+Kuvryn Sync should eventually support immutable OCI artifacts as desired-state sources.
 
 Concept:
 
@@ -1674,7 +1674,7 @@ Webhook says repository changed
 enqueue reconciliation
         |
         v
-Solder independently fetches/verifies current source
+Kuvryn Sync independently fetches/verifies current source
 ```
 
 Never trust webhook payload alone as desired state.
@@ -1690,7 +1690,7 @@ A webhook/API server must remain optional.
 Cluster-scoped controller:
 
 ```text
-solder install
+ksync install
 ```
 
 ### Helm
@@ -1698,7 +1698,7 @@ solder install
 Provide a small official chart:
 
 ```text
-charts/solder
+charts/kuvryn-sync
 ```
 
 ### Raw manifests
@@ -1719,7 +1719,7 @@ Deleting an Application should NOT unexpectedly destroy production workloads by 
 
 Recommended behavior:
 
-- remove Solder management metadata/finalization safely;
+- remove Kuvryn Sync management metadata/finalization safely;
 - preserve workloads unless an explicit deletion policy requests cascading cleanup.
 
 Potential policy:
@@ -1789,7 +1789,7 @@ Source cache can remain replica-local; losing it affects performance, not correc
 
 ## 45. Rate Limiting and Safety
 
-Protect both Solder and the Kubernetes API.
+Protect both Kuvryn Sync and the Kubernetes API.
 
 Implement:
 
@@ -1809,7 +1809,7 @@ A bad Application must not cause an uncontrolled tight loop.
 
 ## 46. Supply-Chain Capabilities
 
-Solder is not a scanner or signing system, but should understand provenance.
+Kuvryn Sync is not a scanner or signing system, but should understand provenance.
 
 Future policies may verify:
 
@@ -1819,7 +1819,7 @@ Future policies may verify:
 - SBOM reference exists;
 - artifact originated from an allowed pipeline.
 
-CI systems can produce these artifacts. Solder can eventually enforce declarative policy before deployment.
+CI systems can produce these artifacts. Kuvryn Sync can eventually enforce declarative policy before deployment.
 
 Keep verification adapters separate from the core planner.
 
@@ -1853,11 +1853,11 @@ Prefer integration with established policy ecosystems or a constrained declarati
 
 ## 48. User Experience Principles
 
-Solder should answer four questions quickly:
+Kuvryn Sync should answer four questions quickly:
 
 1. **What does Git want?**
 2. **What is actually running?**
-3. **What will Solder change?**
+3. **What will Kuvryn Sync change?**
 4. **If it failed, why?**
 
 Bad:
@@ -1924,7 +1924,7 @@ Environment commit:
 21d83ab deploy(payments): promote build 4821
 ```
 
-Solder:
+Kuvryn Sync:
 
 ```text
 Repository observes 21d83ab
@@ -1952,13 +1952,13 @@ Observe
 Healthy
 ```
 
-Any tool reading Solder's status can then follow the lineage:
+Any tool reading Kuvryn Sync's status can then follow the lineage:
 
 ```text
 Pod
  -> ReplicaSet
  -> Deployment
- -> Solder Revision 21d83ab
+ -> Kuvryn Sync Revision 21d83ab
  -> Artifact sha256:abc123
  -> Source Commit 9a71bc2
 ```
@@ -1970,7 +1970,7 @@ Pod
 A new commit references a nonexistent Secret.
 
 ```text
-Solder detects new desired revision
+Kuvryn Sync detects new desired revision
         |
         v
 Plan succeeds
@@ -2024,7 +2024,7 @@ This distinction is essential.
 
 ## 51. MVP Definition
 
-A useful MVP should include only enough to prove Solder's architectural advantage.
+A useful MVP should include only enough to prove Kuvryn Sync's architectural advantage.
 
 ### MVP scope
 
@@ -2094,7 +2094,7 @@ A useful MVP should include only enough to prove Solder's architectural advantag
 - normalization;
 - validation.
 
-Success criterion: Solder can reproducibly render desired state for an Application.
+Success criterion: Kuvryn Sync can reproducibly render desired state for an Application.
 
 ### Phase 2 — Plan
 
@@ -2106,7 +2106,7 @@ Success criterion: Solder can reproducibly render desired state for an Applicati
 - CLI plan output;
 - secret redaction.
 
-Success criterion: Solder can accurately explain what would change without mutating the cluster.
+Success criterion: Kuvryn Sync can accurately explain what would change without mutating the cluster.
 
 ### Phase 3 — Apply
 
@@ -2127,7 +2127,7 @@ Success criterion: a Git change safely converges into Kubernetes.
 - rollout observation;
 - deterministic causal diagnosis.
 
-Success criterion: Solder explains whether deployment succeeded and where common failures originate.
+Success criterion: Kuvryn Sync explains whether deployment succeeded and where common failures originate.
 
 ### Phase 5 — Drift + Self-Heal
 
@@ -2173,7 +2173,7 @@ Success criterion: failed deployments can deterministically return to the last h
 
 v0.1 is ready when an operator can:
 
-1. install Solder with one simple command/chart;
+1. install Kuvryn Sync with one simple command/chart;
 2. create a Repository;
 3. create an Application;
 4. see the exact source revision;
@@ -2186,7 +2186,7 @@ v0.1 is ready when an operator can:
 11. optionally self-heal;
 12. view bounded revision history;
 13. rollback a failed release;
-14. operate all core functions through `solder`;
+14. operate all core functions through `ksync`;
 15. run without Redis/database/UI;
 16. restart the controller mid-operation without corrupting state;
 17. pass E2E tests on Kind;
@@ -2233,7 +2233,7 @@ These requirements are mandatory unless deliberately changed in the architecture
 - silently delete resources;
 - make Application deletion cascade workloads by default;
 - implement GitOps as CI pushing kubectl commands;
-- build product-specific integrations into Solder;
+- build product-specific integrations into Kuvryn Sync;
 - use mutable image tags as the recommended production pattern.
 
 ---
@@ -2347,7 +2347,7 @@ Resource Graph        Live Reader
 
 ## 57. Competitive Product Philosophy
 
-Solder should differentiate through architecture and operator experience rather than feature-count copying.
+Kuvryn Sync should differentiate through architecture and operator experience rather than feature-count copying.
 
 Its identity:
 
@@ -2363,17 +2363,17 @@ Small control plane
 + clean CI and operations integration
 ```
 
-The project should resist becoming a monolithic platform. Rich visualization and pipeline orchestration belong in other tools, which integrate through Solder's public surfaces.
+The project should resist becoming a monolithic platform. Rich visualization and pipeline orchestration belong in other tools, which integrate through Kuvryn Sync's public surfaces.
 
-Solder remains the focused, trustworthy reconciliation layer between desired state and Kubernetes.
+Kuvryn Sync remains the focused, trustworthy reconciliation layer between desired state and Kubernetes.
 
 ---
 
 ## 58. Positioning
 
-Solder's standalone positioning:
+Kuvryn Sync's standalone positioning:
 
-> **Solder — GitOps that sticks.**
+> **Kuvryn Sync — an Azrty product.**
 
 Technical description:
 
@@ -2383,15 +2383,15 @@ Technical description:
 
 ## 59. Initial README-Level Pitch
 
-Solder is a lightweight GitOps controller for Kubernetes.
+Kuvryn Sync is a lightweight GitOps controller for Kubernetes.
 
 It watches desired state, renders it, shows exactly what will change, reconciles it using Server-Side Apply, understands resource dependencies, observes rollout health, detects drift, self-heals when configured, and can deterministically roll back failed deployments.
 
 It runs as a small Kubernetes operator without requiring Redis, PostgreSQL or a mandatory UI.
 
-Use Solder by itself through Kubernetes and its CLI, or connect any CI system, UI or operations tool through its public CRDs, status, Events and metrics.
+Use Kuvryn Sync by itself through Kubernetes and its CLI, or connect any CI system, UI or operations tool through its public CRDs, status, Events and metrics.
 
-**GitOps that sticks.**
+**Kuvryn Sync — an Azrty product.**
 
 ---
 
@@ -2399,16 +2399,31 @@ Use Solder by itself through Kubernetes and its CLI, or connect any CI system, U
 
 When making future design decisions, use this test:
 
-> **Does this feature help Solder reliably connect desired state to actual Kubernetes state?**
+> **Does this feature help Kuvryn Sync reliably connect desired state to actual Kubernetes state?**
 
-If yes, it may belong in Solder.
+If yes, it may belong in Kuvryn Sync.
 
 If it primarily builds or tests artifacts, it probably belongs in a CI system.
 
-If it primarily visualizes, explains or provides broad cluster operations, it probably belongs in a separate tool built on Solder's public API.
+If it primarily visualizes, explains or provides broad cluster operations, it probably belongs in a separate tool built on Kuvryn Sync's public API.
 
 If it can be implemented using standard Kubernetes mechanisms without adding another service, prefer the Kubernetes-native solution.
 
 The desired end state is not the biggest GitOps platform.
 
 It is the smallest trustworthy reconciliation engine that gives operators exceptional visibility into **what will change, what changed, whether it worked, why it failed, and how to recover**.
+
+---
+
+## History
+
+The product was named **Solder** up to and including v0.3.0: the `solder.io`
+API group and label prefix, the `solder` CLI, the Go module and repository
+`github.com/azrtydxb/solder`, the image `ghcr.io/azrtydxb/solder`, the `solder`
+Helm chart and the `.solder.yaml` discovery file. The name was literal: solder
+sticks things together, and the tagline was "GitOps that sticks".
+
+From v0.4.0 it is **Kuvryn Sync**, part of the Kuvryn family of Azrty products.
+The rename is a clean break with no migration code and no compatibility
+aliases; see "Moving from Solder 0.3.x to Kuvryn Sync 0.4.0" in
+`docs/upgrade.md`. This specification was `solder-full-spec.md` until then.

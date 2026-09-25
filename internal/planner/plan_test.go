@@ -3,8 +3,8 @@ package planner
 import (
 	"testing"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/prune"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/prune"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -186,7 +186,7 @@ func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
 	live.SetLabels(map[string]string{"kustomize.toolkit.fluxcd.io/name": "payments"})
 	_ = unstructured.SetNestedField(live.Object, "defaulted", "data", "serverDefault")
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:kustomize.toolkit.fluxcd.io/name":{}}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
@@ -198,11 +198,11 @@ func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
 	}
 }
 
-func TestRemovingAFieldSolderOwnedIsAChange(t *testing.T) {
+func TestRemovingAFieldKuvrynSyncOwnedIsAChange(t *testing.T) {
 	desired := cm("shrinking", "same")
 	live := cm("shrinking", "same")
 	_ = unstructured.SetNestedField(live.Object, "old", "data", "removed")
-	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("kuvryn-sync", `{"f:data":{"f:value":{},"f:removed":{}}}`)})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 	live.SetLabels(map[string]string{"team": "search"})
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
 		managedBy("kustomize-controller", `{"f:metadata":{"f:labels":{"f:team":{}}}}`),
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{live})
 	if err != nil {
@@ -232,13 +232,13 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 	}
 }
 
-func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
-	// Both managers applied the same value, so both own data.value; solder is
+func TestAFieldKuvrynSyncSharesWithAnotherManagerConflicts(t *testing.T) {
+	// Both managers applied the same value, so both own data.value; kuvryn-sync is
 	// listed last so a single-owner map would lose the other manager.
 	live := cm("shared", "live")
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
 		managedBy("kubectl", `{"f:data":{"f:value":{}}}`),
-		managedBy("solder", `{"f:data":{"f:value":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{}}}`),
 	})
 	plan, err := Build([]unstructured.Unstructured{cm("shared", "desired")}, []unstructured.Unstructured{live})
 	if err != nil {
@@ -249,11 +249,11 @@ func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
 		t.Fatalf("conflicts = %#v, want one on data.value with kubectl", conflicts)
 	}
 
-	// A field Solder shares is still Solder's: dropping it is a change.
+	// A field Kuvryn Sync shares is still Kuvryn Sync's: dropping it is a change.
 	removed := cm("shared", "live")
 	_ = unstructured.SetNestedField(removed.Object, "old", "data", "removed")
 	removed.SetManagedFields([]metav1.ManagedFieldsEntry{
-		managedBy("solder", `{"f:data":{"f:value":{},"f:removed":{}}}`),
+		managedBy("kuvryn-sync", `{"f:data":{"f:value":{},"f:removed":{}}}`),
 		managedBy("kubectl", `{"f:data":{"f:removed":{}}}`),
 	})
 	plan, err = Build([]unstructured.Unstructured{cm("shared", "live")}, []unstructured.Unstructured{removed})
@@ -279,7 +279,7 @@ func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
 		}}
 	}
 	live := deployment("nginx:1", map[string]any{"imagePullPolicy": "Always", "terminationMessagePath": "/dev/termination-log"})
-	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("solder",
+	live.SetManagedFields([]metav1.ManagedFieldsEntry{managedBy("kuvryn-sync",
 		`{"f:spec":{"f:template":{"f:spec":{"f:containers":{"k:{\"name\":\"api\"}":{".":{},"f:image":{},"f:name":{}}}}}}}`)})
 
 	unchanged, err := Build([]unstructured.Unstructured{deployment("nginx:1", nil)}, []unstructured.Unstructured{live})

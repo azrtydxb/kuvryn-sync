@@ -34,12 +34,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imagepolicy"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy"
 )
 
-// RegistryCredentialsLabel marks a Secret that Solder may send to a registry.
-const RegistryCredentialsLabel = "solder.io/registry-credentials"
+// RegistryCredentialsLabel marks a Secret that Kuvryn Sync may send to a registry.
+const RegistryCredentialsLabel = "sync.kuvryn.io/registry-credentials"
 
 // imagePolicyChanges admits spec edits and annotation changes, such as the
 // receiver's scan request, but not the controller's own status writes: each
@@ -56,9 +56,9 @@ type ImagePolicyReconciler struct {
 	Registry *imagepolicy.Registry
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=imagepolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=imagepolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=imagepolicies/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=imagepolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=imagepolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=imagepolicies/finalizers,verbs=update
 
 // Reconcile scans the policy's image repository and records the selected
 // tag and digest, then waits for the next interval.

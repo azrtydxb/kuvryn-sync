@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	FieldManager                 = "solder"
-	ApplicationLabelKey          = "solder.io/application"
-	ApplicationNamespaceLabelKey = "solder.io/application-namespace"
-	RevisionAnnotationKey        = "solder.io/revision"
+	FieldManager                 = "kuvryn-sync"
+	ApplicationLabelKey          = "sync.kuvryn.io/application"
+	ApplicationNamespaceLabelKey = "sync.kuvryn.io/application-namespace"
+	RevisionAnnotationKey        = "sync.kuvryn.io/revision"
 )
 
 // Applier mutates Kubernetes resources with server-side apply.
@@ -42,7 +42,7 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	return nil
 }
 
-// MarkManaged adds the labels and annotation Solder applies with every
+// MarkManaged adds the labels and annotation Kuvryn Sync applies with every
 // object. Planning marks desired objects the same way, so this metadata is
 // never mistaken for drift.
 func MarkManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {

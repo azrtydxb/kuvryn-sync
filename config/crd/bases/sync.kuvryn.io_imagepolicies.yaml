@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: imagepolicies.solder.io
+  name: imagepolicies.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: ImagePolicy
     listKind: ImagePolicyList
@@ -115,7 +115,7 @@ spec:
                 secretRef:
                   description: |-
                     secretRef names a kubernetes.io/dockerconfigjson Secret, labelled
-                    solder.io/registry-credentials=true, used to read the registry.
+                    sync.kuvryn.io/registry-credentials=true, used to read the registry.
                   properties:
                     name:
                       description: name is the Secret name.
@@ -127,7 +127,7 @@ spec:
                 webhook:
                   description: |-
                     webhook lets a registry or CI trigger an immediate scan through
-                    Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+                    Kuvryn Sync's receiver at /hooks/imagepolicies/<namespace>/<name>.
                   properties:
                     secretRef:
                       description: |-

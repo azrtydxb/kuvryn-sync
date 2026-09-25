@@ -8,16 +8,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/normalize"
-	"github.com/azrtydxb/solder/internal/prune"
-	"github.com/azrtydxb/solder/internal/redact"
-	"github.com/azrtydxb/solder/internal/resource"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/normalize"
+	"github.com/azrtydxb/kuvryn-sync/internal/prune"
+	"github.com/azrtydxb/kuvryn-sync/internal/redact"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
-
-const solderFieldManager = "solder"
 
 // Change describes one resource-level plan action.
 type Change struct {
@@ -103,10 +103,10 @@ func createFieldChanges(obj unstructured.Unstructured) []corev1alpha1.PlanFieldC
 	return nil
 }
 
-// changedFields lists what Server-Side Apply would change: every field Solder
-// declares that differs from live, and fields Solder owned that desired state
+// changedFields lists what Server-Side Apply would change: every field Kuvryn Sync
+// declares that differs from live, and fields Kuvryn Sync owned that desired state
 // no longer declares. Fields only other managers own, or that the API server
-// defaulted, are not Solder's and are never reported.
+// defaulted, are not Kuvryn Sync's and are never reported.
 func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.PlanFieldChange, error) {
 	if isSecret(desired) || isSecret(live) {
 		equal, err := normalize.Equal(desired, live)
@@ -136,7 +136,7 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 		if _, declared := df[path]; declared {
 			continue
 		}
-		if slices.Contains(owners[path], solderFieldManager) {
+		if slices.Contains(owners[path], applier.FieldManager) {
 			paths[path] = struct{}{}
 		}
 	}
@@ -236,14 +236,14 @@ func (p *Plan) Keep(kept []prune.Rejected) error {
 }
 
 // detectConflicts reports changed fields another field manager owns, which
-// Server-Side Apply would refuse without force. A field Solder shares with
+// Server-Side Apply would refuse without force. A field Kuvryn Sync shares with
 // other managers conflicts with each of them.
 func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanFieldChange) []corev1alpha1.PlanConflict {
 	owners := fieldOwners(live)
 	conflicts := []corev1alpha1.PlanConflict{}
 	for _, field := range fields {
 		for _, manager := range owners[field.Path] {
-			if manager == solderFieldManager {
+			if manager == applier.FieldManager {
 				continue
 			}
 			conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})

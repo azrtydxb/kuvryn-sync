@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for your interest in Solder.
+Thanks for your interest in Kuvryn Sync.
 
 ## Toolchain
 
-Solder needs Go 1.26 or later, as `go.mod` requires. The devcontainer in
+Kuvryn Sync needs Go 1.26 or later, as `go.mod` requires. The devcontainer in
 `.devcontainer/` provides it on the `golang:1.26` image, with Docker-in-Docker,
 kind, kubebuilder, and kubectl; open the repository in it to get a working
 setup without installing anything locally.

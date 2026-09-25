@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/azrtydxb/solder/internal/decrypt"
-	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
-	"github.com/azrtydxb/solder/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt/decrypttest"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 func TestRendererDecodesMultiDocumentYAML(t *testing.T) {

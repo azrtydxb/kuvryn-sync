@@ -1,20 +1,20 @@
-title: Solder
-description: Kubernetes-native GitOps that sticks
+title: Kuvryn Sync
+description: Kuvryn Sync — an Azrty product. Kubernetes-native GitOps.
 remote_theme: just-the-docs/just-the-docs
 plugins:
   - jekyll-remote-theme
 color_scheme: light
 
 url: https://azrtydxb.github.io
-baseurl: /solder
+baseurl: /kuvryn-sync
 
 aux_links:
   GitHub:
-    - https://github.com/azrtydxb/solder
+    - https://github.com/azrtydxb/kuvryn-sync
 
 nav_external_links:
   - title: GitHub repository
-    url: https://github.com/azrtydxb/solder
+    url: https://github.com/azrtydxb/kuvryn-sync
 
 search_enabled: true
 heading_anchors: true

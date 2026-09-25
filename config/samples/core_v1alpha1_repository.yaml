@@ -1,4 +1,4 @@
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: platform
@@ -12,5 +12,5 @@ spec:
       secretRef:
         name: platform-git
   applicationConfigPaths:
-    - .solder.yaml
+    - .ksync.yaml
   pollInterval: 60s

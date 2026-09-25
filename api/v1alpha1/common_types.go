@@ -88,7 +88,7 @@ const (
 	FailureActionRollback FailureAction = "rollback"
 )
 
-// DeletionPolicy controls what Solder does when an Application is deleted.
+// DeletionPolicy controls what Kuvryn Sync does when an Application is deleted.
 type DeletionPolicy string
 
 const (
@@ -190,7 +190,7 @@ type PlanConflict struct {
 	// path identifies the desired field that conflicts with another field manager.
 	// +kubebuilder:validation:MinLength=1
 	Path string `json:"path"`
-	// manager is the non-Solder field manager currently owning the field.
+	// manager is the other field manager currently owning the field.
 	// +kubebuilder:validation:MinLength=1
 	Manager string `json:"manager"`
 	// policy records the conflict behavior that will be used by apply.

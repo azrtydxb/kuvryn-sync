@@ -28,12 +28,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/azrtydxb/solder/test/utils"
+	"github.com/azrtydxb/kuvryn-sync/test/utils"
 )
 
 var (
 	// managerImage is the prebuilt manager image used for testing.
-	managerImage = envOrDefault("IMG", "example.com/solder:v0.0.1")
+	managerImage = envOrDefault("IMG", "example.com/kuvryn-sync:v0.0.1")
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )
@@ -46,7 +46,7 @@ var (
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting solder e2e test suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kuvryn-sync e2e test suite\n")
 	RunSpecs(t, "e2e suite")
 }
 

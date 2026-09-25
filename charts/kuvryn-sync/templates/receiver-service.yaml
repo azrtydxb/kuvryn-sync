@@ -2,12 +2,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "solder.fullname" . }}-receiver
+  name: {{ include "kuvryn-sync.fullname" . }}-receiver
   labels:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
 spec:
   selector:
-    app.kubernetes.io/name: {{ include "solder.name" . }}
+    app.kubernetes.io/name: {{ include "kuvryn-sync.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: http

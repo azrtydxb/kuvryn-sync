@@ -27,14 +27,14 @@ type RepositorySpec struct {
 	// git configures a Git desired-state source.
 	// +optional
 	Git *GitRepositorySpec `json:"git,omitempty"`
-	// applicationConfigPaths are repository-relative .solder.yaml files that
-	// declare Applications for this Repository. When empty, Solder reads
-	// .solder.yaml from the repository root.
+	// applicationConfigPaths are repository-relative .ksync.yaml files that
+	// declare Applications for this Repository. When empty, Kuvryn Sync reads
+	// .ksync.yaml from the repository root.
 	// +listType=atomic
 	// +optional
 	ApplicationConfigPaths []string `json:"applicationConfigPaths,omitempty"`
 	// applicationServiceAccountName is the service account that Applications
-	// discovered from .solder.yaml run as. Discovered Applications may only
+	// discovered from .ksync.yaml run as. Discovered Applications may only
 	// name this account; when it is empty they may not set serviceAccountName
 	// and use the controller's default service account.
 	// +kubebuilder:validation:MaxLength=253
@@ -45,7 +45,7 @@ type RepositorySpec struct {
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 	// webhook lets GitHub or GitLab push events trigger an immediate fetch
-	// through Solder's webhook receiver at /hooks/<namespace>/<name>.
+	// through Kuvryn Sync's webhook receiver at /hooks/<namespace>/<name>.
 	// +optional
 	Webhook *RepositoryWebhook `json:"webhook,omitempty"`
 	// imageUpdate commits the images selected by ImagePolicies in this
@@ -57,7 +57,7 @@ type RepositorySpec struct {
 
 // ImageUpdateSpec configures image write-back commits.
 type ImageUpdateSpec struct {
-	// secretRef names a Secret, labelled solder.io/git-credentials=true, with
+	// secretRef names a Secret, labelled sync.kuvryn.io/git-credentials=true, with
 	// credentials allowed to push (same keys as spec.git.auth).
 	SecretRef SecretReference `json:"secretRef"`
 	// branch receives the commits; it defaults to spec.git.revision.
@@ -67,10 +67,10 @@ type ImageUpdateSpec struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 	// authorName and authorEmail sign the commits.
-	// +kubebuilder:default:="Solder"
+	// +kubebuilder:default:="Kuvryn Sync"
 	// +optional
 	AuthorName string `json:"authorName,omitempty"`
-	// +kubebuilder:default:="solder@localhost"
+	// +kubebuilder:default:="kuvryn-sync@localhost"
 	// +optional
 	AuthorEmail string `json:"authorEmail,omitempty"`
 }
@@ -109,7 +109,7 @@ type RepositoryStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Ready;Failed
 	// +optional
 	State RepositoryState `json:"state,omitempty"`
-	// observedRevision is the latest resolved source revision Solder observed.
+	// observedRevision is the latest resolved source revision Kuvryn Sync observed.
 	// +optional
 	ObservedRevision string `json:"observedRevision,omitempty"`
 	// lastFetchedAt records the last successful source fetch/inspection time.

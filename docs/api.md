@@ -5,14 +5,14 @@ nav_order: 5
 
 # API reference
 
-Solder exposes Kubernetes CRDs in API group `solder.io/v1alpha1`.
+Kuvryn Sync exposes Kubernetes CRDs in API group `sync.kuvryn.io/v1alpha1`.
 
 ## Repository
 
 `Repository` describes a desired-state source.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: platform
@@ -23,24 +23,24 @@ spec:
     url: https://github.com/example/platform.git
     revision: main
   applicationConfigPaths:
-    - .solder.yaml
+    - .ksync.yaml
   applicationServiceAccountName: payments-deployer
   pollInterval: 60s
 ```
 
 ### Spec fields
 
-| Field                                | Description                                                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                |
-| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.         |
-| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                               |
-| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `solder.io/git-credentials: "true"`.  |
-| `spec.applicationConfigPaths`        | Repository-relative `.solder.yaml` paths. Defaults to root `.solder.yaml`.                                                |
-| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.            |
-| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                  |
-| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                       |
-| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`. |
+| Field                                | Description                                                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                    |
+| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.             |
+| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                                   |
+| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `sync.kuvryn.io/git-credentials: "true"`. |
+| `spec.applicationConfigPaths`        | Repository-relative `.ksync.yaml` paths. Defaults to root `.ksync.yaml`.                                                      |
+| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.                |
+| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                      |
+| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                           |
+| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`.     |
 
 ### Status fields
 
@@ -51,17 +51,17 @@ spec:
 | `status.lastFetchedAt`    | Time of last successful source fetch/inspection. |
 | `status.conditions`       | Kubernetes Conditions for source readiness.      |
 
-### Repository `.solder.yaml` discovery
+### Repository `.ksync.yaml` discovery
 
-When a Git Repository resolves, Solder checks configured `.solder.yaml` files.
-When `spec.applicationConfigPaths` is empty, Solder reads the repository root
-`.solder.yaml`. For monorepos or moved config, set one or more paths:
+When a Git Repository resolves, Kuvryn Sync checks configured `.ksync.yaml` files.
+When `spec.applicationConfigPaths` is empty, Kuvryn Sync reads the repository root
+`.ksync.yaml`. For monorepos or moved config, set one or more paths:
 
 ```yaml
 spec:
   applicationConfigPaths:
-    - teams/payments/.solder.yaml
-    - teams/search/.solder.yaml
+    - teams/payments/.ksync.yaml
+    - teams/search/.ksync.yaml
 ```
 
 Each file can contain an Application list:
@@ -92,14 +92,14 @@ For discovered Applications:
   `spec.applicationServiceAccountName`, and defaults to it. When the Repository
   sets none, discovered Applications may not set a service account and use the
   controller's default. This keeps Git write access from choosing which
-  service account Solder acts as.
+  service account Kuvryn Sync acts as.
 - `applicationConfigPaths` entries must be repository-relative paths named
-  `.solder.yaml`, must be unique, and must not escape the repository.
+  `.ksync.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.
-- Discovered Applications are labeled with `solder.io/repository` and annotated
-  with `solder.io/discovered-from` set to the source config path.
+- Discovered Applications are labeled with `sync.kuvryn.io/repository` and annotated
+  with `sync.kuvryn.io/discovered-from` set to the source config path.
 - Applications managed by the same Repository label but removed from the
-  configured `.solder.yaml` files are deleted.
+  configured `.ksync.yaml` files are deleted.
 
 A single full `Application` object is also accepted for small repositories.
 
@@ -108,7 +108,7 @@ A single full `Application` object is also accepted for small repositories.
 `Application` is the main deployment abstraction.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: payments
@@ -143,29 +143,29 @@ spec:
 
 ### Source and render fields
 
-| Field                                  | Description                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spec.source.repositoryRef.name`       | Repository in the same namespace.                                                                                                                                                                                                                                                                                                                                                                              |
-| `spec.source.revision`                 | Branch, tag, or commit. Defaults to the Repository revision.                                                                                                                                                                                                                                                                                                                                                   |
-| `spec.source.path`                     | Repository-relative desired-state path.                                                                                                                                                                                                                                                                                                                                                                        |
-| `spec.source.render.type`              | `yaml`, `kustomize`, or `helm`.                                                                                                                                                                                                                                                                                                                                                                                |
-| `spec.source.render.helm.releaseName`  | Helm release name for template rendering. Defaults to `solder`. Like Helm, it must be a lowercase DNS subdomain (lowercase letters, digits, `-` and `.`, each dot-separated part starting and ending with a letter or digit) of at most 53 characters. The API server rejects any other name, and an Application stored with one before this rule fails with `ValidationFailure` until the release is renamed. |
-| `spec.source.render.helm.valuesFiles`  | Repository-relative Helm values files.                                                                                                                                                                                                                                                                                                                                                                         |
-| `spec.source.render.helm.chart`        | Pull `name` at exact `version` from an `https://` Helm repository or `oci://` registry (`repository`), with optional `secretRef` (`username`/`password`, labelled `solder.io/registry-credentials: "true"`). The archive digest is recorded in the Revision's `status.chartDigest`.                                                                                                                            |
-| `spec.source.render.helm.valuesFrom[]` | `kind` (`ConfigMap` or `Secret`), `name`, and `key` (default `values.yaml`) in the Application namespace, read as the Application's service account. Values from Secrets are masked in plans.                                                                                                                                                                                                                  |
-| `spec.source.render.helm.values`       | Inline values, merged last.                                                                                                                                                                                                                                                                                                                                                                                    |
+| Field                                  | Description                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec.source.repositoryRef.name`       | Repository in the same namespace.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `spec.source.revision`                 | Branch, tag, or commit. Defaults to the Repository revision.                                                                                                                                                                                                                                                                                                                                                        |
+| `spec.source.path`                     | Repository-relative desired-state path.                                                                                                                                                                                                                                                                                                                                                                             |
+| `spec.source.render.type`              | `yaml`, `kustomize`, or `helm`.                                                                                                                                                                                                                                                                                                                                                                                     |
+| `spec.source.render.helm.releaseName`  | Helm release name for template rendering. Defaults to `kuvryn-sync`. Like Helm, it must be a lowercase DNS subdomain (lowercase letters, digits, `-` and `.`, each dot-separated part starting and ending with a letter or digit) of at most 53 characters. The API server rejects any other name, and an Application stored with one before this rule fails with `ValidationFailure` until the release is renamed. |
+| `spec.source.render.helm.valuesFiles`  | Repository-relative Helm values files.                                                                                                                                                                                                                                                                                                                                                                              |
+| `spec.source.render.helm.chart`        | Pull `name` at exact `version` from an `https://` Helm repository or `oci://` registry (`repository`), with optional `secretRef` (`username`/`password`, labelled `sync.kuvryn.io/registry-credentials: "true"`). The archive digest is recorded in the Revision's `status.chartDigest`.                                                                                                                            |
+| `spec.source.render.helm.valuesFrom[]` | `kind` (`ConfigMap` or `Secret`), `name`, and `key` (default `values.yaml`) in the Application namespace, read as the Application's service account. Values from Secrets are masked in plans.                                                                                                                                                                                                                       |
+| `spec.source.render.helm.values`       | Inline values, merged last.                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Policy fields
 
 | Field                                     | Description                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `spec.decryption`                         | `provider: sops` and `secretRef.name` of a Secret labelled `solder.io/decryption-key: "true"` whose `.agekey` entries hold age private keys.                                                                                                                             |
+| `spec.decryption`                         | `provider: sops` and `secretRef.name` of a Secret labelled `sync.kuvryn.io/decryption-key: "true"` whose `.agekey` entries hold age private keys.                                                                                                                        |
 | `spec.dependsOn[].name`                   | Applications in the same namespace that must be Healthy at their desired revision before this one applies. Cycles are reported as `DependenciesReady=False/DependencyCycle`.                                                                                             |
 | `spec.notifications[]`                    | Subscriptions: `sinkRef.name` of a NotificationSink and the `events` to send (`AwaitingApproval`, `Healthy`, `Failed`, `RolledBack`).                                                                                                                                    |
-| `spec.serviceAccountName`                 | Service account Solder impersonates for this Application.                                                                                                                                                                                                                |
+| `spec.serviceAccountName`                 | Service account Kuvryn Sync impersonates for this Application.                                                                                                                                                                                                           |
 | `spec.destination.namespace`              | Namespace for namespaced desired resources: objects without one are placed there, objects naming another are rejected. Cluster-scoped kinds, including CRD kinds rendered alongside their CustomResourceDefinition, keep no namespace.                                   |
 | `spec.sync.automatic`                     | Apply approved plans automatically.                                                                                                                                                                                                                                      |
-| `spec.sync.prune`                         | Delete previously managed resources removed from desired state, except those annotated `solder.io/prune: "disabled"` and high-risk kinds, which are skipped; see [Apply and prune](concepts.md#apply-and-prune).                                                         |
+| `spec.sync.prune`                         | Delete previously managed resources removed from desired state, except those annotated `sync.kuvryn.io/prune: "disabled"` and high-risk kinds, which are skipped; see [Apply and prune](concepts.md#apply-and-prune).                                                    |
 | `spec.sync.selfHeal`                      | Correct managed live drift.                                                                                                                                                                                                                                              |
 | `spec.sync.conflictPolicy`                | `fail` (default) stops on SSA ownership conflicts; `adopt` takes over the conflicting fields, listing each field and previous manager in the plan.                                                                                                                       |
 | `spec.strategy.type`                      | Deployment strategy. `v1alpha1` supports rolling semantics.                                                                                                                                                                                                              |
@@ -182,12 +182,12 @@ spec:
 | Field                       | Description                                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `status.state`              | High-level health state.                                                                               |
-| `status.desiredRevision`    | Source revision Git asks Solder to run.                                                                |
+| `status.desiredRevision`    | Source revision Git asks Kuvryn Sync to run.                                                           |
 | `status.deployedRevision`   | Source revision currently deployed after rollback handling.                                            |
-| `status.serviceAccountName` | Service account Solder last impersonated for this Application.                                         |
+| `status.serviceAccountName` | Service account Kuvryn Sync last impersonated for this Application.                                    |
 | `status.sync.state`         | `Unknown`, `Synced`, `OutOfSync`, `Drifted`, `Planning`, `AwaitingApproval`, `Applying`, or `Pruning`. |
 | `status.health.state`       | `Unknown`, `Progressing`, `Healthy`, `Degraded`, or `Suspended`.                                       |
-| `status.managedKinds`       | Kinds Solder last applied; used to prune and watch managed objects of any kind.                        |
+| `status.managedKinds`       | Kinds Kuvryn Sync last applied; used to prune and watch managed objects of any kind.                   |
 | `status.resources`          | Bounded counts of healthy/progressing/degraded/unknown resources.                                      |
 | `status.diagnosis`          | Up to 10 root causes of unhealthy managed resources; empty when the Application is Healthy.            |
 | `status.observedGeneration` | Latest `metadata.generation` processed.                                                                |
@@ -195,7 +195,7 @@ spec:
 
 ### Diagnosis
 
-`status.diagnosis` explains why an Application is not Healthy. Solder sets it
+`status.diagnosis` explains why an Application is not Healthy. Kuvryn Sync sets it
 whenever it evaluates health and finds a managed resource that is not Healthy,
 and clears it once every managed resource is. It is also cleared when
 reconciliation fails before health is observed, such as with a
@@ -247,7 +247,7 @@ status:
 one kind, for kinds whose status kstatus conventions cannot describe.
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: HealthCheck
 metadata:
   name: argoproj-rollout
@@ -289,7 +289,7 @@ notifications. Applications in the same namespace reference it from
 [Notifications](operations.md#notifications).
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: NotificationSink
 metadata:
   name: audit
@@ -313,7 +313,7 @@ the Application as `NotificationsReady=False`.
 [Image automation](operations.md#image-automation).
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: ImagePolicy
 metadata:
   name: api
@@ -327,16 +327,16 @@ spec:
 
 ### Spec fields
 
-| Field                          | Description                                                                                          |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `spec.image`                   | Image repository to scan, such as `ghcr.io/acme/api`.                                                |
-| `spec.secretRef.name`          | Optional `kubernetes.io/dockerconfigjson` Secret, labelled `solder.io/registry-credentials: "true"`. |
-| `spec.interval`                | How often the registry is scanned. Defaults to `5m`.                                                 |
-| `spec.policy.semver.range`     | Select the highest tag within a semver constraint, such as `>=1.2.0 <2.0.0`.                         |
-| `spec.policy.tagPattern.regex` | Select the last tag matching a regular expression.                                                   |
-| `spec.policy.tagPattern.order` | `alphabetical` (default) or `numerical`, by the first capture group or the whole tag.                |
-| `spec.policy.digest.tag`       | Follow the current digest of one fixed tag, such as `main`.                                          |
-| `spec.webhook.secretRef.name`  | Optional Secret whose `token` authenticates requests to `/hooks/imagepolicies/<namespace>/<name>`.   |
+| Field                          | Description                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `spec.image`                   | Image repository to scan, such as `ghcr.io/acme/api`.                                                     |
+| `spec.secretRef.name`          | Optional `kubernetes.io/dockerconfigjson` Secret, labelled `sync.kuvryn.io/registry-credentials: "true"`. |
+| `spec.interval`                | How often the registry is scanned. Defaults to `5m`.                                                      |
+| `spec.policy.semver.range`     | Select the highest tag within a semver constraint, such as `>=1.2.0 <2.0.0`.                              |
+| `spec.policy.tagPattern.regex` | Select the last tag matching a regular expression.                                                        |
+| `spec.policy.tagPattern.order` | `alphabetical` (default) or `numerical`, by the first capture group or the whole tag.                     |
+| `spec.policy.digest.tag`       | Follow the current digest of one fixed tag, such as `main`.                                               |
+| `spec.webhook.secretRef.name`  | Optional Secret whose `token` authenticates requests to `/hooks/imagepolicies/<namespace>/<name>`.        |
 
 Set exactly one of `semver`, `tagPattern`, or `digest`.
 
@@ -393,7 +393,7 @@ Set exactly one of `semver`, `tagPattern`, or `digest`.
 | Application | `DependenciesReady`  | `True` with `DependenciesHealthy`; `False` with `DependencyNotReady` or `DependencyCycle`. Present only with `spec.dependsOn`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Application | `NotificationsReady` | `True` with `SinksReady`; `False` with `SinkInvalid` when a sink or its Secret is missing or invalid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Revision    | `RolloutComplete`    | `False` with `RollingOut` while hooks and waves apply; `True` once every group is Healthy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Revision    | `RolledBack`         | `True` on every Revision of the source revision a completed rollback replaced: `ManualRollback` for `solder rollback`, `RollbackCompleted` for a failure policy. Solder does not deploy it again; see [Rollback](concepts.md#rollback) for how a hold ends.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Revision    | `RolledBack`         | `True` on every Revision of the source revision a completed rollback replaced: `ManualRollback` for `ksync rollback`, `RollbackCompleted` for a failure policy. Kuvryn Sync does not deploy it again; see [Rollback](concepts.md#rollback) for how a hold ends.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ImagePolicy | `Ready`              | `True` with `Selected` and the selected image; `False` with `ScanFailed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## Failure reasons
@@ -422,7 +422,7 @@ condition on an Application, is one of these:
 
 ## Events
 
-Solder records Kubernetes Events on its own objects. Messages are redacted.
+Kuvryn Sync records Kubernetes Events on its own objects. Messages are redacted.
 
 | Object      | Reason                                      | Type    | When                                                                                                                            |
 | ----------- | ------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -446,40 +446,40 @@ Solder records Kubernetes Events on its own objects. Messages are redacted.
 | Repository  | `ImagesUpdated`, `ImageUpdateFailed`        | both    | Image write-back committed a change, or failed.                                                                                 |
 | ImagePolicy | `ImageSelected`                             | Normal  | A new image was selected.                                                                                                       |
 
-Every Application Event is also counted in `solder_lifecycle_events_total`.
+Every Application Event is also counted in `kuvryn_sync_lifecycle_events_total`.
 
 ## Labels and annotations
 
-| Key                                      | On                           | Set by        | Meaning                                                                                                                                                                        |
-| ---------------------------------------- | ---------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `solder.io/application`                  | managed objects, Revisions   | Solder        | Owning Application name; prune and drift find managed objects by it.                                                                                                           |
-| `solder.io/application-namespace`        | managed objects              | Solder        | Owning Application namespace.                                                                                                                                                  |
-| `solder.io/revision`                     | managed objects (annotation) | Solder        | Revision object that last applied it.                                                                                                                                          |
-| `solder.io/prune: disabled`              | managed objects (annotation) | you           | Never prune this object: prune skips it and reports it with a `PruneSkipped` Event.                                                                                            |
-| `solder.io/hook`                         | desired objects (annotation) | you           | `pre-sync`, `post-sync`, or `skip`; see [Sync hooks and waves](operations.md#sync-hooks-and-waves).                                                                            |
-| `solder.io/sync-wave`                    | desired objects (annotation) | you           | Integer wave, default `0`.                                                                                                                                                     |
-| `solder.io/repository`                   | discovered Applications      | Solder        | Repository that discovered the Application.                                                                                                                                    |
-| `solder.io/discovered-from`              | discovered Applications      | Solder        | `.solder.yaml` path the Application came from.                                                                                                                                 |
-| `solder.io/approved-revision`            | Application (annotation)     | you or CLI    | Revision approved for a manual sync; see [Manual approval](operations.md#manual-approval).                                                                                     |
-| `solder.io/approve-digest`               | Application (annotation)     | you or CLI    | Plan digest the approval is for; checked and never stored.                                                                                                                     |
-| `solder.io/approved-by`                  | Application (annotation)     | webhook       | Who approved; part of the audit record, which cannot be set by hand.                                                                                                           |
-| `solder.io/approved-at`                  | Application (annotation)     | webhook       | When the approval was recorded.                                                                                                                                                |
-| `solder.io/approved-digest`              | Application (annotation)     | webhook       | Plan digest the approval covers.                                                                                                                                               |
-| `solder.io/rollback-revision`            | Application (annotation)     | CLI or Solder | Source revision to roll back to; set by `solder rollback` or a `rollback` failure policy, and removed once the rollback completes or is abandoned.                             |
-| `solder.io/rollback-from`                | Application (annotation)     | CLI or Solder | Source revision rolled back from, held once the rollback completes. When missing, Solder records the commit the spec resolves to; a new request while one is pending keeps it. |
-| `solder.io/rollback-kind`                | Application (annotation)     | CLI or Solder | `manual` or `automatic`; missing means `manual`.                                                                                                                               |
-| `solder.io/reconcile-requested-at`       | Repository (annotation)      | receiver      | Requests an immediate fetch; set by the push webhook receiver.                                                                                                                 |
-| `solder.io/git-credentials: "true"`      | Secret                       | you           | Allows the Secret as Git credentials.                                                                                                                                          |
-| `solder.io/registry-credentials: "true"` | Secret                       | you           | Allows the Secret as registry credentials for charts and ImagePolicies.                                                                                                        |
-| `solder.io/decryption-key: "true"`       | Secret                       | you           | Allows the Secret as SOPS age keys.                                                                                                                                            |
+| Key                                           | On                           | Set by             | Meaning                                                                                                                                                                             |
+| --------------------------------------------- | ---------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sync.kuvryn.io/application`                  | managed objects, Revisions   | Kuvryn Sync        | Owning Application name; prune and drift find managed objects by it.                                                                                                                |
+| `sync.kuvryn.io/application-namespace`        | managed objects              | Kuvryn Sync        | Owning Application namespace.                                                                                                                                                       |
+| `sync.kuvryn.io/revision`                     | managed objects (annotation) | Kuvryn Sync        | Revision object that last applied it.                                                                                                                                               |
+| `sync.kuvryn.io/prune: disabled`              | managed objects (annotation) | you                | Never prune this object: prune skips it and reports it with a `PruneSkipped` Event.                                                                                                 |
+| `sync.kuvryn.io/hook`                         | desired objects (annotation) | you                | `pre-sync`, `post-sync`, or `skip`; see [Sync hooks and waves](operations.md#sync-hooks-and-waves).                                                                                 |
+| `sync.kuvryn.io/sync-wave`                    | desired objects (annotation) | you                | Integer wave, default `0`.                                                                                                                                                          |
+| `sync.kuvryn.io/repository`                   | discovered Applications      | Kuvryn Sync        | Repository that discovered the Application.                                                                                                                                         |
+| `sync.kuvryn.io/discovered-from`              | discovered Applications      | Kuvryn Sync        | `.ksync.yaml` path the Application came from.                                                                                                                                       |
+| `sync.kuvryn.io/approved-revision`            | Application (annotation)     | you or CLI         | Revision approved for a manual sync; see [Manual approval](operations.md#manual-approval).                                                                                          |
+| `sync.kuvryn.io/approve-digest`               | Application (annotation)     | you or CLI         | Plan digest the approval is for; checked and never stored.                                                                                                                          |
+| `sync.kuvryn.io/approved-by`                  | Application (annotation)     | webhook            | Who approved; part of the audit record, which cannot be set by hand.                                                                                                                |
+| `sync.kuvryn.io/approved-at`                  | Application (annotation)     | webhook            | When the approval was recorded.                                                                                                                                                     |
+| `sync.kuvryn.io/approved-digest`              | Application (annotation)     | webhook            | Plan digest the approval covers.                                                                                                                                                    |
+| `sync.kuvryn.io/rollback-revision`            | Application (annotation)     | CLI or Kuvryn Sync | Source revision to roll back to; set by `ksync rollback` or a `rollback` failure policy, and removed once the rollback completes or is abandoned.                                   |
+| `sync.kuvryn.io/rollback-from`                | Application (annotation)     | CLI or Kuvryn Sync | Source revision rolled back from, held once the rollback completes. When missing, Kuvryn Sync records the commit the spec resolves to; a new request while one is pending keeps it. |
+| `sync.kuvryn.io/rollback-kind`                | Application (annotation)     | CLI or Kuvryn Sync | `manual` or `automatic`; missing means `manual`.                                                                                                                                    |
+| `sync.kuvryn.io/reconcile-requested-at`       | Repository (annotation)      | receiver           | Requests an immediate fetch; set by the push webhook receiver.                                                                                                                      |
+| `sync.kuvryn.io/git-credentials: "true"`      | Secret                       | you                | Allows the Secret as Git credentials.                                                                                                                                               |
+| `sync.kuvryn.io/registry-credentials: "true"` | Secret                       | you                | Allows the Secret as registry credentials for charts and ImagePolicies.                                                                                                             |
+| `sync.kuvryn.io/decryption-key: "true"`       | Secret                       | you                | Allows the Secret as SOPS age keys.                                                                                                                                                 |
 
 High-risk kinds (Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
 PersistentVolumes, and Secrets) are never pruned during a sync, and neither is
-an object annotated `solder.io/prune: disabled`. With `spec.sync.prune`
+an object annotated `sync.kuvryn.io/prune: disabled`. With `spec.sync.prune`
 enabled, removing one from desired state does not fail the rollout: prune
 skips it and deletes the rest, the Revision plan lists it as `Unchanged` with
 a warning saying why, and a `PruneSkipped` Warning Event names it once per
-attempt. It keeps Solder's labels, so it stays in the inventory. Delete such
+attempt. It keeps Kuvryn Sync's labels, so it stays in the inventory. Delete such
 an object by hand once it is no longer needed.
 
 ## Invariants

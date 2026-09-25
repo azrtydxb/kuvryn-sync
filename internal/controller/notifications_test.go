@@ -35,8 +35,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/notify"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/notify"
 )
 
 var _ = Describe("Application notifications", func() {
@@ -108,7 +108,7 @@ var _ = Describe("Application notifications", func() {
 		Eventually(received, 5*time.Second).Should(Receive(&msg))
 		revision := listApplicationRevisions(ctx, appName).Items[0]
 		Expect(msg.Event).To(Equal(corev1alpha1.NotificationAwaitingApproval))
-		Expect(msg.ApproveCommand).To(Equal("solder approve " + appName + " -n default --revision " + revision.Name))
+		Expect(msg.ApproveCommand).To(Equal("ksync approve " + appName + " -n default --revision " + revision.Name))
 		Expect(msg.Plan.Create).To(Equal(int32(1)))
 		Consistently(received, time.Second).ShouldNot(Receive(), "a steady AwaitingApproval state was notified twice")
 

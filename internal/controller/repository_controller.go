@@ -42,16 +42,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imageupdate"
-	"github.com/azrtydxb/solder/internal/source"
-	gitcache "github.com/azrtydxb/solder/internal/source/git"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imageupdate"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
+	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
 )
 
 const (
-	defaultSourceCacheDir      = "solder-source-cache"
-	solderConfigFileName       = ".solder.yaml"
-	repositoryApplicationLabel = "solder.io/repository"
+	defaultSourceCacheDir      = "kuvryn-sync-source-cache"
+	configFileName             = ".ksync.yaml"
+	repositoryApplicationLabel = "sync.kuvryn.io/repository"
 )
 
 // RepositoryReconciler reconciles a Repository object.
@@ -66,10 +66,10 @@ type RepositoryReconciler struct {
 	ImageUpdater *imageupdate.Updater
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=repositories/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=repositories/finalizers,verbs=update
-// +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -165,8 +165,8 @@ func (r *RepositoryReconciler) resolver() source.Resolver {
 	return r.SourceResolver
 }
 
-// GitCredentialsLabel marks a Secret that Solder may use as Git credentials.
-const GitCredentialsLabel = "solder.io/git-credentials"
+// GitCredentialsLabel marks a Secret that Kuvryn Sync may use as Git credentials.
+const GitCredentialsLabel = "sync.kuvryn.io/git-credentials"
 
 func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repository *corev1alpha1.Repository) (source.Credentials, error) {
 	if repository.Spec.Git == nil || repository.Spec.Git.Auth == nil || repository.Spec.Git.Auth.SecretRef == nil {

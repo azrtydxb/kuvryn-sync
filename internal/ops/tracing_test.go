@@ -68,7 +68,7 @@ func TestSpanErrorsAreRedacted(t *testing.T) {
 	}
 }
 
-func TestSetupTracingNamesTheServiceSolder(t *testing.T) {
+func TestSetupTracingNamesTheServiceKuvrynSync(t *testing.T) {
 	before := otel.GetTracerProvider()
 	t.Cleanup(func() { otel.SetTracerProvider(before) })
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")
@@ -90,8 +90,8 @@ func TestSetupTracingNamesTheServiceSolder(t *testing.T) {
 	}
 	for _, attr := range spans[0].Resource().Attributes() {
 		if attr.Key == "service.name" {
-			if attr.Value.AsString() != "solder" {
-				t.Fatalf("service.name = %q, want solder", attr.Value.AsString())
+			if attr.Value.AsString() != "kuvryn-sync" {
+				t.Fatalf("service.name = %q, want kuvryn-sync", attr.Value.AsString())
 			}
 			return
 		}

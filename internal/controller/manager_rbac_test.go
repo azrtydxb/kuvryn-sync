@@ -40,9 +40,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/impersonate"
-	"github.com/azrtydxb/solder/internal/renderer"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/impersonate"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 // The manager runs with a real token for a service account bound only to the
@@ -50,7 +50,7 @@ import (
 // to watch, impersonate, apply, and self-heal.
 var _ = Describe("Manager with the generated controller role", Ordered, func() {
 	const (
-		controllerAccount = "solder-test-controller"
+		controllerAccount = "kuvryn-sync-test-controller"
 		appName           = "least-privilege-app"
 		configName        = "least-privilege-config"
 	)
@@ -151,7 +151,7 @@ var _ = Describe("Manager with the generated controller role", Ordered, func() {
 		}, 2*time.Second, 200*time.Millisecond).Should(Succeed())
 
 		// Deleting a managed object is drift no other field manager owns, so
-		// only the metadata watch can bring Solder back to recreate it.
+		// only the metadata watch can bring Kuvryn Sync back to recreate it.
 		deleted := live.UID
 		Expect(k8sClient.Delete(ctx, live)).To(Succeed())
 		Eventually(func(g Gomega) {

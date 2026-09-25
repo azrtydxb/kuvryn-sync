@@ -6,7 +6,7 @@ import (
 
 	agelib "filippo.io/age"
 
-	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt/decrypttest"
 )
 
 const plainSecret = `apiVersion: v1

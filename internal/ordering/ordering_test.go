@@ -56,9 +56,9 @@ func annotated(kind, name string, annotations map[string]string) unstructured.Un
 
 func TestGroupsOrderHooksWavesAndKinds(t *testing.T) {
 	objects := []unstructured.Unstructured{
-		annotated("Deployment", "api", map[string]string{"solder.io/sync-wave": "1"}),
-		annotated("Job", "smoke", map[string]string{"solder.io/hook": "post-sync"}),
-		annotated("ConfigMap", "api-config", map[string]string{"solder.io/sync-wave": "1"}),
+		annotated("Deployment", "api", map[string]string{"sync.kuvryn.io/sync-wave": "1"}),
+		annotated("Job", "smoke", map[string]string{"sync.kuvryn.io/hook": "post-sync"}),
+		annotated("ConfigMap", "api-config", map[string]string{"sync.kuvryn.io/sync-wave": "1"}),
 		annotated("Service", "db", nil),
 		annotated("Job", "migrate", map[string]string{"helm.sh/hook": "pre-upgrade,pre-install"}),
 		annotated("CustomResourceDefinition", "widgets", map[string]string{"argocd.argoproj.io/sync-wave": "-1"}),
@@ -91,9 +91,9 @@ func TestHookMapsEveryKnownAnnotationValue(t *testing.T) {
 		want        string
 	}{
 		{nil, ""},
-		{map[string]string{"solder.io/hook": "pre-sync"}, StagePreSync},
-		{map[string]string{"solder.io/hook": "Post-Sync"}, StagePostSync},
-		{map[string]string{"solder.io/hook": "skip"}, StageSkip},
+		{map[string]string{"sync.kuvryn.io/hook": "pre-sync"}, StagePreSync},
+		{map[string]string{"sync.kuvryn.io/hook": "Post-Sync"}, StagePostSync},
+		{map[string]string{"sync.kuvryn.io/hook": "skip"}, StageSkip},
 		{map[string]string{"argocd.argoproj.io/hook": "PreSync"}, StagePreSync},
 		{map[string]string{"argocd.argoproj.io/hook": "PostSync"}, StagePostSync},
 		{map[string]string{"argocd.argoproj.io/hook": "Sync"}, ""},
@@ -116,7 +116,7 @@ func TestHookMapsEveryKnownAnnotationValue(t *testing.T) {
 		{map[string]string{"helm.sh/hook": "test-failure"}, StageSkip},
 		{map[string]string{"helm.sh/hook": "post-delete, pre-install"}, StagePreSync},
 		{map[string]string{"helm.sh/hook": "pre-rollback,post-upgrade"}, StagePostSync},
-		{map[string]string{"solder.io/hook": "post-sync", "helm.sh/hook": "pre-install"}, StagePostSync},
+		{map[string]string{"sync.kuvryn.io/hook": "post-sync", "helm.sh/hook": "pre-install"}, StagePostSync},
 		{map[string]string{"argocd.argoproj.io/hook": "Skip", "helm.sh/hook": "pre-install"}, StageSkip},
 	}
 	for _, tc := range cases {
@@ -132,8 +132,8 @@ func TestHookMapsEveryKnownAnnotationValue(t *testing.T) {
 
 func TestValidateHooksRefusesUnknownValues(t *testing.T) {
 	for _, annotations := range []map[string]string{
-		{"solder.io/hook": "pre-install"},
-		{"solder.io/hook": ""},
+		{"sync.kuvryn.io/hook": "pre-install"},
+		{"sync.kuvryn.io/hook": ""},
 		{"argocd.argoproj.io/hook": "presync"},
 	} {
 		obj := annotated("Job", "migrate", annotations)

@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/azrtydxb/solder/internal/version"
+	"github.com/azrtydxb/kuvryn-sync/internal/version"
 )
 
 // Catches a version command that prints a fixed string instead of the version
@@ -20,7 +20,7 @@ func TestRunVersionPrintsBuildVersion(t *testing.T) {
 	if !handled || code != 0 {
 		t.Fatalf("Run(version) = handled %v, code %d, stderr %q", handled, code, stderr.String())
 	}
-	if got, want := stdout.String(), "solder v9.8.7-test\n"; got != want {
+	if got, want := stdout.String(), "ksync v9.8.7-test\n"; got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
 	}
 }

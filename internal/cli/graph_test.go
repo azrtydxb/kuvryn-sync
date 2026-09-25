@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/applier"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 )
 
 // graphClient holds an Application whose Deployment runs a Pod that needs a
@@ -169,7 +169,7 @@ func TestGraphDOT(t *testing.T) {
 	}
 	dot := stdout.String()
 	for _, want := range []string{
-		"digraph solder {",
+		"digraph kuvryn_sync {",
 		`"apps/v1/Deployment/payments/api" -> "apps/v1/ReplicaSet/payments/api-1" [label="Owns"];`,
 		`"v1/Secret/payments/db" [label="Secret\npayments/db", style=dashed, color=red, xlabel="missing"];`,
 	} {
@@ -182,7 +182,7 @@ func TestGraphDOT(t *testing.T) {
 func TestGraphRejectsUnknownFormats(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	handled, code := Run(context.Background(), []string{"graph", "payments", "-o", "svg"}, &stdout, &stderr)
-	if !handled || code != 1 || !strings.Contains(stderr.String(), "usage: solder graph") {
+	if !handled || code != 1 || !strings.Contains(stderr.String(), "usage: ksync graph") {
 		t.Fatalf("handled=%v code=%d stderr=%s", handled, code, stderr.String())
 	}
 }
@@ -272,7 +272,7 @@ func TestDiagnoseReturnsRevisionReadErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}}).Build()
-	denied := apierrors.NewForbidden(schema.GroupResource{Group: "solder.io", Resource: "revisions"}, "", nil)
+	denied := apierrors.NewForbidden(schema.GroupResource{Group: "sync.kuvryn.io", Resource: "revisions"}, "", nil)
 	c := interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
 		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return denied },
 	})
@@ -320,7 +320,7 @@ func TestHelpListsEveryCommand(t *testing.T) {
 		t.Fatalf("handled=%v code=%d", handled, code)
 	}
 	for _, command := range []string{"apps", "repos", "repo get", "get", "history", "revision", "plan", "diagnose", "graph", "drift", "sync", "rollback", "suspend", "resume", "install", "version"} {
-		if !strings.Contains(stdout.String(), "  "+command+" ") {
+		if !strings.Contains(stdout.String(), "  ksync "+command+" ") {
 			t.Errorf("help does not list %q", command)
 		}
 	}

@@ -42,9 +42,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/renderer"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 // namedWorkspaceResolver resolves the branch "main" to *revision and any
@@ -64,7 +64,7 @@ func (r namedWorkspaceResolver) Resolve(_ context.Context, repository source.Git
 	if resolved == "main" {
 		resolved = *r.revision
 	}
-	return source.ResolvedSource{Revision: resolved, CacheDir: "/tmp/solder-workspace-" + resolved}, nil
+	return source.ResolvedSource{Revision: resolved, CacheDir: "/tmp/kuvryn-sync-workspace-" + resolved}, nil
 }
 
 type renderFunc func(renderer.Input) ([]unstructured.Unstructured, error)
@@ -78,7 +78,7 @@ func (f renderFunc) Render(_ context.Context, input renderer.Input) ([]unstructu
 func commitRenderer(extra map[string][]unstructured.Unstructured, failing ...string) RendererFactory {
 	return func(corev1alpha1.RenderType) (renderer.Renderer, error) {
 		return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
-			commit := strings.TrimPrefix(input.Workspace, "/tmp/solder-workspace-")
+			commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
 			if slices.Contains(failing, commit) {
 				return nil, errors.New("render failed")
 			}
@@ -266,7 +266,7 @@ var _ = Describe("Rollbacks", func() {
 	// Catches a rollout still in progress resuming after a manual rollback.
 	It("holds a rollout in progress a manual rollback replaces", func() {
 		hook := customObject("Widget", "migrate", "v1")
-		hook.SetAnnotations(map[string]string{"solder.io/hook": "post-sync"})
+		hook.SetAnnotations(map[string]string{"sync.kuvryn.io/hook": "post-sync"})
 		r.Renderers = commitRenderer(map[string][]unstructured.Unstructured{"b-sha": {hook}})
 		reconcileOnce()
 		source = "b-sha"
@@ -355,7 +355,7 @@ var _ = Describe("Rollbacks", func() {
 		failing := true
 		r.Renderers = func(corev1alpha1.RenderType) (renderer.Renderer, error) {
 			return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
-				commit := strings.TrimPrefix(input.Workspace, "/tmp/solder-workspace-")
+				commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
 				if commit == "a-sha" && failing && application().GetAnnotations()[corev1alpha1.RollbackRevisionAnnotation] != "" {
 					return nil, errors.New("chart pull failed")
 				}
@@ -565,7 +565,7 @@ var _ = Describe("Rollbacks", func() {
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 				if rev, ok := obj.(*corev1alpha1.Revision); ok && !conflicted && heldBy(rev) != nil {
 					conflicted = true
-					return apierrors.NewConflict(schema.GroupResource{Group: "solder.io", Resource: "revisions"}, rev.Name, errors.New("stale"))
+					return apierrors.NewConflict(schema.GroupResource{Group: "sync.kuvryn.io", Resource: "revisions"}, rev.Name, errors.New("stale"))
 				}
 				return c.SubResource(subResource).Update(ctx, obj, opts...)
 			},
@@ -655,7 +655,7 @@ func TestApplicationRevisionsRequireTheApplicationRef(t *testing.T) {
 	}
 	revision := func(name, application string) *corev1alpha1.Revision {
 		return &corev1alpha1.Revision{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"solder.io/application": "payments"}},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"sync.kuvryn.io/application": "payments"}},
 			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: application}},
 		}
 	}

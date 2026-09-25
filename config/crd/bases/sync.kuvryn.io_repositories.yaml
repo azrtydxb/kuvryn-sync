@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: repositories.solder.io
+  name: repositories.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: Repository
     listKind: RepositoryList
@@ -54,9 +54,9 @@ spec:
               properties:
                 applicationConfigPaths:
                   description: |-
-                    applicationConfigPaths are repository-relative .solder.yaml files that
-                    declare Applications for this Repository. When empty, Solder reads
-                    .solder.yaml from the repository root.
+                    applicationConfigPaths are repository-relative .ksync.yaml files that
+                    declare Applications for this Repository. When empty, Kuvryn Sync reads
+                    .ksync.yaml from the repository root.
                   items:
                     type: string
                   type: array
@@ -64,7 +64,7 @@ spec:
                 applicationServiceAccountName:
                   description: |-
                     applicationServiceAccountName is the service account that Applications
-                    discovered from .solder.yaml run as. Discovered Applications may only
+                    discovered from .ksync.yaml run as. Discovered Applications may only
                     name this account; when it is empty they may not set serviceAccountName
                     and use the controller's default service account.
                   maxLength: 253
@@ -110,10 +110,10 @@ spec:
                     as `# {"$imagepolicy": "<namespace>:<policy>"}`.
                   properties:
                     authorEmail:
-                      default: solder@localhost
+                      default: kuvryn-sync@localhost
                       type: string
                     authorName:
-                      default: Solder
+                      default: Kuvryn Sync
                       description: authorName and authorEmail sign the commits.
                       type: string
                     branch:
@@ -126,7 +126,7 @@ spec:
                       type: string
                     secretRef:
                       description: |-
-                        secretRef names a Secret, labelled solder.io/git-credentials=true, with
+                        secretRef names a Secret, labelled sync.kuvryn.io/git-credentials=true, with
                         credentials allowed to push (same keys as spec.git.auth).
                       properties:
                         name:
@@ -153,7 +153,7 @@ spec:
                 webhook:
                   description: |-
                     webhook lets GitHub or GitLab push events trigger an immediate fetch
-                    through Solder's webhook receiver at /hooks/<namespace>/<name>.
+                    through Kuvryn Sync's webhook receiver at /hooks/<namespace>/<name>.
                   properties:
                     secretRef:
                       description: |-
@@ -246,7 +246,7 @@ spec:
                 observedRevision:
                   description:
                     observedRevision is the latest resolved source revision
-                    Solder observed.
+                    Kuvryn Sync observed.
                   type: string
                 state:
                   description: state is the high-level observed readiness of the source.

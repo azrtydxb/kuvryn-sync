@@ -39,9 +39,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/renderer"
-	helmrenderer "github.com/azrtydxb/solder/internal/renderer/helm"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	helmrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/helm"
 )
 
 var _ = Describe("Helm charts from a repository with valuesFrom", func() {

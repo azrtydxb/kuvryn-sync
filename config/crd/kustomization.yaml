@@ -2,12 +2,12 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-  - bases/solder.io_repositories.yaml
-  - bases/solder.io_applications.yaml
-  - bases/solder.io_revisions.yaml
-  - bases/solder.io_healthchecks.yaml
-  - bases/solder.io_notificationsinks.yaml
-  - bases/solder.io_imagepolicies.yaml
+  - bases/sync.kuvryn.io_repositories.yaml
+  - bases/sync.kuvryn.io_applications.yaml
+  - bases/sync.kuvryn.io_revisions.yaml
+  - bases/sync.kuvryn.io_healthchecks.yaml
+  - bases/sync.kuvryn.io_notificationsinks.yaml
+  - bases/sync.kuvryn.io_imagepolicies.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

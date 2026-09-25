@@ -8,12 +8,12 @@ nav_order: 10
 ## Controller is not ready
 
 These commands use the Deployment name of the raw manifests. A Helm install
-names it `<release>-solder`, such as `solder-solder` for the release `solder`.
+names it `<release>-kuvryn-sync`, such as `kuvryn-sync-kuvryn-sync` for the release `kuvryn-sync`.
 
 ```sh
-kubectl -n solder-system get pods
-kubectl -n solder-system logs deployment/solder-controller-manager -c manager
-kubectl -n solder-system describe deployment solder-controller-manager
+kubectl -n kuvryn-sync-system get pods
+kubectl -n kuvryn-sync-system logs deployment/kuvryn-sync-controller-manager -c manager
+kubectl -n kuvryn-sync-system describe deployment kuvryn-sync-controller-manager
 ```
 
 Common causes:
@@ -31,7 +31,7 @@ Common causes:
 
 Tracing is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the manager container; with
-Helm, set it through `extraEnv`. Solder exports over OTLP gRPC only, usually
+Helm, set it through `extraEnv`. Kuvryn Sync exports over OTLP gRPC only, usually
 port 4317, not OTLP HTTP on 4318. A plain-text collector needs
 `OTEL_EXPORTER_OTLP_INSECURE=true` or an `http://` endpoint. Export failures
 appear in the manager log as `Failed to export traces`. See
@@ -49,27 +49,27 @@ Check:
 - Git URL is reachable from the cluster;
 - branch, tag, or commit exists;
 - referenced Secret exists in the same namespace and is labelled
-  `solder.io/git-credentials: "true"`;
+  `sync.kuvryn.io/git-credentials: "true"`;
 - credentials are valid and allowed to read the repository;
 - every configured `spec.applicationConfigPaths` entry is repository-relative,
-  unique, stays inside the repository, and is named `.solder.yaml`;
-- discovered Application names are unique across all configured `.solder.yaml`
+  unique, stays inside the repository, and is named `.ksync.yaml`;
+- discovered Application names are unique across all configured `.ksync.yaml`
   files.
 
 ## Application is Planning or AwaitingApproval
 
 ```sh
 kubectl describe app <name> -n <namespace>
-solder history <name> -n <namespace>
-solder plan <name> -n <namespace>
+ksync history <name> -n <namespace>
+ksync plan <name> -n <namespace>
 ```
 
 For manual approval policies, approve the exact Revision. An `ApprovalStale`
-Event means the plan changed after approval; review `solder plan` and approve
+Event means the plan changed after approval; review `ksync plan` and approve
 again:
 
 ```sh
-solder sync <application> -n <namespace> --revision <revision-name>
+ksync sync <application> -n <namespace> --revision <revision-name>
 ```
 
 ## Application is OutOfSync or Drifted
@@ -77,16 +77,16 @@ solder sync <application> -n <namespace> --revision <revision-name>
 Check the latest plan:
 
 ```sh
-solder plan <application> -n <namespace>
+ksync plan <application> -n <namespace>
 ```
 
-If self-heal is disabled, Solder reports drift but does not mutate live objects.
+If self-heal is disabled, Kuvryn Sync reports drift but does not mutate live objects.
 Enable `spec.sync.selfHeal` if automatic correction is intended.
 
 ## Application is Degraded
 
 ```sh
-solder diagnose <application> -n <namespace>
+ksync diagnose <application> -n <namespace>
 kubectl describe app <application> -n <namespace>
 kubectl get events -n <namespace> --sort-by=.lastTimestamp
 ```
@@ -97,7 +97,7 @@ failure until a rollout completes Synced and Healthy again, when it turns
 with reason `RolledBack` until a new commit arrives; see
 [Rollback](concepts.md#rollback) for every way a hold ends.
 
-`solder diagnose` prints the root causes Solder recorded in
+`ksync diagnose` prints the root causes Kuvryn Sync recorded in
 `status.diagnosis`; see [Reading a diagnosis](#reading-a-diagnosis). Health
 timeouts are controlled by `spec.health.timeout` and failure behavior by
 `spec.strategy.failurePolicy`.
@@ -127,19 +127,19 @@ their own.
 | `FailedCreate`, `ProgressDeadlineExceeded`         | the workload        | The workload's conditions: quotas, admission, or a rollout that stopped progressing. `FailedCreate` is the usual `ReplicaFailure` reason. |
 | `Missing<Kind>` for any other kind                 | the missing object  | A referenced object, such as a Service behind an Ingress, that does not exist.                                                            |
 
-A cause whose chain is only the managed resource itself means Solder found no
+A cause whose chain is only the managed resource itself means Kuvryn Sync found no
 deeper evidence; its reason is the resource's health verdict, such as
-`ReplicasUnavailable` during an ordinary rollout. Solder then emits no
+`ReplicasUnavailable` during an ordinary rollout. Kuvryn Sync then emits no
 `Diagnosed` Event unless the Application is Degraded. When a list failed,
 such a message ends with what was not visible, such as
 `not visible: could not list Pods: forbidden`: the evidence may be there,
 but the service account may not read it.
 
-Solder reads the objects below managed resources as the Application's service
+Kuvryn Sync reads the objects below managed resources as the Application's service
 account. If the account may not list Pods or read Secrets, the diagnosis stops
 higher up the chain, and a reference it could not check is never reported as
 missing; see [Diagnosis permissions](operations.md#diagnosis-permissions).
-`solder graph <application>` shows the same graph with your own credentials.
+`ksync graph <application>` shows the same graph with your own credentials.
 
 ## ServiceAccountRequired or Forbidden
 
@@ -158,19 +158,19 @@ kubectl auth can-i --list -n <destination-namespace> \
 Grant the missing permission, then push a new commit or switch the Application
 to a service account that has it; retry limits otherwise keep the failed
 Revision blocked. A `PruneInventoryIncomplete` Warning Event names kinds the
-account may not list, whose managed objects Solder cannot prune.
+account may not list, whose managed objects Kuvryn Sync cannot prune.
 
 ## Server-Side Apply conflict
 
-Solder fails conflicts by default. Inspect the failing field manager with:
+Kuvryn Sync fails conflicts by default. Inspect the failing field manager with:
 
 ```sh
 kubectl get <kind> <name> -n <namespace> -o yaml --show-managed-fields
 ```
 
 Resolve ownership intentionally: update the external manager, move the field out
-of Solder's desired state, recreate the resource under a clear owner, or, when
-Solder should take over (for example while migrating), set
+of Kuvryn Sync's desired state, recreate the resource under a clear owner, or, when
+Kuvryn Sync should take over (for example while migrating), set
 `spec.sync.conflictPolicy: adopt` and review the takeover in the plan.
 
 ## Helm or Kustomize render failure
@@ -187,9 +187,9 @@ inputs:
   `helm dependency build` and commit the result). `.Release.Namespace` is the
   Application's destination namespace.
 - A checkout fails if the commit contains a symlink, or chain of symlinks,
-  that resolves outside it, or an entry named `.solder-checkout`.
+  that resolves outside it, or an entry named `.kuvryn-sync-checkout`.
 - `render.helm.chart.version` must be an exact version; ranges are refused.
 - Without a `revision`, the remote must advertise a default branch (`HEAD`);
   otherwise set a revision.
 
-Use `solder diagnose` and controller logs for the deterministic failure reason.
+Use `ksync diagnose` and controller logs for the deterministic failure reason.

@@ -24,8 +24,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/health"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/health"
 )
 
 // SetupHealthCheckWebhookWithManager registers the webhook for HealthCheck in the manager.
@@ -35,7 +35,7 @@ func SetupHealthCheckWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-solder-io-v1alpha1-healthcheck,mutating=false,failurePolicy=fail,sideEffects=None,groups=solder.io,resources=healthchecks,verbs=create;update,versions=v1alpha1,name=vhealthcheck-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-sync-kuvryn-io-v1alpha1-healthcheck,mutating=false,failurePolicy=fail,sideEffects=None,groups=sync.kuvryn.io,resources=healthchecks,verbs=create;update,versions=v1alpha1,name=vhealthcheck-v1alpha1.kb.io,admissionReviewVersions=v1
 
 // HealthCheckCustomValidator rejects HealthChecks whose rules are not valid
 // CEL returning a bool, so a broken rule never reaches reconciliation.

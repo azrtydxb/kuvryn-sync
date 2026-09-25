@@ -10,8 +10,8 @@ import (
 	"golang.org/x/time/rate"
 	"oras.land/oras-go/v2/registry/remote/auth"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imagepolicy/registrytest"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy/registrytest"
 )
 
 const digestA = "sha256:1111111111111111111111111111111111111111111111111111111111111111"

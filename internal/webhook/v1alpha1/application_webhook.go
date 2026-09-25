@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // authenticated reports whether an admission request carries a real identity.
@@ -53,7 +53,7 @@ func SetupApplicationWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-solder-io-v1alpha1-application,mutating=true,failurePolicy=fail,sideEffects=None,groups=solder.io,resources=applications,verbs=create;update,versions=v1alpha1,name=mapplication-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-sync-kuvryn-io-v1alpha1-application,mutating=true,failurePolicy=fail,sideEffects=None,groups=sync.kuvryn.io,resources=applications,verbs=create;update,versions=v1alpha1,name=mapplication-v1alpha1.kb.io,admissionReviewVersions=v1
 
 // ApplicationCustomDefaulter records manual approvals. An approval is
 // requested by changing the approved Revision, or by setting

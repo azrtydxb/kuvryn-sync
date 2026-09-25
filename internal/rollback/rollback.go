@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // Target returns the most recent healthy Revision before current for the same Application.

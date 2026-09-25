@@ -34,14 +34,14 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 type revisionResolver struct{ revision *string }
 
 func (r revisionResolver) Resolve(context.Context, source.GitRepository) (source.ResolvedSource, error) {
-	return source.ResolvedSource{Revision: *r.revision, CacheDir: "/tmp/solder-workspace"}, nil
+	return source.ResolvedSource{Revision: *r.revision, CacheDir: "/tmp/kuvryn-sync-workspace"}, nil
 }
 
 var _ = Describe("Sync hooks and waves", func() {
@@ -83,7 +83,7 @@ var _ = Describe("Sync hooks and waves", func() {
 	deployment := func(wave string) unstructured.Unstructured {
 		obj := unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "apps/v1", "kind": "Deployment",
-			"metadata": map[string]any{"name": "api", "annotations": map[string]any{"solder.io/sync-wave": wave}},
+			"metadata": map[string]any{"name": "api", "annotations": map[string]any{"sync.kuvryn.io/sync-wave": wave}},
 			"spec": map[string]any{
 				"replicas": int64(1),
 				"selector": map[string]any{"matchLabels": map[string]any{"app": "api"}},
@@ -225,7 +225,7 @@ var _ = Describe("Sync hooks and waves", func() {
 			app.Spec.Sync.SelfHeal = false
 			app.Spec.DependsOn = []corev1alpha1.LocalObjectReference{{Name: operatorKey.Name}}
 		})
-		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
+		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "sync.kuvryn.io/sync-wave", "1")}, nil)
 		setOperatorHealth(corev1alpha1.HealthStateHealthy)
 		reconcileOnce(r)
 		Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "api", Namespace: "payments"}, &appsv1.Deployment{})).To(Succeed())
@@ -248,7 +248,7 @@ var _ = Describe("Sync hooks and waves", func() {
 			app.Spec.Sync.SelfHeal = false
 			app.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts
 		})
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		reconcileOnce(r)
 		Expect(application().Status.DeployedRevision).To(Equal("resolved-sha"))
@@ -269,8 +269,8 @@ var _ = Describe("Sync hooks and waves", func() {
 
 	It("finishes a manual multi-group rollout on a single approval", func() {
 		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = false })
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
-		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0"), annotate(configMapObject("", "desired"), "sync.kuvryn.io/sync-wave", "1")}, nil)
 		reconcileOnce(r)
 		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
 		approve(ctx, key, latestRevision(), "alice@example.com")
@@ -293,14 +293,14 @@ var _ = Describe("Sync hooks and waves", func() {
 
 	It("asks for a fresh approval when desired state changes during a manual rollout", func() {
 		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = false })
-		capture := &capturingRenderer{objects: []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "reviewed"), "solder.io/sync-wave", "1")}}
+		capture := &capturingRenderer{objects: []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "reviewed"), "sync.kuvryn.io/sync-wave", "1")}}
 		r := newApplicationReconciler(nil, capture)
 		reconcileOnce(r)
 		approve(ctx, key, latestRevision(), "alice@example.com")
 		reconcileOnce(r)
 		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseObserving))
 
-		capture.objects = []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "changed-after-review"), "solder.io/sync-wave", "1")}
+		capture.objects = []unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "changed-after-review"), "sync.kuvryn.io/sync-wave", "1")}
 		markDeploymentReady()
 		reconcileOnce(r)
 		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseAwaitingApproval))
@@ -313,14 +313,14 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "kept-config", Namespace: "payments",
-				Labels:      map[string]string{"solder.io/application": appName},
-				Annotations: map[string]string{"solder.io/prune": "disabled"},
+				Labels:      map[string]string{"sync.kuvryn.io/application": appName},
+				Annotations: map[string]string{"sync.kuvryn.io/prune": "disabled"},
 			},
 		})).To(Succeed())
 		DeferCleanup(func() {
 			deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments"}})
 		})
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "post-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "post-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired"), hook}, nil)
 		recorder := record.NewFakeRecorder(100)
 		r.Recorder = recorder
@@ -339,7 +339,7 @@ var _ = Describe("Sync hooks and waves", func() {
 	})
 
 	It("never runs a succeeded hook again, even after it is cleaned up", func() {
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, deployment("0")}, nil)
 		reconcileOnce(r)
 		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
@@ -362,7 +362,7 @@ var _ = Describe("Sync hooks and waves", func() {
 	})
 
 	It("fails a hook that disappears before it succeeded", func() {
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		reconcileOnce(r)
 		deleteWidget()
@@ -378,7 +378,7 @@ var _ = Describe("Sync hooks and waves", func() {
 	It("re-creates a failed hook an operator deleted when the rollout is retried", func() {
 		attempts := int32(3)
 		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts })
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		reconcileOnce(r)
 		setWidgetConditions(map[string]any{"type": "Stalled", "status": "True", "message": "database locked"})
@@ -423,7 +423,7 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
 		app.Spec.Sync.SelfHeal = false
 		Expect(k8sClient.Update(ctx, app)).To(Succeed())
-		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "solder.io/sync-wave", "1")}, nil)
+		r := newApplicationReconciler([]unstructured.Unstructured{deployment("0"), annotate(configMapObject("", "desired"), "sync.kuvryn.io/sync-wave", "1")}, nil)
 		reconcileOnce(r)
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "wave 1 applied before wave 0 was Healthy")
 
@@ -438,7 +438,7 @@ var _ = Describe("Sync hooks and waves", func() {
 
 	It("runs a pre-sync hook first, records it, and replaces it for the next Revision", func() {
 		revision := "sha-1"
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		r.SourceResolver = revisionResolver{revision: &revision}
 		reconcileOnce(r)
@@ -464,8 +464,8 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(replaced.GetUID()).NotTo(Equal(old.GetUID()), "the next Revision reused the previous hook instead of running it again")
 	})
 
-	It("refuses an unknown solder.io/hook value instead of applying it", func() {
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-install")
+	It("refuses an unknown sync.kuvryn.io/hook value instead of applying it", func() {
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-install")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		reconcileOnce(r)
 		failure := latestRevision().Status.Failure
@@ -477,7 +477,7 @@ var _ = Describe("Sync hooks and waves", func() {
 	})
 
 	It("fails the Revision naming a failed hook", func() {
-		hook := annotate(customObject("Widget", "migrate", "v1"), "solder.io/hook", "pre-sync")
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
 		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
 		reconcileOnce(r)
 		setWidgetConditions(map[string]any{"type": "Stalled", "status": "True", "message": "migration crashed"})

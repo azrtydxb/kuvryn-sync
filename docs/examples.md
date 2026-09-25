@@ -5,7 +5,7 @@ nav_order: 7
 
 # Examples
 
-## Repository-root `.solder.yaml`
+## Repository-root `.ksync.yaml`
 
 ```yaml
 applications:
@@ -39,12 +39,12 @@ applications:
 
 The Repository controller defaults `spec.source.repositoryRef.name` to the
 Repository that discovered the file. Application names must be unique across all
-configured `.solder.yaml` files.
+configured `.ksync.yaml` files.
 
-## Monorepo `.solder.yaml` files
+## Monorepo `.ksync.yaml` files
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: platform
@@ -54,19 +54,19 @@ spec:
     url: https://github.com/example/platform.git
     revision: main
   applicationConfigPaths:
-    - teams/payments/.solder.yaml
-    - teams/search/.solder.yaml
+    - teams/payments/.ksync.yaml
+    - teams/search/.ksync.yaml
 ```
 
-Each listed file must be named `.solder.yaml`, stay inside the repository, and
-can contain one or more Applications for that part of the repository. Solder
-annotates discovered Applications with `solder.io/discovered-from` and prunes
+Each listed file must be named `.ksync.yaml`, stay inside the repository, and
+can contain one or more Applications for that part of the repository. Kuvryn Sync
+annotates discovered Applications with `sync.kuvryn.io/discovered-from` and prunes
 previously discovered Applications removed from these files.
 
 ## Plain YAML application
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: config
@@ -88,7 +88,7 @@ spec:
 ## Kustomize application
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: payments
@@ -112,7 +112,7 @@ spec:
 ## Helm application
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: store
@@ -149,8 +149,8 @@ spec:
 ```
 
 ```sh
-solder plan payments -n default
-solder sync payments -n default --revision payments-abc123
+ksync plan payments -n default
+ksync sync payments -n default --revision payments-abc123
 ```
 
 ## Rollback on failure
@@ -179,7 +179,7 @@ its volume needs a ClusterRole:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: solder-diagnosis-volumes
+  name: kuvryn-sync-diagnosis-volumes
 rules:
   - apiGroups: [""]
     resources: ["persistentvolumes"]
@@ -192,7 +192,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: solder-diagnosis-volumes
+  name: kuvryn-sync-diagnosis-volumes
 subjects:
   - kind: ServiceAccount
     name: payments-deployer
@@ -200,8 +200,8 @@ subjects:
 ```
 
 ```sh
-solder diagnose payments -n default
-solder graph payments -n default -o dot | dot -Tsvg > payments.svg
+ksync diagnose payments -n default
+ksync graph payments -n default -o dot | dot -Tsvg > payments.svg
 ```
 
 ## Tracing with Helm

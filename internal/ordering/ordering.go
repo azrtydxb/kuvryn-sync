@@ -59,7 +59,7 @@ const (
 	StagePostSync = "PostSync"
 	// StageSkip marks hooks a deployment never applies: Helm test, delete and
 	// rollback hooks, Argo CD Skip, SyncFail and delete hooks, and
-	// solder.io/hook: skip.
+	// sync.kuvryn.io/hook: skip.
 	StageSkip = "Skip"
 )
 
@@ -71,17 +71,17 @@ type Group struct {
 	Objects []unstructured.Unstructured
 }
 
-// Hook annotations Solder honours, in order of precedence.
+// Hook annotations Kuvryn Sync honours, in order of precedence.
 const (
-	SolderHookAnnotation = "solder.io/hook"
-	ArgoHookAnnotation   = "argocd.argoproj.io/hook"
-	HelmHookAnnotation   = "helm.sh/hook"
+	KuvrynSyncHookAnnotation = "sync.kuvryn.io/hook"
+	ArgoHookAnnotation       = "argocd.argoproj.io/hook"
+	HelmHookAnnotation       = "helm.sh/hook"
 )
 
-// Hook reports the stage of a hook object, honouring Solder's annotation and
+// Hook reports the stage of a hook object, honouring Kuvryn Sync's annotation and
 // the Helm and Argo CD equivalents, or "" for ordinary objects. Hooks a
-// deployment never runs report StageSkip, and so does a Solder or Argo CD hook
-// value Solder does not know; ValidateHooks refuses those before any apply.
+// deployment never runs report StageSkip, and so does a Kuvryn Sync or Argo CD hook
+// value Kuvryn Sync does not know; ValidateHooks refuses those before any apply.
 func Hook(obj unstructured.Unstructured) string {
 	stage, err := hookStage(obj.GetAnnotations())
 	if err != nil {
@@ -90,7 +90,7 @@ func Hook(obj unstructured.Unstructured) string {
 	return stage
 }
 
-// ValidateHooks refuses objects whose solder.io/hook or argocd.argoproj.io/hook
+// ValidateHooks refuses objects whose sync.kuvryn.io/hook or argocd.argoproj.io/hook
 // value is unknown, rather than guessing when to apply them.
 func ValidateHooks(objects []unstructured.Unstructured) error {
 	for _, obj := range objects {
@@ -102,7 +102,7 @@ func ValidateHooks(objects []unstructured.Unstructured) error {
 }
 
 func hookStage(annotations map[string]string) (string, error) {
-	if value, ok := annotations[SolderHookAnnotation]; ok {
+	if value, ok := annotations[KuvrynSyncHookAnnotation]; ok {
 		switch strings.ToLower(strings.TrimSpace(value)) {
 		case "pre-sync":
 			return StagePreSync, nil
@@ -111,7 +111,7 @@ func hookStage(annotations map[string]string) (string, error) {
 		case "skip":
 			return StageSkip, nil
 		}
-		return "", fmt.Errorf("unknown %s value %q: use pre-sync, post-sync, or skip", SolderHookAnnotation, value)
+		return "", fmt.Errorf("unknown %s value %q: use pre-sync, post-sync, or skip", KuvrynSyncHookAnnotation, value)
 	}
 	if value, ok := annotations[ArgoHookAnnotation]; ok {
 		return argoHookStage(value)
@@ -177,10 +177,10 @@ func firstStage(current, next string) string {
 	return current
 }
 
-// Wave reads the sync wave from Solder's or Argo CD's annotation; 0 when unset
+// Wave reads the sync wave from Kuvryn Sync's or Argo CD's annotation; 0 when unset
 // or invalid.
 func Wave(obj unstructured.Unstructured) int {
-	for _, key := range []string{"solder.io/sync-wave", "argocd.argoproj.io/sync-wave"} {
+	for _, key := range []string{"sync.kuvryn.io/sync-wave", "argocd.argoproj.io/sync-wave"} {
 		if value, ok := obj.GetAnnotations()[key]; ok {
 			if wave, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
 				return wave

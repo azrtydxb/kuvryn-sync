@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -81,4 +81,10 @@ func configMap(name, value string) unstructured.Unstructured {
 		},
 		"data": map[string]any{"value": value},
 	}}
+}
+
+func TestApplyUsesTheKuvrynSyncFieldManager(t *testing.T) {
+	if FieldManager != "kuvryn-sync" {
+		t.Fatalf("FieldManager = %q, want kuvryn-sync", FieldManager)
+	}
 }

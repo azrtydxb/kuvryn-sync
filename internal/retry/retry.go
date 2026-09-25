@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // State tracks attempts for one desired revision.

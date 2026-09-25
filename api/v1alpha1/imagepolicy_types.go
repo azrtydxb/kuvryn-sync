@@ -26,7 +26,7 @@ type ImagePolicySpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 	// secretRef names a kubernetes.io/dockerconfigjson Secret, labelled
-	// solder.io/registry-credentials=true, used to read the registry.
+	// sync.kuvryn.io/registry-credentials=true, used to read the registry.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
 	// interval is how often the registry is scanned.
@@ -36,7 +36,7 @@ type ImagePolicySpec struct {
 	// policy decides which image is selected.
 	Policy ImageSelectionPolicy `json:"policy"`
 	// webhook lets a registry or CI trigger an immediate scan through
-	// Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+	// Kuvryn Sync's receiver at /hooks/imagepolicies/<namespace>/<name>.
 	// +optional
 	Webhook *ImagePolicyWebhook `json:"webhook,omitempty"`
 }

@@ -36,9 +36,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imageupdate"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imageupdate"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 func init() {
@@ -83,7 +83,7 @@ var _ = Describe("Image write-back", func() {
 			Spec: corev1alpha1.RepositorySpec{
 				Type:        corev1alpha1.RepositoryTypeGit,
 				Git:         &corev1alpha1.GitRepositorySpec{URL: bare, Revision: "main"},
-				ImageUpdate: &corev1alpha1.ImageUpdateSpec{SecretRef: corev1alpha1.SecretReference{Name: "writer"}, AuthorName: "Solder", AuthorEmail: "solder@localhost"},
+				ImageUpdate: &corev1alpha1.ImageUpdateSpec{SecretRef: corev1alpha1.SecretReference{Name: "writer"}, AuthorName: "Kuvryn Sync", AuthorEmail: "kuvryn-sync@localhost"},
 			},
 		})).To(Succeed())
 	})

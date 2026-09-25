@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // TestInvalidHelmReleaseNameFailsBeforeAnyRevision proves an Application
@@ -80,7 +80,7 @@ func TestInvalidHelmReleaseNameFailsBeforeAnyRevision(t *testing.T) {
 
 func TestValidateHelmReleaseName(t *testing.T) {
 	for name, want := range map[string]bool{
-		"":                       true, // the default, solder
+		"":                       true, // the default, kuvryn-sync
 		"payments.v2":            true,
 		strings.Repeat("a", 53):  true,
 		strings.Repeat("a", 54):  false,

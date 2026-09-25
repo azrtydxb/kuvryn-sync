@@ -24,16 +24,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // RequestedAtAnnotation is stamped on a Repository to request a fetch.
-const RequestedAtAnnotation = "solder.io/reconcile-requested-at"
+const RequestedAtAnnotation = "sync.kuvryn.io/reconcile-requested-at"
 
 const maxBody = 1 << 20
 
 var requests = prometheus.NewCounterVec(prometheus.CounterOpts{
-	Name: "solder_webhook_receiver_requests_total",
+	Name: "kuvryn_sync_webhook_receiver_requests_total",
 	Help: "Webhook receiver requests by result.",
 }, []string{"result"})
 

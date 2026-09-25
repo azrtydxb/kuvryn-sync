@@ -127,7 +127,7 @@ func headFile(t *testing.T, bare, name string) (string, *object.Commit) {
 }
 
 func request(url string) Request {
-	return Request{URL: url, Branch: "main", Path: "apps", Namespace: "payments", Images: images, Author: object.Signature{Name: "Solder", Email: "solder@localhost"}}
+	return Request{URL: url, Branch: "main", Path: "apps", Namespace: "payments", Images: images, Author: object.Signature{Name: "Kuvryn Sync", Email: "kuvryn-sync@localhost"}}
 }
 
 func TestUpdateCommitsAndPushesOnce(t *testing.T) {
@@ -141,7 +141,7 @@ func TestUpdateCommitsAndPushesOnce(t *testing.T) {
 	if head.Hash.String() != commit || !strings.Contains(content, "ghcr.io/acme/api:1.1.0@sha256:2222") {
 		t.Fatalf("origin head %s content:\n%s", head.Hash, content)
 	}
-	if !strings.Contains(head.Message, "payments:api (apps/api/deploy.yaml): ghcr.io/acme/api:1.0.0 -> ghcr.io/acme/api:1.1.0@sha256:2222") || head.Author.Name != "Solder" {
+	if !strings.Contains(head.Message, "payments:api (apps/api/deploy.yaml): ghcr.io/acme/api:1.0.0 -> ghcr.io/acme/api:1.1.0@sha256:2222") || head.Author.Name != "Kuvryn Sync" {
 		t.Fatalf("commit = %q by %q", head.Message, head.Author.Name)
 	}
 

@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 func TestCollectGraphTreatsForbiddenReadsAsNotVisible(t *testing.T) {

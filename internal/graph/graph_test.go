@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 const ns = "payments"
@@ -352,7 +352,7 @@ func TestJSONAndDOTAreStable(t *testing.T) {
 		t.Fatal("DOT depends on input order")
 	}
 	for _, line := range []string{
-		"digraph solder {",
+		"digraph kuvryn_sync {",
 		`"apps/v1/Deployment/payments/api" [label="Deployment\npayments/api"];`,
 		`"v1/Secret/payments/db" [label="Secret\npayments/db", style=dashed, color=red, xlabel="missing"];`,
 		`"apps/v1/Deployment/payments/api" -> "apps/v1/ReplicaSet/payments/api-1" [label="Owns"];`,

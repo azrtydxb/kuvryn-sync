@@ -1,24 +1,24 @@
 ---
-title: Solder
+title: Kuvryn Sync
 nav_order: 1
 ---
 
-# Solder documentation
+# Kuvryn Sync documentation
 
-**Solder — GitOps that sticks.**
+**Kuvryn Sync — an Azrty product.**
 
-Solder is a small Kubernetes-native GitOps controller for teams that need to
+Kuvryn Sync is a small Kubernetes-native GitOps controller for teams that need to
 know who approved which change. It reconciles desired state from Git into
 Kubernetes with deterministic plans that are approved against the
 authenticated approver, applies each Application as its own service account,
 and keeps bounded, auditable Revision history. It adds drift detection,
 self-heal, pruning, rollback, sync waves and hooks, notifications, SOPS,
 image automation, and Repository-driven Application discovery from
-`.solder.yaml` files, without a database, broker, or mandatory UI.
+`.ksync.yaml` files, without a database, broker, or mandatory UI.
 
-When an Application is not Healthy, Solder walks its live resource graph down
+When an Application is not Healthy, Kuvryn Sync walks its live resource graph down
 to the root cause, such as a missing Secret or a crash-looping Pod, and
-records the chain in `status.diagnosis`; `solder diagnose` and `solder graph`
+records the chain in `status.diagnosis`; `ksync diagnose` and `ksync graph`
 print it. The Helm chart and raw manifests expose Prometheus metrics on `:8443`
 (the manager's own default leaves them off), and OpenTelemetry traces are
 exported over OTLP once an endpoint is configured.
@@ -35,7 +35,7 @@ Optional companions: **HealthCheck** (CEL health rules for a kind),
 
 ## Get started
 
-1. [Install Solder](install.md)
+1. [Install Kuvryn Sync](install.md)
 2. [Follow the quickstart](quickstart.md)
 3. [Understand the core concepts](concepts.md)
 4. [Use the CLI](cli.md)

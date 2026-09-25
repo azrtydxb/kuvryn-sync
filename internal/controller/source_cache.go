@@ -25,9 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	helmrenderer "github.com/azrtydxb/solder/internal/renderer/helm"
-	gitcache "github.com/azrtydxb/solder/internal/source/git"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	helmrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/helm"
+	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
 )
 
 const (

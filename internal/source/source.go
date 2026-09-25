@@ -65,7 +65,7 @@ type GitRepository struct {
 	Auth     Credentials
 }
 
-// ResolvedSource is an immutable source revision observed by Solder.
+// ResolvedSource is an immutable source revision observed by Kuvryn Sync.
 type ResolvedSource struct {
 	Revision string
 	CacheDir string
