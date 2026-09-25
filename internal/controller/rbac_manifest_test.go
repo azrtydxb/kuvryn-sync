@@ -30,7 +30,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // managerRules returns the rules of the manager ClusterRole in a manifest as

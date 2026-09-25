@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	"github.com/azrtydxb/solder/internal/renderer"
-	yamlrenderer "github.com/azrtydxb/solder/internal/renderer/yaml"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
 )
 
 // Renderer builds a kustomization with the kustomize library, the same code

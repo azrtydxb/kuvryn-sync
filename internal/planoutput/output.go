@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/redact"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 	"sigs.k8s.io/yaml"
 )
 

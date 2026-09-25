@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/azrtydxb/solder/internal/applier"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 )
 
 // countingController records Watch calls and nothing else.

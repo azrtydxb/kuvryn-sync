@@ -23,10 +23,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/health"
-	"github.com/azrtydxb/solder/internal/prune"
-	"github.com/azrtydxb/solder/internal/resource"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/health"
+	"github.com/azrtydxb/kuvryn-sync/internal/prune"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 // RolloutCompleteCondition is the Revision condition that tracks its rollout:

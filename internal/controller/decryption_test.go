@@ -31,11 +31,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
-	"github.com/azrtydxb/solder/internal/renderer"
-	yamlrenderer "github.com/azrtydxb/solder/internal/renderer/yaml"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt/decrypttest"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 type workspaceResolver string

@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/applier"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 )
 
 // graphClient holds an Application whose Deployment runs a Pod that needs a

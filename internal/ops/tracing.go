@@ -15,7 +15,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/azrtydxb/solder/internal/redact"
+	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 )
 
 // OTelTracer implements Tracer using the global OpenTelemetry provider.

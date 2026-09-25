@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // rollbackSourceRetry is how often a rollback whose target cannot be fetched

@@ -9,9 +9,9 @@ import (
 	"io"
 	"os"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/planoutput"
-	"github.com/azrtydxb/solder/internal/version"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
+	"github.com/azrtydxb/kuvryn-sync/internal/version"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

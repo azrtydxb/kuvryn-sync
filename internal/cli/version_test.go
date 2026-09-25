@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/azrtydxb/solder/internal/version"
+	"github.com/azrtydxb/kuvryn-sync/internal/version"
 )
 
 // Catches a version command that prints a fixed string instead of the version

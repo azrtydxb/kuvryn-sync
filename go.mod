@@ -1,4 +1,4 @@
-module github.com/azrtydxb/solder
+module github.com/azrtydxb/kuvryn-sync
 
 go 1.26.0
 

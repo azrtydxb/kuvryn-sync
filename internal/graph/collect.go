@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 const (

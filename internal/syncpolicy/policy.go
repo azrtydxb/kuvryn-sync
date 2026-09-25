@@ -1,7 +1,7 @@
 package syncpolicy
 
 import (
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // EffectiveConflictPolicy returns Solder's conservative default conflict behavior.

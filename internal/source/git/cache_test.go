@@ -37,7 +37,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/server"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/azrtydxb/solder/internal/source"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 func init() {

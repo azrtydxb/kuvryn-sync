@@ -9,9 +9,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/azrtydxb/solder/internal/decrypt"
-	"github.com/azrtydxb/solder/internal/decrypt/decrypttest"
-	"github.com/azrtydxb/solder/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt"
+	"github.com/azrtydxb/kuvryn-sync/internal/decrypt/decrypttest"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 func write(t *testing.T, root string, files map[string]string) {

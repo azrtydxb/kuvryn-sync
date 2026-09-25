@@ -6,8 +6,8 @@ cliVersion: 4.14.0
 domain: solder.io
 layout:
 - go.kubebuilder.io/v4
-projectName: solder
-repo: github.com/azrtydxb/solder
+projectName: kuvryn-sync
+repo: github.com/azrtydxb/kuvryn-sync
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: solder.io
   group: core
   kind: Repository
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -25,7 +25,7 @@ resources:
   domain: solder.io
   group: core
   kind: Application
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
   webhooks:
     defaulting: true
@@ -37,14 +37,14 @@ resources:
   domain: solder.io
   group: core
   kind: Revision
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
   domain: solder.io
   group: core
   kind: HealthCheck
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
   webhooks:
     validation: true
@@ -55,7 +55,7 @@ resources:
   domain: solder.io
   group: core
   kind: NotificationSink
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -64,6 +64,6 @@ resources:
   domain: solder.io
   group: core
   kind: ImagePolicy
-  path: github.com/azrtydxb/solder/api/v1alpha1
+  path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
 version: "3"

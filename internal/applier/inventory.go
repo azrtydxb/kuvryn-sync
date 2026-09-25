@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // DefaultKinds are the kinds earlier releases always inventoried. They are

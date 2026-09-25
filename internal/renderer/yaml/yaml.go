@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/azrtydxb/solder/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 // Renderer decodes plain Kubernetes YAML manifests from a source path.

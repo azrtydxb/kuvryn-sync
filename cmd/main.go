@@ -42,17 +42,17 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/cli"
-	"github.com/azrtydxb/solder/internal/controller"
-	"github.com/azrtydxb/solder/internal/imagepolicy"
-	"github.com/azrtydxb/solder/internal/imageupdate"
-	"github.com/azrtydxb/solder/internal/impersonate"
-	"github.com/azrtydxb/solder/internal/notify"
-	"github.com/azrtydxb/solder/internal/ops"
-	"github.com/azrtydxb/solder/internal/receiver"
-	"github.com/azrtydxb/solder/internal/version"
-	webhookv1alpha1 "github.com/azrtydxb/solder/internal/webhook/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/cli"
+	"github.com/azrtydxb/kuvryn-sync/internal/controller"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy"
+	"github.com/azrtydxb/kuvryn-sync/internal/imageupdate"
+	"github.com/azrtydxb/kuvryn-sync/internal/impersonate"
+	"github.com/azrtydxb/kuvryn-sync/internal/notify"
+	"github.com/azrtydxb/kuvryn-sync/internal/ops"
+	"github.com/azrtydxb/kuvryn-sync/internal/receiver"
+	"github.com/azrtydxb/kuvryn-sync/internal/version"
+	webhookv1alpha1 "github.com/azrtydxb/kuvryn-sync/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -248,7 +248,7 @@ func main() {
 	if err := (&controller.ApplicationReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-		Tracer: ops.NewOTelTracer("github.com/azrtydxb/solder/controller"),
+		Tracer: ops.NewOTelTracer("github.com/azrtydxb/kuvryn-sync/controller"),
 		Impersonation: impersonate.New(mgr.GetConfig(), client.Options{
 			Scheme: mgr.GetScheme(),
 			Mapper: mgr.GetRESTMapper(),

@@ -3,7 +3,7 @@ package prune
 import (
 	"testing"
 
-	"github.com/azrtydxb/solder/internal/applier"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 

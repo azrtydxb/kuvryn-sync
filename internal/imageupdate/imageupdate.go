@@ -24,8 +24,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 
-	"github.com/azrtydxb/solder/internal/source"
-	gitsource "github.com/azrtydxb/solder/internal/source/git"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
+	gitsource "github.com/azrtydxb/kuvryn-sync/internal/source/git"
 )
 
 // Image is what an ImagePolicy currently selects.

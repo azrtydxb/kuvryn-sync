@@ -17,8 +17,8 @@ import (
 	release "helm.sh/helm/v4/pkg/release/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/azrtydxb/solder/internal/renderer"
-	yamlrenderer "github.com/azrtydxb/solder/internal/renderer/yaml"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
 )
 
 const defaultReleaseName = "solder"

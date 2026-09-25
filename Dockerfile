@@ -25,7 +25,7 @@ COPY . .
 # invalidate the module download layer.
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
-    -ldflags "-X github.com/azrtydxb/solder/internal/version.Version=${VERSION}" \
+    -ldflags "-X github.com/azrtydxb/kuvryn-sync/internal/version.Version=${VERSION}" \
     -o manager cmd/main.go
 
 # Git, Kustomize, and Helm all run in process, so the runtime needs only CA

@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 const ns = "payments"

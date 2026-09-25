@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/renderer"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 type solderRepositoryFile struct {

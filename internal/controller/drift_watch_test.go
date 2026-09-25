@@ -34,9 +34,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/impersonate"
-	"github.com/azrtydxb/solder/internal/renderer"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/impersonate"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 // pathRenderer renders a fixed set of objects per Application source path.

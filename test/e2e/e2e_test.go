@@ -32,7 +32,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/azrtydxb/solder/test/utils"
+	"github.com/azrtydxb/kuvryn-sync/test/utils"
 )
 
 // namespace where the project is deployed in
@@ -651,7 +651,7 @@ metadata:
 spec:
   type: git
   git:
-    url: https://github.com/azrtydxb/solder-e2e-app.git
+    url: https://github.com/azrtydxb/kuvryn-sync-e2e-app.git
     revision: main
   pollInterval: 30s
 ---

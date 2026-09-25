@@ -18,7 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 // EdgeType names an inferred Kubernetes relationship. Every edge points from

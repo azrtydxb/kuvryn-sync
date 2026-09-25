@@ -28,7 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/azrtydxb/solder/test/utils"
+	"github.com/azrtydxb/kuvryn-sync/test/utils"
 )
 
 var (

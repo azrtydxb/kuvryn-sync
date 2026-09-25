@@ -3,8 +3,8 @@ package prune
 import (
 	"fmt"
 
-	"github.com/azrtydxb/solder/internal/applier"
-	"github.com/azrtydxb/solder/internal/ordering"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
+	"github.com/azrtydxb/kuvryn-sync/internal/ordering"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 

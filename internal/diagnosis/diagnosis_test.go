@@ -15,10 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/graph"
-	"github.com/azrtydxb/solder/internal/health"
-	"github.com/azrtydxb/solder/internal/resource"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/graph"
+	"github.com/azrtydxb/kuvryn-sync/internal/health"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 const ns = "payments"

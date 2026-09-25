@@ -34,10 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imagepolicy"
-	"github.com/azrtydxb/solder/internal/imagepolicy/registrytest"
-	"github.com/azrtydxb/solder/internal/receiver"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy/registrytest"
+	"github.com/azrtydxb/kuvryn-sync/internal/receiver"
 )
 
 const (

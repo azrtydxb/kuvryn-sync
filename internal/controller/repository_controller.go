@@ -42,10 +42,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imageupdate"
-	"github.com/azrtydxb/solder/internal/source"
-	gitcache "github.com/azrtydxb/solder/internal/source/git"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imageupdate"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
+	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
 )
 
 const (

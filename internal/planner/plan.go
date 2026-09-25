@@ -10,11 +10,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/normalize"
-	"github.com/azrtydxb/solder/internal/prune"
-	"github.com/azrtydxb/solder/internal/redact"
-	"github.com/azrtydxb/solder/internal/resource"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/normalize"
+	"github.com/azrtydxb/kuvryn-sync/internal/prune"
+	"github.com/azrtydxb/kuvryn-sync/internal/redact"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 const solderFieldManager = "solder"

@@ -22,7 +22,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
 
 // Registry reads tags and digests from an image repository. Requests to each

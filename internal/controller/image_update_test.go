@@ -36,9 +36,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	corev1alpha1 "github.com/azrtydxb/solder/api/v1alpha1"
-	"github.com/azrtydxb/solder/internal/imageupdate"
-	"github.com/azrtydxb/solder/internal/source"
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/imageupdate"
+	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
 func init() {

@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/azrtydxb/solder/internal/resource"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 // Result contains live objects keyed by desired identity.

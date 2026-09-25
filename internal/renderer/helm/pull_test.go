@@ -19,8 +19,8 @@ import (
 	chartutil "helm.sh/helm/v4/pkg/chart/v2/util"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 
-	"github.com/azrtydxb/solder/internal/imagepolicy/registrytest"
-	"github.com/azrtydxb/solder/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy/registrytest"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 )
 
 // packagedChart builds the test chart as a .tgz and returns its bytes and metadata.

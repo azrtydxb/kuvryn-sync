@@ -52,6 +52,8 @@ Files:
 
 - `go.mod`: the module line.
 - Every `*.go` file that imports `github.com/azrtydxb/solder/...`.
+- `Makefile` and `Dockerfile`: the `-X .../internal/version.Version` ldflags
+  path, which must follow the module or the version stops being embedded.
 - `PROJECT`: `repo`, the `path` of every resource, and `projectName`.
 - `internal/brand/names_test.go`: new; the repo-wide name guard.
 
@@ -73,7 +75,7 @@ Interfaces: produces module path `github.com/azrtydxb/kuvryn-sync` and test
   // listed scopes. Later tasks widen scopes until it covers the repository.
   func TestNoSolderNameRemains(t *testing.T) {
   	root := "../.."
-  	out, err := exec.Command("git", "-C", root, "grep", "-n", "github.com/azrtydxb/solder", "--", "*.go", "go.mod", "PROJECT").CombinedOutput()
+  	out, err := exec.Command("git", "-C", root, "grep", "-n", "github.com/azrtydxb/solder", "--", "*.go", "go.mod", "PROJECT", ":!internal/brand/names_test.go").CombinedOutput()
   	if err == nil {
   		t.Fatalf("old module path remains:\n%s", out)
   	}
@@ -87,7 +89,10 @@ Interfaces: produces module path `github.com/azrtydxb/kuvryn-sync` and test
   path remains".
 - [ ] Change the module line in `go.mod` to `module github.com/azrtydxb/kuvryn-sync`.
       Rewrite imports with
-      `git grep -l 'github.com/azrtydxb/solder' -- '*.go' | xargs sed -i '' 's#github.com/azrtydxb/solder#github.com/azrtydxb/kuvryn-sync#g'`.
+      `git grep -l 'github.com/azrtydxb/solder' -- '*.go' ':!internal/brand/names_test.go' | xargs sed -i '' 's#github.com/azrtydxb/solder#github.com/azrtydxb/kuvryn-sync#g'`.
+      The guard excludes itself, because its own pattern would otherwise
+      match once it is committed. Update the ldflags path in `Makefile` and
+      `Dockerfile` the same way.
       In `PROJECT`, set `projectName: kuvryn-sync`,
       `repo: github.com/azrtydxb/kuvryn-sync`, and every resource `path:` to
       `github.com/azrtydxb/kuvryn-sync/api/v1alpha1`.
