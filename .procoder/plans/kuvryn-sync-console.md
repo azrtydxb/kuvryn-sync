@@ -826,6 +826,16 @@ chart values listed above, and the console names
       and expect PASS.
 - [ ] Commit "Ship the console in the chart with Dex docs and a self-check".
 
+## Known follow-ups
+
+- **Per-request discovery.** `UserClient` calls `client.New` for every API
+  request, and its REST mapper runs API discovery each time as the user, so
+  each 10-second poll costs a few extra discovery GETs per user. The review
+  kept this for the first release: the fix is a per-identity client cache
+  (keyed by username and groups, expiring with the session), or a shared
+  mapper. A shared mapper needs care, because the console must never read
+  as itself, so it is left for a follow-up rather than done in review.
+
 ## Task 9: Review, merge, and hand over to the release
 
 Files:

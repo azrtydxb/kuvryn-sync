@@ -50,11 +50,7 @@ func UserClient(base *rest.Config, scheme *runtime.Scheme, id Identity) (client.
 		}
 		return rt
 	}
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
+	return client.New(cfg, client.Options{Scheme: scheme})
 }
 
 // readOnlyTransport sends only impersonated GETs for paths other than
