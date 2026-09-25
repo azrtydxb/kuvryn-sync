@@ -725,7 +725,10 @@ Files:
   mounted read-only at `/etc/ksync/oidc` and `/etc/ksync/session`,
   runAsNonRoot, readOnlyRootFilesystem), a ServiceAccount, a Service on port
   80 → 8080, an optional Ingress, and a ClusterRole plus ClusterRoleBinding
-  that grant `impersonate` on `users` and `groups` only. The console pods are
+  that grant `impersonate` on `users` and `groups` only. That grant is
+  effectively cluster-admin (it includes `system:masters`), so the docs and
+  values say so, and optional `console.impersonation.users` and `.groups`
+  render `resourceNames` on the two impersonate rules to restrict it. The console pods are
   labelled `app.kubernetes.io/name: kuvryn-sync-console`, so the
   controller's Services never select them.
 - `internal/console/selfcheck.go`: at startup, it creates two

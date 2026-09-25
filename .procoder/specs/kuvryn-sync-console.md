@@ -105,7 +105,10 @@ and that never becomes a second path for changing the cluster.
 
 - Security:
   - the console ServiceAccount's only permission is `impersonate` on `users`
-    and `groups`, and never on `serviceaccounts` or `system:` groups;
+    and `groups`, and never on `serviceaccounts`. Kubernetes cannot exclude
+    `system:` groups from that grant, so the console refuses them itself, the
+    docs state that the ServiceAccount token is equivalent to cluster-admin,
+    and optional chart lists restrict the grant with `resourceNames`;
   - every API call is impersonated, and the console never reads as itself;
   - the only verbs are get, list and watch;
   - ID tokens are verified (issuer, audience, expiry, signature via JWKS);

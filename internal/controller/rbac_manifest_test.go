@@ -376,6 +376,28 @@ func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
 			}
 		}
 	}
+
+	// console.impersonation limits the role to named users and groups.
+	limited := clusterRoleNamed(t, helmTemplate(t, append(append([]string{}, consoleArgs...),
+		"--set", "console.impersonation.users={alice@acme.io,bob@acme.io}", "--set", "console.impersonation.groups={acme:platform}")...), "kuvryn-sync-kuvryn-sync-console")
+	names := map[string][]string{}
+	for _, rule := range limited.Rules {
+		if !slices.Equal(rule.Verbs, []string{"impersonate"}) || len(rule.Resources) != 1 {
+			t.Fatalf("limited rule = %+v", rule)
+		}
+		names[rule.Resources[0]] = rule.ResourceNames
+	}
+	if !slices.Equal(names["users"], []string{"alice@acme.io", "bob@acme.io"}) || !slices.Equal(names["groups"], []string{"acme:platform"}) {
+		t.Fatalf("resourceNames = %v", names)
+	}
+	// Limiting only users still leaves groups unrestricted, and says so by
+	// rendering a separate rule.
+	usersOnly := clusterRoleNamed(t, helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.impersonation.users={alice@acme.io}")...), "kuvryn-sync-kuvryn-sync-console")
+	for _, rule := range usersOnly.Rules {
+		if slices.Contains(rule.Resources, "users") && !slices.Equal(rule.ResourceNames, []string{"alice@acme.io"}) {
+			t.Fatalf("users rule = %+v", rule)
+		}
+	}
 }
 
 // consoleArgs enables the console with the minimum it needs.

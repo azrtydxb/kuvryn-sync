@@ -50,6 +50,17 @@ them. It does not have a permission model of its own:
 The console runs as its own Deployment and ServiceAccount. It never shares
 the controller's credentials.
 
+> **The console's ServiceAccount is as powerful as cluster-admin.** Kubernetes
+> lets a holder of `impersonate` on `users` and `groups` act as any user or
+> group, `system:masters` included. The console refuses `system:` identities,
+> but that check lives only in the console process: anyone who obtains the
+> ServiceAccount's token can impersonate cluster-admin directly. Treat the
+> release namespace like a cluster-admin credential. Allow nobody but
+> cluster admins to exec into its pods, create pods there, or read its
+> Secrets. Where you can, list the users and groups the console may
+> impersonate in `console.impersonation`, as shown under
+> [Restrict whom the console may impersonate](#restrict-whom-the-console-may-impersonate).
+
 ## Set up Dex
 
 Any OIDC issuer works. This walk-through uses
@@ -220,6 +231,25 @@ The same settings are `ksync console` flags when you run it yourself: `--listen`
 `--groups-prefix`, `--session-key-file`, `--cluster-name`, `--sso-name`,
 `--connectors`, `--docs-url`, `--status-url` and, for local development over
 plain HTTP only, `--insecure-cookies`.
+
+## Restrict whom the console may impersonate
+
+By default the console's ClusterRole may impersonate any user and any group.
+To limit it, list the users and groups that may use the console. Each
+non-empty list becomes `resourceNames` on its impersonate rule:
+
+```yaml
+console:
+  impersonation:
+    users: [mia.chen@acme.io, sam.okafor@acme.io]
+    groups: [acme:platform, acme:payments]
+```
+
+A person whose username or any of whose groups is not listed then gets
+Forbidden on every page, because Kubernetes checks each impersonated name.
+An empty list leaves that kind unrestricted; listing only users still lets
+the ServiceAccount impersonate any group, `system:masters` included, so list
+both to close the gap.
 
 ## Grant viewers access
 

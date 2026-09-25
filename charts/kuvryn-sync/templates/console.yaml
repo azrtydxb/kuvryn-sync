@@ -16,7 +16,9 @@ metadata:
     app.kubernetes.io/name: kuvryn-sync-console
 ---
 # The console's only permission: impersonating the signed-in user and their
-# groups. Every read it makes is the user's own, under their RBAC.
+# groups. Every read it makes is the user's own, under their RBAC. Without
+# console.impersonation lists this may impersonate anyone, system:masters
+# included, so whoever holds the console's token can act as cluster-admin.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -25,8 +27,19 @@ metadata:
     app.kubernetes.io/name: kuvryn-sync-console
 rules:
   - apiGroups: [""]
-    resources: ["users", "groups"]
+    resources: ["users"]
     verbs: ["impersonate"]
+    {{- with $c.impersonation.users }}
+    resourceNames:
+{{ toYaml . | indent 6 }}
+    {{- end }}
+  - apiGroups: [""]
+    resources: ["groups"]
+    verbs: ["impersonate"]
+    {{- with $c.impersonation.groups }}
+    resourceNames:
+{{ toYaml . | indent 6 }}
+    {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

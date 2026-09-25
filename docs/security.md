@@ -28,7 +28,14 @@ surfaces while still giving operators useful plans, events, and diagnostics.
 
 The optional [web console](console.md) runs as its own Deployment and
 ServiceAccount, whose only permission is `impersonate` on `users` and
-`groups`:
+`groups`. That permission is effectively cluster-admin: it covers any user
+and group, `system:masters` included, and the console's refusal of `system:`
+identities is enforced only inside the console process. Whoever holds the
+console ServiceAccount's token can act as cluster-admin, so restrict the
+release namespace (pod exec, pod creation and Secret reads) to cluster
+admins, and limit the role with `console.impersonation.users` and
+`console.impersonation.groups`, which render `resourceNames` on the
+impersonate rules.
 
 - Every cluster read impersonates the signed-in user and their groups, so
   Kubernetes RBAC decides what each person sees, and the API server's audit

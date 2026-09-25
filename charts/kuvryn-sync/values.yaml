@@ -49,10 +49,24 @@ resources:
 # own Deployment and ServiceAccount, whose only permission is to impersonate
 # users and groups: every read is made as the signed-in user, so what a person
 # sees follows their own Kubernetes RBAC. See docs/console.md.
+#
+# WARNING: impersonating any user or group includes system:masters, so
+# whoever holds the console ServiceAccount's token can act as cluster-admin.
+# The console itself refuses system: identities, but Kubernetes does not.
+# Lock down the release namespace (pod exec, pod create, Secret reads), and
+# list the users and groups the console may impersonate in
+# console.impersonation when you can.
 console:
   enabled: false
   # More than one replica needs sessionKey.secretName.
   replicas: 1
+  # Restrict whom the console may impersonate. Each non-empty list becomes
+  # resourceNames on its impersonate rule; an empty list leaves that kind
+  # unrestricted. Sign-ins with a username or group outside the lists fail
+  # with Forbidden on every read.
+  impersonation:
+    users: []
+    groups: []
   oidc:
     # OIDC issuer, for example Dex: https://dex.example.com
     issuerURL: ""
