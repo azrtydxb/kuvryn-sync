@@ -8,6 +8,9 @@
 {{- if and (not $redirect) $c.ingress.enabled $c.ingress.host }}
 {{- $redirect = printf "https://%s/auth/callback" $c.ingress.host }}
 {{- end }}
+{{- if not $redirect }}
+{{- fail "console.redirectURL is required: set it, or enable console.ingress with a host to derive https://<host>/auth/callback" }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

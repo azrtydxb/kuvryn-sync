@@ -203,7 +203,8 @@ kubectl -n kuvryn-sync-system rollout status deployment/kuvryn-sync-kuvryn-sync-
 ```
 
 The redirect URL defaults to `https://<ingress.host>/auth/callback`; set
-`console.redirectURL` when the console is exposed some other way. The
+`console.redirectURL` when the console is exposed some other way. With
+neither set, the chart refuses to render. The
 console's cookies are `Secure`, so serve it over TLS.
 
 The chart creates, all named `<release>-kuvryn-sync-console`:
@@ -226,7 +227,7 @@ Every chart value:
 | `console.oidc.clientID`                | (required)      | OIDC client ID.                                                   |
 | `console.oidc.clientSecret.secretName` | `""`            | Secret with the client secret; empty for a public client.         |
 | `console.oidc.clientSecret.key`        | `client-secret` | Key in that Secret.                                               |
-| `console.redirectURL`                  | from ingress    | `https://<host>/auth/callback`.                                   |
+| `console.redirectURL`                  | from ingress    | `https://<host>/auth/callback`; required without an ingress host. |
 | `console.usernameClaim`                | `email`         | Claim impersonated as the username.                               |
 | `console.groupsClaim`                  | `groups`        | Claim impersonated as the groups.                                 |
 | `console.usernamePrefix`               | `""`            | Prefix added to the username.                                     |

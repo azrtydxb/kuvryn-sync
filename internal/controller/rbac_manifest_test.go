@@ -349,7 +349,7 @@ func clusterRoleNamed(t *testing.T, rendered, name string) rbacv1.ClusterRole {
 }
 
 func TestHelmChartRendersASeparateConsole(t *testing.T) {
-	out := helmTemplate(t, "--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync")
+	out := helmTemplate(t, consoleArgs...)
 	if !strings.Contains(out, "name: kuvryn-sync-kuvryn-sync-console") {
 		t.Fatal("no console Deployment")
 	}
@@ -362,7 +362,7 @@ func TestHelmChartRendersASeparateConsole(t *testing.T) {
 }
 
 func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
-	role := clusterRoleNamed(t, helmTemplate(t, "--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync"), "kuvryn-sync-kuvryn-sync-console")
+	role := clusterRoleNamed(t, helmTemplate(t, consoleArgs...), "kuvryn-sync-kuvryn-sync-console")
 	if len(role.Rules) == 0 {
 		t.Fatal("the console ClusterRole has no rules, so it cannot impersonate")
 	}
@@ -401,7 +401,20 @@ func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
 }
 
 // consoleArgs enables the console with the minimum it needs.
-var consoleArgs = []string{"--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync"}
+var consoleArgs = []string{"--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync", "--set", "console.redirectURL=https://console.example/auth/callback"}
+
+// The console exits at start without --redirect-url, so the chart must refuse
+// to render one it cannot derive rather than ship a Deployment that crashes.
+func TestConsoleChartRequiresARedirectURL(t *testing.T) {
+	base := consoleArgs[:len(consoleArgs)-2]
+	if _, err := renderChart(t, base...); err == nil || !strings.Contains(err.Error(), "console.redirectURL") {
+		t.Fatalf("console without a redirect URL or ingress host rendered: %v", err)
+	}
+	out := helmTemplate(t, append(append([]string{}, base...), "--set", "console.ingress.enabled=true", "--set", "console.ingress.host=ksync.example")...)
+	if !strings.Contains(out, "--redirect-url=https://ksync.example/auth/callback") {
+		t.Fatal("the redirect URL is not derived from console.ingress.host")
+	}
+}
 
 // A GitOps controller renders the chart on every reconcile, so any random or
 // cluster-dependent output would drift forever and rotate the session key.

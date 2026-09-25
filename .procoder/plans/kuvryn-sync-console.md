@@ -746,7 +746,8 @@ Files:
   reconcile. `replicas > 1` without `sessionKey.secretName` fails to render.
   `TestConsoleChartRendersDeterministically` and
   `TestConsoleReplicasNeedASharedSessionKey` cover this. When `redirectURL` is empty,
-  it defaults to `https://<ingress.host>/auth/callback`.
+  it defaults to `https://<ingress.host>/auth/callback`; with no ingress host
+  either, the chart fails to render (`TestConsoleChartRequiresARedirectURL`).
 - `charts/kuvryn-sync/templates/console.yaml`: a Deployment
   (`<release>-kuvryn-sync-console`, args `console` with flags, Secrets
   mounted read-only at `/etc/ksync/oidc` and `/etc/ksync/session`,

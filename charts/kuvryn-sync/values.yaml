@@ -77,7 +77,8 @@ console:
       secretName: ""
       key: client-secret
   # Where the issuer sends users back: https://<host>/auth/callback. Defaults
-  # to that URL on ingress.host when the ingress is enabled.
+  # to that URL on ingress.host when the ingress is enabled; required
+  # otherwise, and the chart refuses to render without one.
   redirectURL: ""
   # ID token claims mapped to the impersonated username and groups, and the
   # prefixes added to them. With empty prefixes, RBAC bindings name users and
