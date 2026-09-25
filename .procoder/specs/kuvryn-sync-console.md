@@ -158,7 +158,10 @@ and that never becomes a second path for changing the cluster.
   username, groups and expiry. A session ends when the ID token expires; no
   refresh tokens are stored, and the user signs in again.
 - **Configuration:** from flags and Secrets. The OIDC client secret and the
-  session key are mounted from Kubernetes Secrets.
+  session key are mounted from Kubernetes Secrets. Without a session key
+  Secret, the console keeps a random key in memory: sessions end on restart
+  and are not shared between replicas, so more than one replica requires
+  the Secret.
 - **Browser:** the theme choice is kept in localStorage.
 
 ## Edge cases

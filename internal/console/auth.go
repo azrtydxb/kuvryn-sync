@@ -90,15 +90,9 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 	if cfg.UsernameClaim == "" {
 		return nil, errors.New("console: --username-claim must not be empty")
 	}
-	if cfg.SessionKeyFile == "" {
-		return nil, errors.New("console: --session-key-file is required")
-	}
-	key, err := os.ReadFile(cfg.SessionKeyFile)
+	key, err := sessionKey(ctx, cfg.SessionKeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("console: read session key: %w", err)
-	}
-	if len(key) != SessionKeySize {
-		return nil, fmt.Errorf("console: session key file holds %d bytes, want exactly %d", len(key), SessionKeySize)
+		return nil, err
 	}
 	a := &Auth{cfg: cfg, key: key, now: time.Now}
 	if cfg.ClientSecretFile != "" {
@@ -113,6 +107,27 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 		go a.retryDiscovery(ctx)
 	}
 	return a, nil
+}
+
+// sessionKey reads the 32-byte key from path or, without one, generates a
+// random key held only in memory.
+func sessionKey(ctx context.Context, path string) ([]byte, error) {
+	if path == "" {
+		key := make([]byte, SessionKeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, err
+		}
+		ctrllog.FromContext(ctx).Info("Generated an in-memory session key because --session-key-file is not set; sessions will not survive a restart, and replicas will not share them")
+		return key, nil
+	}
+	key, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("console: read session key: %w", err)
+	}
+	if len(key) != SessionKeySize {
+		return nil, fmt.Errorf("console: session key file holds %d bytes, want exactly %d", len(key), SessionKeySize)
+	}
+	return key, nil
 }
 
 // Ready reports whether OIDC discovery has succeeded.

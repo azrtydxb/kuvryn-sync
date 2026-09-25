@@ -51,6 +51,8 @@ resources:
 # sees follows their own Kubernetes RBAC. See docs/console.md.
 console:
   enabled: false
+  # More than one replica needs sessionKey.secretName.
+  replicas: 1
   oidc:
     # OIDC issuer, for example Dex: https://dex.example.com
     issuerURL: ""
@@ -70,9 +72,12 @@ console:
   groupsClaim: groups
   usernamePrefix: ""
   groupsPrefix: ""
-  # Secret holding the 32-byte key that encrypts the session cookie. Leave
-  # secretName empty to have the chart create one, kept across upgrades.
-  # Rotating the key signs everyone out.
+  # Secret holding the 32-byte key that encrypts the session cookie, mounted
+  # only when secretName is set. Without it the console generates a random
+  # key in memory at startup: every restart signs everyone out, and replicas
+  # cannot share sessions, so replicas > 1 requires a secretName. The chart
+  # never generates the key itself, so it renders the same every time, as a
+  # GitOps controller needs. Rotating the key signs everyone out.
   sessionKey:
     secretName: ""
     key: session-key

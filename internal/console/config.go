@@ -39,7 +39,7 @@ func (c *Config) BindFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.GroupsClaim, "groups-claim", "groups", "ID token claim used as the Kubernetes groups")
 	fs.StringVar(&c.UsernamePrefix, "username-prefix", "", "prefix added to the username before impersonating it")
 	fs.StringVar(&c.GroupsPrefix, "groups-prefix", "", "prefix added to each group before impersonating it")
-	fs.StringVar(&c.SessionKeyFile, "session-key-file", "", "file holding the 32-byte session cookie encryption key")
+	fs.StringVar(&c.SessionKeyFile, "session-key-file", "", "file holding the 32-byte session cookie encryption key; without it, a random key is kept in memory, so sessions end on restart and are not shared between replicas")
 	fs.StringVar(&c.ClusterName, "cluster-name", "cluster", "cluster name shown in the console")
 	fs.StringVar(&c.SSOName, "sso-name", "", `identity provider named on the login page's "Sign in with" button, for example Dex`)
 	fs.Func("connectors", "comma-separated Dex connectors offered at sign-in: github, gitlab, local", func(v string) error {

@@ -391,3 +391,24 @@ func TestDiscoveryRetriesUntilTheIssuerAnswers(t *testing.T) {
 		t.Fatalf("start before discovery = %d", rec.Code)
 	}
 }
+
+func TestWithoutASessionKeyFileTheKeyIsEphemeral(t *testing.T) {
+	iss := newTestIssuer(t)
+	cfg := testConfig(t, iss.URL)
+	cfg.SessionKeyFile = ""
+	a := mustAuthWith(t, cfg)
+	rec := signIn(t, a, iss, func(n string) { iss.issueFor(n, "alice@acme.io", nil) })
+	cookie := sessionCookie(rec)
+	if cookie == nil {
+		t.Fatalf("no session with an in-memory key: %d %s", rec.Code, rec.Body.String())
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie)
+	if id, err := a.Identity(req); err != nil || id.Username != "alice@acme.io" {
+		t.Fatalf("Identity = %+v, %v", id, err)
+	}
+	// Another process, such as a restart or a second replica, has its own key.
+	if _, err := mustAuthWith(t, cfg).Identity(req); err != ErrNoSession {
+		t.Fatalf("a session survived into a new process: %v", err)
+	}
+}

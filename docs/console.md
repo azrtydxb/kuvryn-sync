@@ -121,8 +121,12 @@ kubectl -n kuvryn-sync-system create secret generic ksync-console-oidc \
   --from-literal=client-secret='<the Dex client secret>'
 ```
 
-The session key is 32 bytes. The chart creates a random one, kept across
-upgrades, unless you name your own:
+The session key is 32 bytes. Without one, the console generates a random key
+in memory at startup and logs that it did: every restart then signs everyone
+out, and replicas cannot share sessions. The chart never generates the key
+itself, because a random value in the chart would change on every render, and
+a GitOps controller rendering it would rotate the key, and sign everyone out,
+on every reconcile. Create it once and keep it:
 
 ```sh
 head -c 32 /dev/urandom > session-key
@@ -131,7 +135,9 @@ kubectl -n kuvryn-sync-system create secret generic ksync-console-session \
 rm session-key
 ```
 
-Rotating the session key signs everyone out.
+Rotating the session key signs everyone out. `console.replicas` above 1
+requires `console.sessionKey.secretName`; the chart refuses to render
+otherwise.
 
 ### 4. Install the console with the chart
 
@@ -145,7 +151,7 @@ console:
     clientSecret:
       secretName: ksync-console-oidc
       key: client-secret
-  # Optional: omit to let the chart create the key.
+  # Optional for one replica: without it, sessions end when the pod restarts.
   sessionKey:
     secretName: ksync-console-session
     key: session-key
@@ -184,28 +190,29 @@ The chart creates, all named `<release>-kuvryn-sync-console`:
 
 Every chart value:
 
-| Value                                  | Default         | Meaning                                                    |
-| -------------------------------------- | --------------- | ---------------------------------------------------------- |
-| `console.enabled`                      | `false`         | Install the console.                                       |
-| `console.oidc.issuerURL`               | (required)      | OIDC issuer URL.                                           |
-| `console.oidc.clientID`                | (required)      | OIDC client ID.                                            |
-| `console.oidc.clientSecret.secretName` | `""`            | Secret with the client secret; empty for a public client.  |
-| `console.oidc.clientSecret.key`        | `client-secret` | Key in that Secret.                                        |
-| `console.redirectURL`                  | from ingress    | `https://<host>/auth/callback`.                            |
-| `console.usernameClaim`                | `email`         | Claim impersonated as the username.                        |
-| `console.groupsClaim`                  | `groups`        | Claim impersonated as the groups.                          |
-| `console.usernamePrefix`               | `""`            | Prefix added to the username.                              |
-| `console.groupsPrefix`                 | `""`            | Prefix added to each group.                                |
-| `console.sessionKey.secretName`        | `""`            | Secret with the 32-byte session key; empty to generate it. |
-| `console.sessionKey.key`               | `session-key`   | Key in that Secret.                                        |
-| `console.clusterName`                  | `cluster`       | Name shown in the console.                                 |
-| `console.ssoName`                      | `""`            | Names the "Sign in with" button.                           |
-| `console.connectors`                   | `[]`            | Dex connectors offered: `github`, `gitlab`, `local`.       |
-| `console.docsURL`, `console.statusURL` | `""`            | Links on the login page.                                   |
-| `console.ingress.enabled`              | `false`         | Create an Ingress.                                         |
-| `console.ingress.className`, `.host`   | `""`            | Ingress class and host.                                    |
-| `console.ingress.annotations`, `.tls`  | `{}`, `[]`      | Ingress annotations and TLS.                               |
-| `console.resources`                    | small           | Container resources.                                       |
+| Value                                  | Default         | Meaning                                                           |
+| -------------------------------------- | --------------- | ----------------------------------------------------------------- |
+| `console.replicas`                     | `1`             | More than 1 needs `sessionKey.secretName`.                        |
+| `console.enabled`                      | `false`         | Install the console.                                              |
+| `console.oidc.issuerURL`               | (required)      | OIDC issuer URL.                                                  |
+| `console.oidc.clientID`                | (required)      | OIDC client ID.                                                   |
+| `console.oidc.clientSecret.secretName` | `""`            | Secret with the client secret; empty for a public client.         |
+| `console.oidc.clientSecret.key`        | `client-secret` | Key in that Secret.                                               |
+| `console.redirectURL`                  | from ingress    | `https://<host>/auth/callback`.                                   |
+| `console.usernameClaim`                | `email`         | Claim impersonated as the username.                               |
+| `console.groupsClaim`                  | `groups`        | Claim impersonated as the groups.                                 |
+| `console.usernamePrefix`               | `""`            | Prefix added to the username.                                     |
+| `console.groupsPrefix`                 | `""`            | Prefix added to each group.                                       |
+| `console.sessionKey.secretName`        | `""`            | Secret with the 32-byte session key; empty keeps a key in memory. |
+| `console.sessionKey.key`               | `session-key`   | Key in that Secret.                                               |
+| `console.clusterName`                  | `cluster`       | Name shown in the console.                                        |
+| `console.ssoName`                      | `""`            | Names the "Sign in with" button.                                  |
+| `console.connectors`                   | `[]`            | Dex connectors offered: `github`, `gitlab`, `local`.              |
+| `console.docsURL`, `console.statusURL` | `""`            | Links on the login page.                                          |
+| `console.ingress.enabled`              | `false`         | Create an Ingress.                                                |
+| `console.ingress.className`, `.host`   | `""`            | Ingress class and host.                                           |
+| `console.ingress.annotations`, `.tls`  | `{}`, `[]`      | Ingress annotations and TLS.                                      |
+| `console.resources`                    | small           | Container resources.                                              |
 
 The same settings are `ksync console` flags when you run it yourself: `--listen`, `--oidc-issuer-url`,
 `--oidc-client-id`, `--oidc-client-secret-file`, `--redirect-url`,
@@ -294,8 +301,9 @@ kubectl -n team-a create rolebinding kuvryn-sync-viewers \
   impersonate. At startup it checks this with SelfSubjectAccessReviews, logs
   the result, and `/healthz` reports `"impersonation":"missing"`. Check the
   `<release>-kuvryn-sync-console` ClusterRoleBinding.
-- **Signed out after an upgrade:** the session key changed. Keep it in a
-  Secret you manage (`console.sessionKey.secretName`) if upgrades must not
+- **Signed out after an upgrade or restart:** the session key changed, or
+  the console generated one in memory because `console.sessionKey.secretName`
+  is not set. Keep it in a Secret you manage if restarts and upgrades must not
   sign people out.
 
 ## Build and develop

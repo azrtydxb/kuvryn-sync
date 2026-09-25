@@ -287,6 +287,17 @@ func containerImages(obj map[string]any) []string {
 // multi-document YAML.
 func helmTemplate(t *testing.T, args ...string) string {
 	t.Helper()
+	out, err := renderChart(t, args...)
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	return out
+}
+
+// renderChart is helmTemplate returning the render error, for values the
+// chart must refuse.
+func renderChart(t *testing.T, args ...string) (string, error) {
+	t.Helper()
 	values := map[string]any{}
 	for i := 0; i+1 < len(args); i += 2 {
 		if args[i] != "--set" {
@@ -304,7 +315,7 @@ func helmTemplate(t *testing.T, args ...string) string {
 		Workspace: root, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system", Values: values,
 	})
 	if err != nil {
-		t.Fatalf("helm template: %v", err)
+		return "", err
 	}
 	var out strings.Builder
 	for _, obj := range objects {
@@ -315,7 +326,7 @@ func helmTemplate(t *testing.T, args ...string) string {
 		out.WriteString("---\n")
 		out.Write(doc)
 	}
-	return out.String()
+	return out.String(), nil
 }
 
 // clusterRoleNamed returns the ClusterRole called name in rendered YAML.
@@ -364,5 +375,38 @@ func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
 				t.Fatalf("console may impersonate %s", r)
 			}
 		}
+	}
+}
+
+// consoleArgs enables the console with the minimum it needs.
+var consoleArgs = []string{"--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync"}
+
+// A GitOps controller renders the chart on every reconcile, so any random or
+// cluster-dependent output would drift forever and rotate the session key.
+func TestConsoleChartRendersDeterministically(t *testing.T) {
+	for _, extra := range [][]string{nil, {"--set", "console.sessionKey.secretName=ksync-session"}} {
+		args := append(append([]string{}, consoleArgs...), extra...)
+		if first, second := helmTemplate(t, args...), helmTemplate(t, args...); first != second {
+			t.Fatalf("two renders with %v differ", extra)
+		}
+	}
+	out := helmTemplate(t, consoleArgs...)
+	if strings.Contains(out, "session-key-file") || strings.Contains(out, "kuvryn-sync-console-session") {
+		t.Fatalf("the chart mounts or creates a session key without console.sessionKey.secretName:\n%s", out)
+	}
+	withKey := helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.sessionKey.secretName=ksync-session")...)
+	if !strings.Contains(withKey, "--session-key-file=/etc/ksync/session/session-key") || !strings.Contains(withKey, "secretName: ksync-session") {
+		t.Fatal("console.sessionKey.secretName is not mounted")
+	}
+}
+
+func TestConsoleReplicasNeedASharedSessionKey(t *testing.T) {
+	_, err := renderChart(t, append(append([]string{}, consoleArgs...), "--set", "console.replicas=2")...)
+	if err == nil || !strings.Contains(err.Error(), "console.sessionKey.secretName") {
+		t.Fatalf("replicas=2 without a session key Secret rendered: %v", err)
+	}
+	out := helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "console.replicas=2", "--set", "console.sessionKey.secretName=ksync-session")...)
+	if !strings.Contains(out, "replicas: 2") {
+		t.Fatal("console.replicas is not rendered")
 	}
 }

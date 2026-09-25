@@ -1,7 +1,9 @@
 {{- if .Values.console.enabled }}
 {{- $name := printf "%s-console" (include "kuvryn-sync.fullname" .) }}
 {{- $c := .Values.console }}
-{{- $sessionSecret := $c.sessionKey.secretName | default (printf "%s-session" $name) }}
+{{- if and (gt (int $c.replicas) 1) (not $c.sessionKey.secretName) }}
+{{- fail "console.replicas > 1 needs console.sessionKey.secretName: without a shared session key each replica keeps its own in memory, and a user's session works on only one of them" }}
+{{- end }}
 {{- $redirect := $c.redirectURL }}
 {{- if and (not $redirect) $c.ingress.enabled $c.ingress.host }}
 {{- $redirect = printf "https://%s/auth/callback" $c.ingress.host }}
@@ -40,24 +42,6 @@ subjects:
   - kind: ServiceAccount
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
-{{- if not $c.sessionKey.secretName }}
----
-# The session cookie key, generated once and kept across upgrades.
-{{- $existing := lookup "v1" "Secret" .Release.Namespace $sessionSecret }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ $sessionSecret }}
-  labels:
-    app.kubernetes.io/name: kuvryn-sync-console
-type: Opaque
-data:
-  {{- if and $existing (index $existing.data $c.sessionKey.key) }}
-  {{ $c.sessionKey.key }}: {{ index $existing.data $c.sessionKey.key }}
-  {{- else }}
-  {{ $c.sessionKey.key }}: {{ randAlphaNum 32 | b64enc }}
-  {{- end }}
-{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -66,7 +50,7 @@ metadata:
   labels:
     app.kubernetes.io/name: kuvryn-sync-console
 spec:
-  replicas: 1
+  replicas: {{ $c.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/name: kuvryn-sync-console
@@ -105,7 +89,9 @@ spec:
             {{- with $c.groupsPrefix }}
             - --groups-prefix={{ . }}
             {{- end }}
+            {{- if $c.sessionKey.secretName }}
             - --session-key-file=/etc/ksync/session/{{ $c.sessionKey.key }}
+            {{- end }}
             - --cluster-name={{ $c.clusterName }}
             {{- with $c.ssoName }}
             - --sso-name={{ . }}
@@ -130,9 +116,11 @@ spec:
           resources:
 {{ toYaml $c.resources | indent 12 }}
           volumeMounts:
+            {{- if $c.sessionKey.secretName }}
             - name: session
               mountPath: /etc/ksync/session
               readOnly: true
+            {{- end }}
             {{- if $c.oidc.clientSecret.secretName }}
             - name: oidc
               mountPath: /etc/ksync/oidc
@@ -146,15 +134,19 @@ spec:
           livenessProbe:
             tcpSocket:
               port: http
+      {{- if or $c.sessionKey.secretName $c.oidc.clientSecret.secretName }}
       volumes:
+        {{- if $c.sessionKey.secretName }}
         - name: session
           secret:
-            secretName: {{ $sessionSecret }}
+            secretName: {{ $c.sessionKey.secretName }}
+        {{- end }}
         {{- if $c.oidc.clientSecret.secretName }}
         - name: oidc
           secret:
             secretName: {{ $c.oidc.clientSecret.secretName }}
         {{- end }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

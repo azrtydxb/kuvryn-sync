@@ -38,7 +38,9 @@ whose ServiceAccount may only impersonate users and groups.
 - OIDC uses the authorization code flow with PKCE (S256), plus state and
   nonce, and the ID token is verified against the issuer's JWKS.
 - The session cookie is named `ksync_session`. It is AES-256-GCM encrypted
-  with the key from `--session-key-file` (32 bytes), is HttpOnly, Secure
+  with the key from `--session-key-file` (32 bytes) or, without that flag, a
+  random key generated in memory at startup, which does not survive a
+  restart or reach other replicas. It is HttpOnly, Secure
   (unless `--insecure-cookies`) and SameSite=Lax, and expires at the ID
   token's `exp`. No refresh tokens are stored.
 - The username claim defaults to `email` and the groups claim to `groups`.
@@ -709,9 +711,14 @@ Files:
   `console.connectors`, `console.docsURL`, `console.statusURL`,
   `console.ingress.{enabled, className, host, tls}`, and
   `console.resources`, plus `console.ssoName` (Task 6's `--sso-name`) and
-  `console.ingress.annotations`. When `sessionKey.secretName` is empty, the
-  chart creates `<release>-kuvryn-sync-console-session` with 32 random
-  characters, kept across upgrades with `lookup`. When `redirectURL` is empty,
+  `console.ingress.annotations` and `console.replicas` (default 1). The key
+  Secret is mounted only when `sessionKey.secretName` is set; the chart never
+  generates a key, because `lookup` and random values differ on every
+  client-side render (`helm template`, Argo CD, Kuvryn Sync itself), so a
+  GitOps-managed install would drift and sign everyone out on each
+  reconcile. `replicas > 1` without `sessionKey.secretName` fails to render.
+  `TestConsoleChartRendersDeterministically` and
+  `TestConsoleReplicasNeedASharedSessionKey` cover this. When `redirectURL` is empty,
   it defaults to `https://<ingress.host>/auth/callback`.
 - `charts/kuvryn-sync/templates/console.yaml`: a Deployment
   (`<release>-kuvryn-sync-console`, args `console` with flags, Secrets
