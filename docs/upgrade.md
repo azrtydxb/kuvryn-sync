@@ -41,35 +41,55 @@ Solder install keeps running untouched until you remove it.
 | Metrics `solder_*`                                          | `kuvryn_sync_*`                                     |
 | Discovery file `.solder.yaml`                               | `.ksync.yaml`                                       |
 | Notification headers `X-Solder-Signature`, `X-Solder-Event` | `X-Kuvryn-Sync-Signature`, `X-Kuvryn-Sync-Event`    |
+| Default Helm release name `solder`                          | `kuvryn-sync`                                       |
 
-To move a cluster over:
+To move a cluster over, one Application at a time:
 
-1. **Install Kuvryn Sync next to Solder.** Apply the new CRDs, then install
+1. **Suspend the Solder Application** so it stops applying and pruning:
+   `solder suspend <app> -n <namespace>` (or set `spec.suspend: true`). Its
+   workloads keep running.
+2. **Install Kuvryn Sync next to Solder.** Apply the new CRDs, then install
    the chart as `kuvryn-sync`; see [Install](install.md). The two products use
    different API groups, namespaces, field managers and labels, so each
    ignores the other's objects.
-2. **Re-create your objects under `sync.kuvryn.io`.** Change `apiVersion` to
+3. **Re-create the objects under `sync.kuvryn.io`.** Change `apiVersion` to
    `sync.kuvryn.io/v1alpha1` and every `solder.io/` label and annotation key to
    `sync.kuvryn.io/` in your Repository, Application, HealthCheck,
    NotificationSink and ImagePolicy manifests, and rename `.solder.yaml`
    discovery files to `.ksync.yaml` (`spec.applicationConfigPaths` must now
    name `.ksync.yaml` files). Relabel credential Secrets with
    `sync.kuvryn.io/git-credentials`, `sync.kuvryn.io/registry-credentials` and
-   `sync.kuvryn.io/decryption-key`.
-3. **Take over the workloads with `conflictPolicy: adopt`.** Workloads Solder
-   applied keep their `solder.io/*` labels, and their fields stay owned by the
+   `sync.kuvryn.io/decryption-key`. On Helm Applications that left
+   `spec.source.render.helm.releaseName` empty, set it to `solder`: the default
+   release name is now `kuvryn-sync`, and a different name renders different
+   object names, so the takeover would create duplicates instead.
+4. **Take over the workloads with `conflictPolicy: adopt`.** Workloads Solder
+   applied keep their `solder.io/*` labels, and their fields are owned by the
    field manager `solder`. With the default `conflictPolicy: fail`, the new
    Application's plan reports those fields as conflicts; set
    `spec.sync.conflictPolicy: adopt` to take ownership, as in
-   [Migrate from Argo CD](migrate-argocd.md) and
-   [Migrate from Flux](migrate-flux.md). Do not point a Solder Application and
-   a Kuvryn Sync Application at the same workloads at the same time.
-4. **Update what reads the old names:** dashboards and alerts on `solder_*`
+   [Migrate from Flux](migrate-flux.md). Only the suspended Solder Application
+   may still point at these workloads; never run both against them.
+5. **Delete the Solder Application** with `deletionPolicy: Orphan` (the
+   default), which leaves its workloads in place.
+6. **Drop Solder's leftover field ownership.** Where both controllers applied
+   the same values, Server-Side Apply records `solder` as a co-owner, and a
+   field removed from Git later would stay live. Clear the records on the
+   migrated objects, as in [step 6 of the Flux guide](migrate-flux.md#6-drop-fluxs-leftover-field-ownership):
+
+   ```sh
+   kubectl get all,configmap,secret,ingress,serviceaccount,role,rolebinding,pvc \
+     -n <namespace> -l sync.kuvryn.io/application=<app> -o name |
+     xargs -I% kubectl -n <namespace> patch % --type merge \
+       -p '{"metadata":{"managedFields":[{}]}}'
+   ```
+
+7. **Settle the Application:** set `spec.sync.conflictPolicy` back to `fail`,
+   and turn on pruning and automatic sync if you want them.
+8. **Update what reads the old names:** dashboards and alerts on `solder_*`
    metrics, notification receivers that verify `X-Solder-Signature`, scripts
    that call the `solder` CLI, and anything that selects on `solder.io/` labels.
-5. **Remove Solder** once every Application is Synced and Healthy under Kuvryn
-   Sync: delete the Solder Applications with `deletionPolicy: Orphan` (the
-   default), which leaves their workloads in place, then `helm uninstall` the
+9. **Remove Solder** once every Application has moved: `helm uninstall` the
    Solder release and delete the `solder.io` CRDs.
 
 Upgrade notes for Solder releases up to 0.3.0 are in the

@@ -8,15 +8,18 @@ the names change; behaviour is the same. Read
 first._
 
 - **Breaking:** every name moves, with no migration code and no compatibility
-  aliases. The API group is `sync.kuvryn.io` (was `solder.io`), and labels,
-  annotations and finalizers use the `sync.kuvryn.io/` prefix with the same
-  suffixes. The CLI is `ksync`. The image is `ghcr.io/azrtydxb/kuvryn-sync`,
+  aliases. The API group is `sync.kuvryn.io` (was `solder.io`), labels and
+  annotations use the `sync.kuvryn.io/` prefix with the same suffixes, and the
+  Application finalizer is `applications.sync.kuvryn.io/finalizer`. The CLI is `ksync`. The image is `ghcr.io/azrtydxb/kuvryn-sync`,
   the Helm chart `charts/kuvryn-sync`, and the kustomize install uses the
   namespace `kuvryn-sync-system` and the name prefix `kuvryn-sync-`. The
   Server-Side Apply field manager is `kuvryn-sync`, metrics use the
   `kuvryn_sync_` prefix, the OpenTelemetry service name and the default Helm
   release name are `kuvryn-sync`, and notification requests carry
-  `X-Kuvryn-Sync-Signature` and `X-Kuvryn-Sync-Event`. Repository discovery
+  `X-Kuvryn-Sync-Signature` and `X-Kuvryn-Sync-Event`. Image write-back
+  commits default to the author `Kuvryn Sync <kuvryn-sync@localhost>`, the
+  `ksync graph -o dot` graph is named `kuvryn_sync`, and the leader-election
+  lease is `kuvryn-sync.kuvryn.io`. Repository discovery
   reads `.ksync.yaml`, and `spec.applicationConfigPaths` must name
   `.ksync.yaml` files. Existing installs are not migrated: install Kuvryn Sync,
   re-create your objects under `sync.kuvryn.io`, and take workloads over with
