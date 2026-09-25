@@ -1,6 +1,6 @@
 # Token 8: Prepare release 0.5.0 and verify
 
-Status: open
+Status: closed 2026-09-25
 Created: 2026-09-25
 Plan: .procoder/plans/console-token-signin.md
 
