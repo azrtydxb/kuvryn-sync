@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -31,6 +32,8 @@ import (
 	sigsyaml "sigs.k8s.io/yaml"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	helmrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/helm"
 )
 
 // managerRules returns the rules of the manager ClusterRole in a manifest as
@@ -86,9 +89,9 @@ func TestControllerRoleOnlyWritesKuvrynSyncObjects(t *testing.T) {
 
 func TestHelmChartRoleMatchesGeneratedRole(t *testing.T) {
 	generated := strings.Join(managerRules(t, "config/rbac/role.yaml", "manager-role"), "\n")
-	chart := strings.Join(managerRules(t, "charts/solder/templates/rbac.yaml", "-manager"), "\n")
+	chart := strings.Join(managerRules(t, "charts/kuvryn-sync/templates/rbac.yaml", "-manager"), "\n")
 	if generated != chart {
-		t.Fatalf("charts/solder/templates/rbac.yaml drifted from config/rbac/role.yaml\ngenerated:\n%s\nchart:\n%s", generated, chart)
+		t.Fatalf("charts/kuvryn-sync/templates/rbac.yaml drifted from config/rbac/role.yaml\ngenerated:\n%s\nchart:\n%s", generated, chart)
 	}
 }
 
@@ -96,7 +99,7 @@ func TestHelmChartRoleMatchesGeneratedRole(t *testing.T) {
 // manager, so every Service selects the release, and the pods carry it.
 func TestHelmChartServicesSelectTheirOwnRelease(t *testing.T) {
 	const instance = "app.kubernetes.io/instance: {{ .Release.Name }}"
-	templates, err := filepath.Glob(filepath.Join("..", "..", "charts", "solder", "templates", "*.yaml"))
+	templates, err := filepath.Glob(filepath.Join("..", "..", "charts", "kuvryn-sync", "templates", "*.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,4 +209,72 @@ func TestHelmReleaseNameSchemaMatchesRendering(t *testing.T) {
 			t.Errorf("rendering accepts %q = %v, want %v", name, got, valid)
 		}
 	}
+}
+
+// TestHelmChartUsesKuvrynSyncNames renders the chart like `helm template`
+// (in process, so no helm binary is needed) and catches a chart that still
+// installs the old image or names anything after the old product.
+func TestHelmChartUsesKuvrynSyncNames(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := helmrenderer.Renderer{}.Render(context.Background(), renderer.Input{
+		Workspace: root, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system",
+	})
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	chartFile, err := os.ReadFile(filepath.Join(root, "charts", "kuvryn-sync", "Chart.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chart struct {
+		AppVersion string `json:"appVersion"`
+	}
+	if err := sigsyaml.Unmarshal(chartFile, &chart); err != nil {
+		t.Fatal(err)
+	}
+	wantImage := "ghcr.io/azrtydxb/kuvryn-sync:v" + chart.AppVersion
+	var rendered strings.Builder
+	images := 0
+	for _, obj := range objects {
+		out, err := sigsyaml.Marshal(obj.Object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rendered.Write(out)
+		if obj.GetKind() != "Deployment" {
+			continue
+		}
+		for _, image := range containerImages(obj.Object) {
+			images++
+			if image != wantImage {
+				t.Errorf("the Deployment runs %s, want %s", image, wantImage)
+			}
+		}
+	}
+	if images == 0 {
+		t.Error("the chart renders no Deployment container")
+	}
+	if strings.Contains(strings.ToLower(rendered.String()), "solder") {
+		t.Errorf("the rendered chart still says solder:\n%s", rendered.String())
+	}
+}
+
+// containerImages returns the image of every container in a workload's pod
+// template.
+func containerImages(obj map[string]any) []string {
+	spec, _ := obj["spec"].(map[string]any)
+	template, _ := spec["template"].(map[string]any)
+	podSpec, _ := template["spec"].(map[string]any)
+	containers, _ := podSpec["containers"].([]any)
+	var images []string
+	for _, c := range containers {
+		if m, ok := c.(map[string]any); ok {
+			image, _ := m["image"].(string)
+			images = append(images, image)
+		}
+	}
+	return images
 }

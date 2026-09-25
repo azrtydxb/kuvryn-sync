@@ -1,6 +1,6 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "solder.fullname" . }}-install-note
+  name: {{ include "kuvryn-sync.fullname" . }}-install-note
 data:
   note: Apply config/crd/bases before installing this alpha chart.

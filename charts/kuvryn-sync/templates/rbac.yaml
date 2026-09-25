@@ -1,9 +1,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "solder.fullname" . }}-manager'
+  name: '{{ include "kuvryn-sync.fullname" . }}-manager'
   labels:
-    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+    app.kubernetes.io/name: '{{ include "kuvryn-sync.name" . }}'
 rules:
   - apiGroups: [""]
     resources: ["configmaps", "services"]
@@ -43,24 +43,24 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: '{{ include "solder.fullname" . }}-manager'
+  name: '{{ include "kuvryn-sync.fullname" . }}-manager'
   labels:
-    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+    app.kubernetes.io/name: '{{ include "kuvryn-sync.name" . }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "solder.fullname" . }}-manager'
+  name: '{{ include "kuvryn-sync.fullname" . }}-manager'
 subjects:
   - kind: ServiceAccount
-    name: '{{ include "solder.fullname" . }}'
+    name: '{{ include "kuvryn-sync.fullname" . }}'
     namespace: "{{ .Release.Namespace }}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: '{{ include "solder.fullname" . }}-leader-election'
+  name: '{{ include "kuvryn-sync.fullname" . }}-leader-election'
   labels:
-    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+    app.kubernetes.io/name: '{{ include "kuvryn-sync.name" . }}'
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -75,24 +75,24 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: '{{ include "solder.fullname" . }}-leader-election'
+  name: '{{ include "kuvryn-sync.fullname" . }}-leader-election'
   labels:
-    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+    app.kubernetes.io/name: '{{ include "kuvryn-sync.name" . }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: '{{ include "solder.fullname" . }}-leader-election'
+  name: '{{ include "kuvryn-sync.fullname" . }}-leader-election'
 subjects:
   - kind: ServiceAccount
-    name: '{{ include "solder.fullname" . }}'
+    name: '{{ include "kuvryn-sync.fullname" . }}'
     namespace: "{{ .Release.Namespace }}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "solder.fullname" . }}-metrics-reader'
+  name: '{{ include "kuvryn-sync.fullname" . }}-metrics-reader'
   labels:
-    app.kubernetes.io/name: '{{ include "solder.name" . }}'
+    app.kubernetes.io/name: '{{ include "kuvryn-sync.name" . }}'
 rules:
   - nonResourceURLs: ["/metrics"]
     verbs: ["get"]

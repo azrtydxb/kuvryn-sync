@@ -1,5 +1,5 @@
 apiVersion: v2
-name: solder
+name: kuvryn-sync
 description: Kubernetes-native GitOps controller
 version: 0.3.0
 appVersion: 0.3.0

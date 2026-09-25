@@ -3,7 +3,7 @@ kind: Service
 metadata:
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: solder
+    app.kubernetes.io/name: kuvryn-sync
     app.kubernetes.io/managed-by: kustomize
   name: receiver
   namespace: system
@@ -15,4 +15,4 @@ spec:
       targetPort: 9292
   selector:
     control-plane: controller-manager
-    app.kubernetes.io/name: solder
+    app.kubernetes.io/name: kuvryn-sync

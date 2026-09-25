@@ -397,6 +397,20 @@ Files:
 - `.github/workflows/image.yml`: `ghcr.io/${{ github.repository_owner }}/kuvryn-sync`.
   The image name does not follow the repository name, so it is correct
   before the repository is renamed too.
+- `config/prometheus/monitor.yaml`, `config/default/*_service.yaml`,
+  `config/webhook/service.yaml` and the scaffolded role comments: the same
+  `app.kubernetes.io/name` and product name.
+- `Makefile`: also `KIND_CLUSTER`, the `require-e2e-img` defaults, the
+  buildx builder name and the `helm-template` target.
+- `dist/install.yaml`: regenerated with
+  `make build-installer IMG=ghcr.io/azrtydxb/kuvryn-sync:v0.4.0`, the
+  next release's image, so the committed installer matches the tree; Task
+  11 regenerates it with the same image.
+- `api/v1alpha1/application_types.go`: the `releaseName` comment names the
+  new default release name from Task 4.
+- `.prettierignore`: the chart template glob moves to
+  `charts/kuvryn-sync/templates/*.yaml`; prettier would break the unquoted
+  `{{ }}` in them.
 - `internal/controller/rbac_manifest_test.go`: chart paths, and the new
   test.
 
@@ -420,6 +434,13 @@ repository `ghcr.io/azrtydxb/kuvryn-sync`.
   	}
   }
   ```
+  As built, the test renders the chart in process with
+  `internal/renderer/helm` (the Helm v4 SDK, the same code that renders
+  Applications) instead of `exec.Command("helm", ...)`, because the CI
+  Tests job has no helm binary. It keeps the "helm template" failure
+  message, and it checks the Deployment image exactly against
+  `ghcr.io/azrtydxb/kuvryn-sync:v<appVersion>` read from `Chart.yaml`, as
+  the spec states.
   Run it, and expect it to FAIL with "helm template" (the chart path does
   not exist).
 - [ ] Run `git mv charts/solder charts/kuvryn-sync`, then apply the renames
