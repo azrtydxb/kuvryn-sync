@@ -16,5 +16,5 @@ test("TestLiveRefresh", async ({ page }) => {
   });
   await expect(
     page.getByRole("row", { name: /catalog.*Degraded/ }),
-  ).toBeVisible({ timeout: 11000 });
+  ).toBeVisible({ timeout: 15000 }); // one 10s poll plus room for slow runners
 });

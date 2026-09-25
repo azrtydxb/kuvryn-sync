@@ -39,6 +39,8 @@ Kuvryn Sync focuses on the product path that matters for day-two operations:
   OIDC, such as Dex, and shows Applications, their diagnosis, plans, history
   and resources through each person's own Kubernetes RBAC.
 
+![The Kuvryn Sync console Applications page](docs/images/console-applications.png)
+
 > Status: alpha (`sync.kuvryn.io/v1alpha1`). The MVP is functional and covered by
 > controller, CLI, and product-path e2e tests, but the API may still
 > change before a stable release.

@@ -18,6 +18,12 @@ resources, and the Repositories, Revisions and Image policies tables. The
 pages refresh every 10 seconds. The console never changes the cluster: where
 an action is needed, it shows the exact `ksync` command instead.
 
+![The console sign-in page](images/console-login.png)
+
+![The Applications page with a Degraded Application](images/console-applications.png)
+
+![An Application's diagnosis chain](images/console-diagnosis.png)
+
 ## How access works
 
 The console signs people in with OpenID Connect, then reads the cluster as

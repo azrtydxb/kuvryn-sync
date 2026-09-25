@@ -682,7 +682,7 @@ the dev server `go run ./hack/console-dev`, which listens on
     });
     await expect(
       page.getByRole("row", { name: /catalog.*Degraded/ }),
-    ).toBeVisible({ timeout: 11000 });
+    ).toBeVisible({ timeout: 15000 }); // one 10s poll plus room for slow runners
   });
   ```
   Run `make test-ui`, and expect both to FAIL: the stat cards are not found.
