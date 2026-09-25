@@ -66,10 +66,10 @@ type RepositoryReconciler struct {
 	ImageUpdater *imageupdate.Updater
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=repositories/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=repositories/finalizers,verbs=update
-// +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 

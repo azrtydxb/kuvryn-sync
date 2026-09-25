@@ -356,7 +356,7 @@ func TestFallbackCauseSaysWhatWasNotVisible(t *testing.T) {
 }
 
 func TestMessageBoundMatchesTheAPI(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "solder.io_applications.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "sync.kuvryn.io_applications.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

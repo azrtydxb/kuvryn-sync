@@ -272,7 +272,7 @@ func TestDiagnoseReturnsRevisionReadErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}}).Build()
-	denied := apierrors.NewForbidden(schema.GroupResource{Group: "solder.io", Resource: "revisions"}, "", nil)
+	denied := apierrors.NewForbidden(schema.GroupResource{Group: "sync.kuvryn.io", Resource: "revisions"}, "", nil)
 	c := interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
 		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return denied },
 	})

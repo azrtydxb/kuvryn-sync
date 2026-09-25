@@ -565,7 +565,7 @@ var _ = Describe("Rollbacks", func() {
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 				if rev, ok := obj.(*corev1alpha1.Revision); ok && !conflicted && heldBy(rev) != nil {
 					conflicted = true
-					return apierrors.NewConflict(schema.GroupResource{Group: "solder.io", Resource: "revisions"}, rev.Name, errors.New("stale"))
+					return apierrors.NewConflict(schema.GroupResource{Group: "sync.kuvryn.io", Resource: "revisions"}, rev.Name, errors.New("stale"))
 				}
 				return c.SubResource(subResource).Update(ctx, obj, opts...)
 			},

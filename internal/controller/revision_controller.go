@@ -34,9 +34,9 @@ type RevisionReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=revisions/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions/finalizers,verbs=update
 
 // Reconcile observes Revision resources and initializes lifecycle status until
 // Application reconciliation owns deployment attempt progression.

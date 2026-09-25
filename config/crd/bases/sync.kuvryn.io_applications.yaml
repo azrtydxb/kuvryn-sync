@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: applications.solder.io
+  name: applications.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: Application
     listKind: ApplicationList

@@ -486,7 +486,7 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		It("should reject a HealthCheck with an invalid CEL rule at admission", func() {
-			manifestPath := writeTempManifest(`apiVersion: solder.io/v1alpha1
+			manifestPath := writeTempManifest(`apiVersion: sync.kuvryn.io/v1alpha1
 kind: HealthCheck
 metadata:
   name: solder-e2e-invalid
@@ -644,7 +644,7 @@ subjects:
     name: %[2]s
     namespace: default
 ---
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: %[3]s
@@ -660,7 +660,7 @@ spec:
 
 var productApplicationManifest = fixtureManifest(
 	"solder-e2e", "solder-e2e-deployer", "solder-e2e-product-repo",
-	`apiVersion: solder.io/v1alpha1
+	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-product
@@ -695,7 +695,7 @@ spec:
 // cluster-admin.
 var escalationApplicationManifest = fixtureManifest(
 	"solder-e2e", "solder-e2e-deployer", "solder-e2e-escalation-repo",
-	`apiVersion: solder.io/v1alpha1
+	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-escalation
@@ -717,7 +717,7 @@ spec:
 // approvalApplicationManifest deploys the product fixture with manual approval.
 var approvalApplicationManifest = fixtureManifest(
 	"solder-e2e", "solder-e2e-deployer", "solder-e2e-approval-repo",
-	`apiVersion: solder.io/v1alpha1
+	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-approval
@@ -741,7 +741,7 @@ spec:
 // and a post-sync hook Job.
 var stagedApplicationManifest = fixtureManifest(
 	"solder-e2e-staged", "solder-e2e-staged-deployer", "solder-e2e-staged-repo",
-	`apiVersion: solder.io/v1alpha1
+	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: solder-e2e-staged

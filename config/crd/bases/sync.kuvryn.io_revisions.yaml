@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: revisions.solder.io
+  name: revisions.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: Revision
     listKind: RevisionList

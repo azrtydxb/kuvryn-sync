@@ -56,9 +56,9 @@ webhooks:
       service:
         name: {{ include "solder.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
-        path: /validate-solder-io-v1alpha1-healthcheck
+        path: /validate-sync-kuvryn-io-v1alpha1-healthcheck
     rules:
-      - apiGroups: ["solder.io"]
+      - apiGroups: ["sync.kuvryn.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["healthchecks"]
@@ -81,9 +81,9 @@ webhooks:
       service:
         name: {{ include "solder.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
-        path: /mutate-solder-io-v1alpha1-application
+        path: /mutate-sync-kuvryn-io-v1alpha1-application
     rules:
-      - apiGroups: ["solder.io"]
+      - apiGroups: ["sync.kuvryn.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
         resources: ["applications"]

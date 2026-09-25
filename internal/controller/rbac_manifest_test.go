@@ -70,14 +70,14 @@ func managerRules(t *testing.T, path, nameSuffix string) []string {
 	return nil
 }
 
-func TestControllerRoleOnlyWritesSolderObjects(t *testing.T) {
+func TestControllerRoleOnlyWritesKuvrynSyncObjects(t *testing.T) {
 	for _, grant := range managerRules(t, "config/rbac/role.yaml", "manager-role") {
 		verb := grant[strings.LastIndex(grant, ":")+1:]
 		switch verb {
 		case "get", "list", "watch", "impersonate":
 			continue
 		}
-		if strings.HasPrefix(grant, "solder.io/") || strings.HasPrefix(grant, "/events:") {
+		if strings.HasPrefix(grant, "sync.kuvryn.io/") || strings.HasPrefix(grant, "/events:") {
 			continue
 		}
 		t.Errorf("controller role grants %s; managed resources must be changed as the Application's service account", grant)
@@ -157,7 +157,7 @@ func TestGoVersionMatchesBuildImages(t *testing.T) {
 // The CRD must accept what rendering accepts: an empty releaseName means the
 // default, and the pattern must agree with Helm's rule.
 func TestHelmReleaseNameSchemaMatchesRendering(t *testing.T) {
-	contents, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "solder.io_applications.yaml"))
+	contents, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "sync.kuvryn.io_applications.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

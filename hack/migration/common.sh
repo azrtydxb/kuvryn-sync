@@ -49,12 +49,12 @@ solder_migrate() {
 	k -n solder-e2e create serviceaccount solder-e2e-deployer
 	k -n solder-e2e create rolebinding solder-e2e-deployer --clusterrole admin --serviceaccount solder-e2e:solder-e2e-deployer
 	cat <<Y | k apply -f - >/dev/null
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata: {name: platform, namespace: solder-e2e}
 spec: {git: {url: https://github.com/azrtydxb/solder-e2e-app.git, revision: main}}
 ---
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata: {name: fixture, namespace: solder-e2e}
 spec:
@@ -75,10 +75,10 @@ Y
 	rev=$(k -n solder-e2e get revision -l solder.io/application=fixture -o jsonpath='{.items[0].metadata.name}')
 	[ -n "$rev" ] || fail "no Revision found for Application fixture"
 	echo "takeover in plan: $(k -n solder-e2e get revision "$rev" -o jsonpath='{.status.plan.resources[0].conflicts}')"
-	k -n solder-e2e annotate applications.solder.io fixture "solder.io/approved-revision=$rev" >/dev/null
+	k -n solder-e2e annotate applications.sync.kuvryn.io fixture "solder.io/approved-revision=$rev" >/dev/null
 	local state=""
 	for _ in $(seq 1 60); do
-		state=$(k -n solder-e2e get applications.solder.io fixture -o jsonpath='{.status.sync.state}/{.status.health.state}' 2>/dev/null || true)
+		state=$(k -n solder-e2e get applications.sync.kuvryn.io fixture -o jsonpath='{.status.sync.state}/{.status.health.state}' 2>/dev/null || true)
 		[ "$state" = Synced/Healthy ] && break
 		sleep 3
 	done
@@ -96,13 +96,13 @@ clear_ownership() {
 
 settle() {
 	# Guide step 7.
-	k -n solder-e2e patch applications.solder.io fixture --type merge -p '{"spec":{"sync":{"conflictPolicy":"fail","prune":true,"automatic":true}}}' >/dev/null
+	k -n solder-e2e patch applications.sync.kuvryn.io fixture --type merge -p '{"spec":{"sync":{"conflictPolicy":"fail","prune":true,"automatic":true}}}' >/dev/null
 	# Give the controller time to act on the new policy before polling, so a
 	# stale Synced/Healthy status does not pass the check.
 	sleep 15
 	local state=""
 	for _ in $(seq 1 20); do
-		state=$(k -n solder-e2e get applications.solder.io fixture -o jsonpath='{.status.sync.state}/{.status.health.state}' 2>/dev/null || true)
+		state=$(k -n solder-e2e get applications.sync.kuvryn.io fixture -o jsonpath='{.status.sync.state}/{.status.health.state}' 2>/dev/null || true)
 		[ "$state" = Synced/Healthy ] && break
 		sleep 3
 	done

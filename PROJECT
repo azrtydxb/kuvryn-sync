@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.14.0
-domain: solder.io
+domain: kuvryn.io
 layout:
 - go.kubebuilder.io/v4
 projectName: kuvryn-sync
@@ -13,8 +13,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: Repository
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
@@ -22,8 +22,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: Application
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
@@ -34,15 +34,15 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: Revision
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: HealthCheck
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
@@ -52,8 +52,8 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: NotificationSink
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1
@@ -61,8 +61,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: solder.io
-  group: core
+  domain: kuvryn.io
+  group: sync
   kind: ImagePolicy
   path: github.com/azrtydxb/kuvryn-sync/api/v1alpha1
   version: v1alpha1

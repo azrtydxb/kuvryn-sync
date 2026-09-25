@@ -10,7 +10,7 @@ import (
 )
 
 func TestRunPlanFromRevisionFile(t *testing.T) {
-	revision := `apiVersion: solder.io/v1alpha1
+	revision := `apiVersion: sync.kuvryn.io/v1alpha1
 kind: Revision
 metadata:
   name: payments-abc
@@ -75,7 +75,7 @@ status:
 
 func TestRunPlanJSONFromRevisionFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "revision.yaml")
-	if err := os.WriteFile(path, []byte(`apiVersion: solder.io/v1alpha1
+	if err := os.WriteFile(path, []byte(`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Revision
 spec:
   applicationRef:

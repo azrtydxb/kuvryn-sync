@@ -43,7 +43,7 @@ rules:
       - list
       - watch
   - apiGroups:
-      - solder.io
+      - sync.kuvryn.io
     resources:
       - applications
       - imagepolicies
@@ -58,7 +58,7 @@ rules:
       - update
       - watch
   - apiGroups:
-      - solder.io
+      - sync.kuvryn.io
     resources:
       - applications/finalizers
       - imagepolicies/finalizers
@@ -67,7 +67,7 @@ rules:
     verbs:
       - update
   - apiGroups:
-      - solder.io
+      - sync.kuvryn.io
     resources:
       - applications/status
       - imagepolicies/status
@@ -78,7 +78,7 @@ rules:
       - patch
       - update
   - apiGroups:
-      - solder.io
+      - sync.kuvryn.io
     resources:
       - healthchecks
       - notificationsinks

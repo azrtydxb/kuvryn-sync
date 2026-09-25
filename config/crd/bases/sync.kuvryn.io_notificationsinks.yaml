@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: notificationsinks.solder.io
+  name: notificationsinks.sync.kuvryn.io
 spec:
-  group: solder.io
+  group: sync.kuvryn.io
   names:
     kind: NotificationSink
     listKind: NotificationSinkList

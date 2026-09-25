@@ -116,7 +116,14 @@ Files:
   `sync.kuvryn.io_*.yaml`.
 - `charts/solder/templates/*.yaml`: RBAC and webhook rules use
   `sync.kuvryn.io`.
-- Tests that assert the group string.
+- Tests that assert the group string, including the group prefix in
+  `TestControllerRoleOnlyWritesSolderObjects`, renamed
+  `TestControllerRoleOnlyWritesKuvrynSyncObjects`.
+- `config/rbac/*_{admin,editor,viewer}_role.yaml`: the scaffolded
+  per-kind roles, which `make manifests` does not regenerate.
+- Every `apiVersion: solder.io/v1alpha1` and `applications.solder.io` in
+  Go tests, `config/samples`, `test/e2e` and `hack/migration`, so each
+  commit stays installable; the docs follow in Task 9.
 - `internal/brand/crd_test.go`: new.
 
 Interfaces: produces group `sync.kuvryn.io`, CRD names `<plural>.sync.kuvryn.io`

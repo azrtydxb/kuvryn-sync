@@ -113,16 +113,16 @@ type ApplicationReconciler struct {
 	healthChecks healthCheckCache
 }
 
-// +kubebuilder:rbac:groups=solder.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=applications/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=solder.io,resources=applications/finalizers,verbs=update
-// +kubebuilder:rbac:groups=solder.io,resources=repositories,verbs=get;list;watch
-// +kubebuilder:rbac:groups=solder.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=solder.io,resources=revisions/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=applications/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=repositories,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=revisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=impersonate
-// +kubebuilder:rbac:groups=solder.io,resources=healthchecks,verbs=get;list;watch
-// +kubebuilder:rbac:groups=solder.io,resources=notificationsinks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=healthchecks,verbs=get;list;watch
+// +kubebuilder:rbac:groups=sync.kuvryn.io,resources=notificationsinks,verbs=get;list;watch
 // Managed resources are read and changed as the Application's service account;
 // the controller itself only watches their metadata to notice drift.
 // +kubebuilder:rbac:groups="",resources=configmaps;services;secrets,verbs=list;watch

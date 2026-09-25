@@ -20,13 +20,13 @@ rules:
   - apiGroups: ["apps"]
     resources: ["daemonsets", "deployments", "statefulsets"]
     verbs: ["list", "watch"]
-  - apiGroups: ["solder.io"]
+  - apiGroups: ["sync.kuvryn.io"]
     resources: ["healthchecks", "notificationsinks"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["solder.io"]
+  - apiGroups: ["sync.kuvryn.io"]
     resources: ["applications", "imagepolicies", "repositories", "revisions"]
     verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
-  - apiGroups: ["solder.io"]
+  - apiGroups: ["sync.kuvryn.io"]
     resources:
       [
         "applications/finalizers",
@@ -35,7 +35,7 @@ rules:
         "revisions/finalizers",
       ]
     verbs: ["update"]
-  - apiGroups: ["solder.io"]
+  - apiGroups: ["sync.kuvryn.io"]
     resources:
       ["applications/status", "imagepolicies/status", "repositories/status", "revisions/status"]
     verbs: ["get", "patch", "update"]

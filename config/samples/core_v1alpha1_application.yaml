@@ -1,4 +1,4 @@
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
   name: payments
