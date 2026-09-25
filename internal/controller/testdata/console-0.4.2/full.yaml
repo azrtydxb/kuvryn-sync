@@ -13,22 +13,22 @@ metadata:
     app.kubernetes.io/name: kuvryn-sync-console
   name: kuvryn-sync-kuvryn-sync-console
 rules:
-- apiGroups:
-  - ""
-  resourceNames:
-  - alice@acme.io
-  resources:
-  - users
-  verbs:
-  - impersonate
-- apiGroups:
-  - ""
-  resourceNames:
-  - acme:platform
-  resources:
-  - groups
-  verbs:
-  - impersonate
+  - apiGroups:
+      - ""
+    resourceNames:
+      - alice@acme.io
+    resources:
+      - users
+    verbs:
+      - impersonate
+  - apiGroups:
+      - ""
+    resourceNames:
+      - acme:platform
+    resources:
+      - groups
+    verbs:
+      - impersonate
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -41,9 +41,9 @@ roleRef:
   kind: ClusterRole
   name: kuvryn-sync-kuvryn-sync-console
 subjects:
-- kind: ServiceAccount
-  name: kuvryn-sync-kuvryn-sync-console
-  namespace: kuvryn-sync-system
+  - kind: ServiceAccount
+    name: kuvryn-sync-kuvryn-sync-console
+    namespace: kuvryn-sync-system
 ---
 apiVersion: v1
 kind: Service
@@ -53,9 +53,9 @@ metadata:
   name: kuvryn-sync-kuvryn-sync-console
 spec:
   ports:
-  - name: http
-    port: 80
-    targetPort: http
+    - name: http
+      port: 80
+      targetPort: http
   selector:
     app.kubernetes.io/instance: kuvryn-sync
     app.kubernetes.io/name: kuvryn-sync-console
@@ -79,70 +79,70 @@ spec:
         app.kubernetes.io/name: kuvryn-sync-console
     spec:
       containers:
-      - args:
-        - console
-        - --listen=:8080
-        - --oidc-issuer-url=https://dex.example
-        - --oidc-client-id=ksync
-        - --oidc-client-secret-file=/etc/ksync/oidc/client-secret
-        - --redirect-url=https://console.example/auth/callback
-        - --username-claim=preferred_username
-        - --groups-claim=groups
-        - --username-prefix=oidc: null
-        - --groups-prefix=oidc: null
-        - --session-key-file=/etc/ksync/session/session-key
-        - --cluster-name=prod-eu-1
-        - --sso-name=Dex
-        - --connectors=github,gitlab,local
-        - --docs-url=https://docs.example
-        - --status-url=https://status.example
-        image: ghcr.io/azrtydxb/kuvryn-sync:v0.4.2
-        imagePullPolicy: IfNotPresent
-        livenessProbe:
-          tcpSocket:
-            port: http
-        name: console
-        ports:
-        - containerPort: 8080
-          name: http
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: http
-        resources:
-          limits:
-            cpu: 200m
-            memory: 128Mi
-          requests:
-            cpu: 10m
-            memory: 32Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-        volumeMounts:
-        - mountPath: /etc/ksync/session
-          name: session
-          readOnly: true
-        - mountPath: /etc/ksync/oidc
-          name: oidc
-          readOnly: true
+        - args:
+            - console
+            - --listen=:8080
+            - --oidc-issuer-url=https://dex.example
+            - --oidc-client-id=ksync
+            - --oidc-client-secret-file=/etc/ksync/oidc/client-secret
+            - --redirect-url=https://console.example/auth/callback
+            - --username-claim=preferred_username
+            - --groups-claim=groups
+            - --username-prefix=oidc: null
+            - --groups-prefix=oidc: null
+            - --session-key-file=/etc/ksync/session/session-key
+            - --cluster-name=prod-eu-1
+            - --sso-name=Dex
+            - --connectors=github,gitlab,local
+            - --docs-url=https://docs.example
+            - --status-url=https://status.example
+          image: ghcr.io/azrtydxb/kuvryn-sync:v0.4.2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            tcpSocket:
+              port: http
+          name: console
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/ksync/session
+              name: session
+              readOnly: true
+            - mountPath: /etc/ksync/oidc
+              name: oidc
+              readOnly: true
       imagePullSecrets:
-      - name: ghcr-pull
+        - name: ghcr-pull
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       serviceAccountName: kuvryn-sync-kuvryn-sync-console
       volumes:
-      - name: session
-        secret:
-          secretName: ksync-console-session
-      - name: oidc
-        secret:
-          secretName: ksync-console-oidc
+        - name: session
+          secret:
+            secretName: ksync-console-session
+        - name: oidc
+          secret:
+            secretName: ksync-console-oidc
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -153,17 +153,17 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: console.example
-    http:
-      paths:
-      - backend:
-          service:
-            name: kuvryn-sync-kuvryn-sync-console
-            port:
-              name: http
-        path: /
-        pathType: Prefix
+    - host: console.example
+      http:
+        paths:
+          - backend:
+              service:
+                name: kuvryn-sync-kuvryn-sync-console
+                port:
+                  name: http
+            path: /
+            pathType: Prefix
   tls:
-  - hosts:
-    - console.example
-    secretName: console-tls
+    - hosts:
+        - console.example
+      secretName: console-tls

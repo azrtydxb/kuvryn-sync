@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -506,6 +507,9 @@ var consoleGoldens = map[string][]string{
 //
 //	git archive v0.4.2 charts/kuvryn-sync | tar -x -C /tmp/v042
 //	KSYNC_CONSOLE_GOLDEN_FROM=/tmp/v042 go test ./internal/controller -run TestConsoleChartTokenOnly
+//
+// then format them with procoder format. They are compared by content, so
+// formatting does not matter.
 func TestConsoleChartTokenOnly(t *testing.T) {
 	root := mustAbs(t, filepath.Join("..", ".."))
 	dir := filepath.Join("testdata", "console-0.4.2")
@@ -564,8 +568,27 @@ func TestConsoleChartTokenOnly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != string(want) {
+		if !reflect.DeepEqual(yamlObjects(t, got), yamlObjects(t, string(want))) {
 			t.Errorf("%s: the console renders differently from 0.4.2\n--- 0.4.2\n%s\n--- now\n%s", name, want, got)
+		}
+	}
+}
+
+// yamlObjects decodes every document in a multi-document YAML stream, so
+// renders compare by content rather than by formatting.
+func yamlObjects(t *testing.T, stream string) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	decoder := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(stream), 4096)
+	for {
+		obj := map[string]any{}
+		if err := decoder.Decode(&obj); errors.Is(err, io.EOF) {
+			return out
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if len(obj) > 0 {
+			out = append(out, obj)
 		}
 	}
 }
