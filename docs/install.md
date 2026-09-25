@@ -42,6 +42,23 @@ start or rejects Application writes. Install from a checkout of the release
 tag, and take the image tag from it: the chart's `appVersion`, prefixed with
 `v`.
 
+The package may be private. To pull a private image, create a
+`kubernetes.io/dockerconfigjson` Secret for `ghcr.io` in the install
+namespace, with a token that has `read:packages`:
+
+```bash
+kubectl -n kuvryn-sync-system create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+```
+
+With Helm, set `image.pullSecrets={ghcr-pull}`; the manager and console
+Deployments both use it. With the raw manifests, patch the manager Deployment:
+
+```bash
+kubectl -n kuvryn-sync-system patch deployment kuvryn-sync-controller-manager \
+  --type merge -p '{"spec":{"template":{"spec":{"imagePullSecrets":[{"name":"ghcr-pull"}]}}}}'
+```
+
 ## Raw manifests
 
 Generate or use the checked-in installer bundle:
@@ -87,6 +104,7 @@ kubectl api-resources --api-group=sync.kuvryn.io
 | `image.repository`        | `ghcr.io/azrtydxb/kuvryn-sync`        | Manager image.                                                                                                                                    |
 | `image.tag`               | `v<appVersion>`                       | Override only with an image built from the same commit as the chart.                                                                              |
 | `image.pullPolicy`        | `IfNotPresent`                        | Image pull policy.                                                                                                                                |
+| `image.pullSecrets`       | `[]`                                  | Names of `dockerconfigjson` Secrets in the release namespace, used by the manager and console to pull a private image.                            |
 | `replicaCount`            | `2`                                   | Manager replicas; only the leader reconciles.                                                                                                     |
 | `leaderElection`          | `true`                                | Passes `--leader-elect`.                                                                                                                          |
 | `defaultServiceAccount`   | `""`                                  | Service account used by Applications that set none; empty refuses them. See [Security model](security.md#rbac-and-service-account-impersonation). |

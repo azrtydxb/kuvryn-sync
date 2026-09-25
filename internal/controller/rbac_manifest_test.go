@@ -445,3 +445,14 @@ func TestConsoleReplicasNeedASharedSessionKey(t *testing.T) {
 		t.Fatal("console.replicas is not rendered")
 	}
 }
+
+// A private image needs a pull secret on every Deployment the chart renders.
+func TestHelmChartPassesImagePullSecrets(t *testing.T) {
+	if out := helmTemplate(t, consoleArgs...); strings.Contains(out, "imagePullSecrets") {
+		t.Fatal("imagePullSecrets rendered without image.pullSecrets")
+	}
+	out := helmTemplate(t, append(append([]string{}, consoleArgs...), "--set", "image.pullSecrets[0]=ghcr-pull")...)
+	if got := len(regexp.MustCompile(`imagePullSecrets:\s*\n\s*- name: ghcr-pull`).FindAllString(out, -1)); got != 2 {
+		t.Fatalf("imagePullSecrets rendered on %d Deployments, want 2 (manager and console):\n%s", got, out)
+	}
+}
