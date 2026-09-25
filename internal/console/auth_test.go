@@ -412,3 +412,65 @@ func TestWithoutASessionKeyFileTheKeyIsEphemeral(t *testing.T) {
 		t.Fatalf("a session survived into a new process: %v", err)
 	}
 }
+
+// startCookies begins a sign-in and returns its cookies and state.
+func startCookies(t *testing.T, a *Auth) ([]*http.Cookie, string) {
+	t.Helper()
+	start := httptest.NewRecorder()
+	a.Start(start, httptest.NewRequest("GET", "/auth/start", nil))
+	loc, err := url.Parse(start.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return start.Result().Cookies(), loc.Query().Get("state")
+}
+
+func TestCallbackErrorsShowOnlyFixedText(t *testing.T) {
+	iss := newTestIssuer(t)
+	a := mustAuth(t, iss.URL)
+	cookies, state := startCookies(t, a)
+	callback := func(query string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/auth/callback?"+query, nil)
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		rec := httptest.NewRecorder()
+		a.Callback(rec, req)
+		return rec
+	}
+	evil := url.QueryEscape("<b>Your account is locked, call +1 555 0100</b>")
+	// Without the right state, an error is not even looked at.
+	rec := callback("error=access_denied&error_description=" + evil + "&state=wrong")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "error=state") || strings.Contains(rec.Body.String(), "locked") {
+		t.Fatalf("error with a wrong state = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = callback("error=access_denied&error_description=" + evil + "&state=" + state)
+	if !strings.Contains(rec.Body.String(), "error=denied") || !strings.Contains(rec.Body.String(), "The identity provider denied the sign-in.") || strings.Contains(rec.Body.String(), "locked") {
+		t.Fatalf("access_denied = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = callback("error=" + evil + "&state=" + state)
+	if !strings.Contains(rec.Body.String(), "Sign-in failed.") || strings.Contains(rec.Body.String(), "locked") {
+		t.Fatalf("unknown error = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEmailVerifiedMustBeTrue(t *testing.T) {
+	iss := newTestIssuer(t)
+	a := mustAuth(t, iss.URL)
+	for _, verified := range []any{"false", "true", 0, false} {
+		rec := signIn(t, a, iss, func(n string) {
+			iss.issueClaims(iss.key, iss.claims(n, map[string]any{"email": "eve@acme.io", "email_verified": verified}))
+		})
+		if rec.Code != http.StatusForbidden || sessionCookie(rec) != nil {
+			t.Errorf("email_verified %#v = %d, want 403", verified, rec.Code)
+		}
+	}
+}
+
+func TestSignInUsesOneStateCookie(t *testing.T) {
+	iss := newTestIssuer(t)
+	cookies, _ := startCookies(t, mustAuth(t, iss.URL))
+	if len(cookies) != 1 || cookies[0].Name != StateCookie {
+		t.Fatalf("sign-in cookies = %+v, want only %s", cookies, StateCookie)
+	}
+}

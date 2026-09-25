@@ -149,8 +149,14 @@ Files:
 - `go.mod`: `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
 
 Interfaces: consumes `Config` from Task 1. Produces `Identity`, the cookies
-`ksync_session`, `ksync_state` and `ksync_nonce` (the verifier and state
-live in `ksync_state`, which expires after 10 minutes), and `ErrNoSession`.
+`ksync_session` and `ksync_state` (the state, PKCE verifier and nonce are
+sealed together in `ksync_state`, which expires after 10 minutes; a separate
+`ksync_nonce` cookie was dropped in review), and `ErrNoSession`.
+The callback checks the state before it looks at `?error=`, and shows only
+the RFC 6749 error codes, mapped to fixed text, never `error_description`.
+When the username claim is `email`, an `email_verified` claim that is
+present but not the boolean `true` (for example the string `"false"`) is
+refused with 403.
 It also produces `type Authenticator interface{ Identity(*http.Request) (Identity, error) }`
 and `(*Server).UseAuthenticator(Authenticator)`: `*Auth` implements it and
 adds the sign-in routes, while Task 4's fake and Task 7's stub `Auth` are

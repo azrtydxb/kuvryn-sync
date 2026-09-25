@@ -17,7 +17,9 @@ const FAILURES: Record<string, string> = {
     "The identity provider is not reachable yet. Try again in a moment.",
   expired:
     "The sign-in took too long or was started in another browser. Try again.",
-  denied: "The identity provider refused the sign-in.",
+  denied: "The identity provider denied the sign-in.",
+  config:
+    "The identity provider rejected the console's sign-in request. Ask your cluster admin to check its OIDC client.",
   claims:
     "Your identity provider did not send the claims this console needs, or sent a system: identity. Ask your cluster admin.",
   groups:

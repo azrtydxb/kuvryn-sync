@@ -23,12 +23,11 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 )
 
-// Cookie names. ksync_state carries the OAuth state and PKCE verifier, and
-// ksync_nonce the ID token nonce, for the ten minutes a sign-in may take.
+// Cookie names. ksync_state carries the OAuth state, the PKCE verifier and
+// the ID token nonce, sealed together, for the ten minutes a sign-in may take.
 const (
 	SessionCookie = "ksync_session"
 	StateCookie   = "ksync_state"
-	NonceCookie   = "ksync_nonce"
 
 	loginWindow        = 10 * time.Minute
 	maxSessionCookie   = 4000
@@ -58,11 +57,22 @@ type Authenticator interface {
 type loginState struct {
 	State     string `json:"s"`
 	Verifier  string `json:"v"`
+	Nonce     string `json:"n"`
 	Connector string `json:"c,omitempty"`
 }
 
-type loginNonce struct {
-	Nonce string `json:"n"`
+// providerErrors maps the RFC 6749 authorization error codes to a reason
+// for the login page and fixed text. Anything else, and every
+// error_description, is never shown, since whoever crafts the link chooses
+// them.
+var providerErrors = map[string][2]string{
+	"access_denied":             {"denied", "The identity provider denied the sign-in."},
+	"temporarily_unavailable":   {"unavailable", "The identity provider could not complete the sign-in. Try again later."},
+	"server_error":              {"unavailable", "The identity provider could not complete the sign-in. Try again later."},
+	"invalid_request":           {"config", "The identity provider rejected the console's sign-in request. Ask your cluster admin to check its OIDC client."},
+	"unauthorized_client":       {"config", "The identity provider rejected the console's sign-in request. Ask your cluster admin to check its OIDC client."},
+	"unsupported_response_type": {"config", "The identity provider rejected the console's sign-in request. Ask your cluster admin to check its OIDC client."},
+	"invalid_scope":             {"config", "The identity provider rejected the console's sign-in request. Ask your cluster admin to check its OIDC client."},
 }
 
 type provider struct {
@@ -188,19 +198,12 @@ func (a *Auth) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, nonce, verifier := randomToken(), randomToken(), oauth2.GenerateVerifier()
-	sealedState, err := seal(a.key, loginState{State: state, Verifier: verifier, Connector: connector})
+	sealedState, err := seal(a.key, loginState{State: state, Verifier: verifier, Nonce: nonce, Connector: connector})
 	if err != nil {
 		a.fail(w, http.StatusInternalServerError, "internal", "could not start sign-in")
 		return
 	}
-	sealedNonce, err := seal(a.key, loginNonce{Nonce: nonce})
-	if err != nil {
-		a.fail(w, http.StatusInternalServerError, "internal", "could not start sign-in")
-		return
-	}
-	expires := a.now().Add(loginWindow)
-	http.SetCookie(w, a.cookie(StateCookie, sealedState, "/auth", expires))
-	http.SetCookie(w, a.cookie(NonceCookie, sealedNonce, "/auth", expires))
+	http.SetCookie(w, a.cookie(StateCookie, sealedState, "/auth", a.now().Add(loginWindow)))
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)}
 	if connector != "" {
 		opts = append(opts, oauth2.SetAuthURLParam("connector_id", connector))
@@ -218,18 +221,23 @@ func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	if q.Get("error") != "" {
-		a.fail(w, http.StatusBadRequest, "denied", "the identity provider refused sign-in: "+q.Get("error"))
-		return
-	}
 	var st loginState
-	var nc loginNonce
-	if !a.readCookie(r, StateCookie, &st) || !a.readCookie(r, NonceCookie, &nc) || st.State == "" || nc.Nonce == "" {
+	if !a.readCookie(r, StateCookie, &st) || st.State == "" || st.Nonce == "" {
 		a.fail(w, http.StatusBadRequest, "expired", "the sign-in expired or was started in another browser")
 		return
 	}
+	// The state is checked before anything else in the request is used, so
+	// a forged link cannot put text on the page.
 	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(st.State)) != 1 {
 		a.fail(w, http.StatusBadRequest, "state", "the sign-in state does not match")
+		return
+	}
+	if code := q.Get("error"); code != "" {
+		known, ok := providerErrors[code]
+		if !ok {
+			known = [2]string{"failed", "Sign-in failed."}
+		}
+		a.fail(w, http.StatusBadRequest, known[0], known[1])
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), callbackTimeout)
@@ -249,7 +257,7 @@ func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, http.StatusBadRequest, "token", "the ID token could not be verified: "+err.Error())
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(nc.Nonce)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(st.Nonce)) != 1 {
 		a.fail(w, http.StatusBadRequest, "nonce", "the ID token nonce does not match")
 		return
 	}
@@ -268,7 +276,6 @@ func (a *Auth) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, a.cookie(StateCookie, "", "/auth", time.Unix(0, 0)))
-	http.SetCookie(w, a.cookie(NonceCookie, "", "/auth", time.Unix(0, 0)))
 	http.SetCookie(w, a.cookie(SessionCookie, sealed, "/", id.Expiry))
 	http.Redirect(w, r, "/apps", http.StatusSeeOther)
 }
@@ -285,7 +292,9 @@ func (a *Auth) identityFromToken(idToken *oidc.IDToken) (Identity, int, error) {
 		return Identity{}, http.StatusBadRequest, fmt.Errorf("the ID token has no %q claim; set --username-claim to a claim the issuer sends", a.cfg.UsernameClaim)
 	}
 	if a.cfg.UsernameClaim == emailClaim {
-		if verified, ok := claims[emailVerifiedClaim].(bool); ok && !verified {
+		// Absent is accepted, as some issuers omit it; present, it must be
+		// the boolean true, so a string "false" is not mistaken for true.
+		if v, present := claims[emailVerifiedClaim]; present && v != true {
 			return Identity{}, http.StatusForbidden, errors.New("the ID token's email is not verified")
 		}
 	}
