@@ -307,15 +307,22 @@ Files:
 - `internal/console/api_test.go`: envtest with RBAC.
 
 Interfaces: consumes `UserClient` and `Identity`, plus
-`applier.ListManaged(ctx, reader, app, metadataOnly)` from the rebrand
-code. Produces JSON shapes the SPA types mirror in `web/src/api/types.ts`:
+`applier.ListManaged(ctx, reader, app, applier.ListOptions{MetadataOnly, Exclude})`
+from the rebrand code; it returns `(objects, skippedKinds, error)`, and this
+task adds the `Exclude` option so the console never lists Secrets at all.
+Produces JSON shapes the SPA types mirror in `web/src/api/types.ts`:
 
-- `AppRow{name, namespace, repository, path, render, commit, sync, health, lastReconcile}`;
-- `Cause{resource, reason, message, chain[{kind, name, state}]}`;
-- `PlanView{revision, digest, phase, summary{create, update, delete, unchanged}, resources[{action, ref, changes[{path, before, after}], warnings}]}`;
-- `RevisionRow{name, application, commit, phase, plan, approvedBy, attempts, started}`;
+- `AppRow{name, namespace, destination, repository, path, render, commit, sync, health, lastReconcile}`;
+- `AppDetail{...AppRow, state, desiredRevision, deployedRevision, source{repository, revision, path, render}, policy{automatic, prune, selfHeal, suspend, conflictPolicy, failureAction, deletionPolicy, serviceAccountName}, conditions[{type, status, reason, message, lastTransitionTime}], diagnosis[]Cause, plan PlanView|null, planVisible}`;
+- `Cause{resource, reason, message, chain[{kind, name, state}]}`. Status
+  records only the chain's references, so only the root link's `state`
+  is known: the cause's reason. The other links show `"—"`;
+- `PlanView{revision, commit, digest, phase, summary{create, update, delete, unchanged}, truncated, resources[{action, ref{apiVersion, kind, namespace, name}, changes[{path, before, after, redacted}], warnings}]}`.
+  Changes are redacted by the same rule as `ksync plan`;
+- `RevisionRow{name, namespace, application, commit, phase, plan{create, update, delete, unchanged}, digest, approvedBy, attempts, started, failure}`;
 - `ResourceRow{kind, name, apiVersion, sync, health, visible}`;
-- `RepoRow{name, namespace, url, ref, observed, state, message, apps, poll, webhook, lastFetch}`;
+- `RepoRow{name, namespace, url, ref, observed, state, message, apps, poll, webhook, lastFetch}`,
+  where `apps` is `null` when the user may not list Applications;
 - `ImagePolicyRow{name, namespace, image, rule, latest, digest, lastScan}`.
 
 A cluster-wide 403 returns `{"error":"forbidden","needNamespace":true}` with
@@ -353,13 +360,23 @@ status 403.
   	}
   }
   ```
-  Run `go test ./internal/console/ -run 'TestConsoleFollowsUserRBAC|TestConsoleNeverReturnsSecrets'`,
-  and expect it to FAIL to compile with "undefined: newAPIServer".
+  Run `go test ./internal/console/ -run 'TestConsoleFollowsUserRBAC|TestConsoleNeverReturnsSecrets'`.
+  `newAPIServer`, `get` and the fake Auth are test helpers in the same file,
+  so it compiles, and expect it to FAIL with "cluster-wide list for a
+  namespaced user = 404". `TestConsoleNeverReturnsSecrets` passes trivially
+  against 404s, so `TestConsoleAPIShowsWhatTheUserMayRead` pins the content
+  each endpoint returns, and a Secret `a/creds` labelled as managed by `web`
+  makes any Secret listing leak into the Resources response.
 - [ ] Implement `api.go` and `views.go`.
-  - **Resources:** the endpoint lists managed objects with metadata only, and
-    drops Secret-kind rows, replacing each with a row `{kind:"Secret", name,
-visible:false}` that carries only the name recorded in
-    `status.managedKinds` inventory, never the data.
+  - **Resources:** the endpoint lists managed objects with
+    `MetadataOnly: graph.IdentityOnly`, so ConfigMaps and ServiceAccounts are
+    read as metadata only, while workloads are read in full to evaluate their
+    health. It never lists Secrets (`Exclude`). `status.managedKinds` records
+    kinds, not names, so when the inventory includes Secrets, each Secret the
+    newest Revision's plan names becomes a row `{kind:"Secret", name,
+visible:false}`, or a single row named `"—"` when no plan names one.
+    Kinds the user may not list become `{kind, name:"—", visible:false}`
+    rows.
   - **Namespaces:** `/api/namespaces` lists namespaces as the user and
     returns 403 with `{"error":"forbidden"}` when that is not allowed.
   - **Timeouts:** every handler uses a 10-second context timeout, and on

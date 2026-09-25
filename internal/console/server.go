@@ -10,8 +10,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/console/ui"
 )
 
@@ -25,6 +29,7 @@ type Server struct {
 	files fs.FS
 
 	auth          Authenticator
+	newReader     func(Identity) (client.Reader, error)
 	impersonation atomic.Value // string: unchecked, granted or missing
 }
 
@@ -46,7 +51,15 @@ func NewServer(cfg Config, base *rest.Config) (*Server, error) {
 	if base == nil {
 		return nil, errors.New("console: a cluster configuration is required")
 	}
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
 	s := &Server{cfg: cfg, base: rest.CopyConfig(base), files: ui.Files()}
+	s.newReader = func(id Identity) (client.Reader, error) { return UserClient(s.base, scheme, id) }
 	s.impersonation.Store("unchecked")
 	return s, nil
 }
@@ -61,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /logout", flow.Logout)
 	}
 	mux.HandleFunc("GET /api/me", s.withIdentity(s.me))
+	s.registerAPI(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
