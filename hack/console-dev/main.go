@@ -1,11 +1,14 @@
 // Command console-dev serves the ksync console on 127.0.0.1:5174 for the UI
 // tests and local development. It starts an envtest API server with RBAC and
-// the Kuvryn Sync CRDs, seeds the design's sample Applications, and signs
-// every request in as the user "viewer" in group "viewers", which a view-only
-// ClusterRole binds.
+// the Kuvryn Sync CRDs, and seeds the design's sample Applications. It runs
+// the console without OIDC, so real token sign-in works: a request with a
+// token session reads as that token, and any other request is signed in as
+// the user "viewer" in group "viewers". A view-only ClusterRole binds both
+// that group and the ServiceAccount default/console-viewer.
 //
-//	go run ./hack/console-dev                         serve until interrupted
+//	go run ./hack/console-dev                          serve until interrupted
 //	go run ./hack/console-dev set-health <app> <state> change a seeded Application's health
+//	go run ./hack/console-dev token                    print a token for default/console-viewer
 package main
 
 import (
@@ -20,8 +23,12 @@ import (
 	"syscall"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -38,20 +45,33 @@ const (
 	// appNamespace holds the seeded Applications, Repositories, Revisions
 	// and ImagePolicies.
 	appNamespace = "default"
+	// viewerServiceAccount in appNamespace is bound to the view-only
+	// ClusterRole, for token sign-in.
+	viewerServiceAccount = "console-viewer"
 )
 
-// viewerAuth signs every request in as a viewer.
-type viewerAuth struct{}
+// devAuth is the console's real token-only sign-in, with one addition for
+// development: a request without a valid session is signed in as a viewer
+// instead of being sent to the login page.
+type devAuth struct{ *console.Auth }
 
-func (viewerAuth) Identity(*http.Request) (console.Identity, error) {
+func (a devAuth) Identity(r *http.Request) (console.Identity, error) {
+	if id, err := a.Auth.Identity(r); err == nil {
+		return id, nil
+	}
 	return console.Identity{Username: "viewer", Groups: []string{"viewers"}, Expiry: time.Now().Add(time.Hour)}, nil
 }
 
 func main() {
 	var err error
-	if len(os.Args) > 1 && os.Args[1] == "set-health" {
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "set-health":
 		err = setHealth(os.Args[2:])
-	} else {
+	case len(os.Args) > 1 && os.Args[1] == "token":
+		err = printToken(os.Args[2:])
+	case len(os.Args) > 1:
+		err = fmt.Errorf("unknown command %q; use set-health or token, or no argument to serve", os.Args[1])
+	default:
 		err = serve()
 	}
 	if err != nil {
@@ -121,19 +141,22 @@ func serve() error {
 		return fmt.Errorf("seed: %w", err)
 	}
 
-	srv, err := console.NewServer(console.Config{
+	consoleCfg := console.Config{
 		Listen:          listen,
 		ClusterName:     "prod-eu-1",
-		SSOName:         "Dex",
-		Connectors:      []string{"github"},
 		DocsURL:         "https://github.com/azrtydxb/kuvryn-sync/tree/main/docs",
 		StatusURL:       "https://github.com/azrtydxb/kuvryn-sync/actions",
 		InsecureCookies: true,
-	}, cfg)
+	}
+	srv, err := console.NewServer(consoleCfg, cfg)
 	if err != nil {
 		return err
 	}
-	srv.UseAuthenticator(viewerAuth{})
+	auth, err := console.NewAuth(ctx, consoleCfg, cfg)
+	if err != nil {
+		return err
+	}
+	srv.UseAuthenticator(devAuth{auth})
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
@@ -152,17 +175,46 @@ func serve() error {
 	return nil
 }
 
+// adminConfig connects with the kubeconfig the running server wrote.
+func adminConfig() (*rest.Config, error) {
+	raw, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s (is console-dev running?): %w", kubeconfigPath, err)
+	}
+	return clientcmd.RESTConfigFromKubeConfig(raw)
+}
+
+// printToken prints a one-hour token for the seeded ServiceAccount
+// default/console-viewer, minted with a TokenRequest.
+func printToken(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: console-dev token")
+	}
+	cfg, err := adminConfig()
+	if err != nil {
+		return err
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return err
+	}
+	seconds := int64(3600)
+	tr, err := cs.CoreV1().ServiceAccounts(appNamespace).CreateToken(context.Background(), viewerServiceAccount,
+		&authenticationv1.TokenRequest{Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &seconds}}, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	fmt.Println(tr.Status.Token)
+	return nil
+}
+
 // setHealth changes a seeded Application's health through the kubeconfig the
 // running server wrote.
 func setHealth(args []string) error {
 	if len(args) != 2 {
 		return errors.New("usage: console-dev set-health <application> <Healthy|Progressing|Degraded|Suspended|Unknown>")
 	}
-	raw, err := os.ReadFile(kubeconfigPath)
-	if err != nil {
-		return fmt.Errorf("read %s (is console-dev running?): %w", kubeconfigPath, err)
-	}
-	cfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
+	cfg, err := adminConfig()
 	if err != nil {
 		return err
 	}

@@ -4,7 +4,13 @@ export interface Me {
   authenticated: boolean;
   username?: string;
   groups?: string[];
+  /** How the session signed in; set only when authenticated. */
+  method?: "token" | "oidc";
   cluster: string;
+  /** Token sign-in is always offered. */
+  tokenSignIn: boolean;
+  /** Whether OIDC sign-in is configured; connectors are empty without it. */
+  oidc: boolean;
   connectors: string[];
   ssoName?: string;
   docsURL?: string;

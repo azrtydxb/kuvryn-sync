@@ -113,6 +113,20 @@
   background: var(--az-border);
 }
 
+.ks-login__token {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+}
+
+.ks-login__code {
+  font-family: var(--az-font-mono);
+  font-size: 12px;
+  color: var(--az-text-2);
+  overflow-wrap: anywhere;
+}
+
 .ks-login__note {
   margin: 0;
   font-size: 13px;
