@@ -30,25 +30,46 @@ const (
 	SessionCookie = "ksync_session"
 	StateCookie   = "ksync_state"
 
-	loginWindow        = 10 * time.Minute
-	maxSessionCookie   = 4000
-	discoveryRetry     = 10 * time.Second
-	systemPrefix       = "system:"
-	callbackTimeout    = 15 * time.Second
-	errTooManyGroups   = "too many groups for a session"
-	emailClaim         = "email"
-	emailVerifiedClaim = "email_verified"
+	loginWindow          = 10 * time.Minute
+	maxSessionCookie     = 4000
+	discoveryRetry       = 10 * time.Second
+	systemPrefix         = "system:"
+	anonymousUser        = "system:anonymous"
+	unauthenticatedGroup = "system:unauthenticated"
+	serviceAccountPrefix = "system:serviceaccount:"
+	callbackTimeout      = 15 * time.Second
+	errTooManyGroups     = "too many groups for a session"
+	emailClaim           = "email"
+	emailVerifiedClaim   = "email_verified"
 )
 
 // ErrNoSession reports a request without a valid, unexpired session.
 var ErrNoSession = errors.New("console: no session")
 
-// Identity is the signed-in user the console impersonates.
+// Sign-in methods, recorded in the session.
+const (
+	// MethodOIDC is an OIDC session, whose reads impersonate the user.
+	MethodOIDC = "oidc"
+	// MethodToken is a Kubernetes token session, whose reads carry the token.
+	MethodToken = "token"
+)
+
+// Identity is the signed-in user. An OIDC identity is impersonated; a token
+// identity reads with its own Token and is never impersonated.
 type Identity struct {
 	Username string    `json:"u"`
 	Groups   []string  `json:"g,omitempty"`
 	Expiry   time.Time `json:"e"`
+	// Method is MethodToken or MethodOIDC; empty means MethodOIDC, as in
+	// sessions from before token sign-in.
+	Method string `json:"m,omitempty"`
+	// Token is the bearer token of a token session. It never marshals or
+	// prints; the session cookie seals it through sessionData.
+	Token Secret `json:"-"`
 }
+
+// IsToken reports whether id is a token session.
+func (id Identity) IsToken() bool { return id.Method == MethodToken }
 
 // Authenticator resolves the signed-in identity of a request.
 type Authenticator interface {
@@ -375,6 +396,26 @@ func checkIdentity(id Identity) error {
 		if strings.HasPrefix(g, systemPrefix) {
 			return fmt.Errorf("the group %q is a system: group, which the console never impersonates", g)
 		}
+	}
+	return nil
+}
+
+// checkTokenIdentity refuses token identities the console must not serve:
+// no username, the anonymous user, anyone in system:unauthenticated, and
+// system: users other than ServiceAccounts. Groups such as
+// system:authenticated and system:serviceaccounts are expected, since the
+// token is used as is and nothing is impersonated.
+func checkTokenIdentity(username string, groups []string) error {
+	switch {
+	case username == "":
+		return errors.New("the token has no username")
+	case username == anonymousUser:
+		return errors.New("the token is not authenticated: the API server answered as system:anonymous")
+	case strings.HasPrefix(username, systemPrefix) && !strings.HasPrefix(username, serviceAccountPrefix):
+		return fmt.Errorf("the username %q is a system: identity other than a ServiceAccount", username)
+	}
+	if slices.Contains(groups, unauthenticatedGroup) {
+		return errors.New("the token is not authenticated: the API server placed it in system:unauthenticated")
 	}
 	return nil
 }
