@@ -44,15 +44,17 @@ tag, and take the image tag from it: the chart's `appVersion`, prefixed with
 
 The package may be private. To pull a private image, create a
 `kubernetes.io/dockerconfigjson` Secret for `ghcr.io` in the install
-namespace, with a token that has `read:packages`:
+namespace before installing, with a token that has `read:packages`:
 
 ```bash
+kubectl create namespace kuvryn-sync-system
 kubectl -n kuvryn-sync-system create secret docker-registry ghcr-pull \
   --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
 ```
 
 With Helm, set `image.pullSecrets={ghcr-pull}`; the manager and console
-Deployments both use it. With the raw manifests, patch the manager Deployment:
+Deployments both use it. With the raw manifests, patch the manager Deployment
+after applying the bundle:
 
 ```bash
 kubectl -n kuvryn-sync-system patch deployment kuvryn-sync-controller-manager \
