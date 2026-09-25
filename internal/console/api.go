@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -26,8 +27,12 @@ const apiTimeout = 10 * time.Second
 // apiHandler serves one read as the signed-in user.
 type apiHandler func(ctx context.Context, r *http.Request, reader client.Reader) (any, error)
 
-// errNeedNamespace marks a cluster-wide list the user may not make.
-var errNeedNamespace = errors.New("console: a namespace is required")
+var (
+	// errNeedNamespace marks a cluster-wide list the user may not make.
+	errNeedNamespace = errors.New("console: a namespace is required")
+	// errInvalidName marks a namespace or name no object can have.
+	errInvalidName = errors.New("console: invalid name")
+)
 
 func (s *Server) registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/namespaces", s.api(s.namespaces))
@@ -62,6 +67,8 @@ func (s *Server) api(h apiHandler) http.HandlerFunc {
 
 func (s *Server) writeError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, errInvalidName):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid name"})
 	case errors.Is(err, errNeedNamespace):
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden", "needNamespace": true})
 	case apierrors.IsForbidden(err), errors.Is(err, ErrForbiddenPath), errors.Is(err, ErrWriteRefused), errors.Is(err, ErrNotImpersonated):
@@ -114,9 +121,16 @@ func (s *Server) applications(ctx context.Context, r *http.Request, reader clien
 	return out, nil
 }
 
+// getApplication reads the Application the path names. A namespace or name
+// no Application can have is refused before any request is built, so a
+// crafted path such as ".." is a 400 rather than a client-go error.
 func getApplication(ctx context.Context, r *http.Request, reader client.Reader) (*corev1alpha1.Application, error) {
+	ns, name := r.PathValue("ns"), r.PathValue("name")
+	if len(validation.IsDNS1123Label(ns)) > 0 || len(validation.IsDNS1123Subdomain(name)) > 0 {
+		return nil, errInvalidName
+	}
 	app := &corev1alpha1.Application{}
-	err := reader.Get(ctx, client.ObjectKey{Namespace: r.PathValue("ns"), Name: r.PathValue("name")}, app)
+	err := reader.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, app)
 	return app, err
 }
 

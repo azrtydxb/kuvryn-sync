@@ -404,6 +404,12 @@ visible:false}`, or a single row named `"—"` when no plan names one.
     returns 403 with `{"error":"forbidden"}` when that is not allowed.
   - **Timeouts:** every handler uses a 10-second context timeout, and on
     timeout returns 504 `{"error":"timeout"}`.
+  - **Names:** a `{ns}` that is not a DNS label or a `{name}` that is not a
+    DNS subdomain returns 400 `{"error":"invalid name"}` before any request
+    is built, and logs nothing (added in review: client-go's path errors
+    had surfaced as 502 with an error log).
+  - **Revision failure:** `"Reason: Message"`, the reason or the message
+    alone when the other is empty, and `"—"` when both are.
 - [ ] Run `go test ./internal/console/`, and expect PASS.
 - [ ] Commit "Serve the console's read-only API as the signed-in user".
 

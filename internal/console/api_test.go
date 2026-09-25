@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -376,6 +377,44 @@ func TestNewestFirstPrefersStartTime(t *testing.T) {
 	for d, want := range map[time.Duration]string{time.Minute: "1m", 5 * time.Minute: "5m", 90 * time.Second: "90s", 2 * time.Hour: "2h"} {
 		if got := shortDuration(d); got != want {
 			t.Errorf("shortDuration(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestRevisionFailureText(t *testing.T) {
+	for _, tc := range []struct {
+		failure *corev1alpha1.RevisionFailure
+		want    string
+	}{
+		{nil, "—"},
+		{&corev1alpha1.RevisionFailure{}, "—"},
+		{&corev1alpha1.RevisionFailure{Reason: "HealthTimeout"}, "HealthTimeout"},
+		{&corev1alpha1.RevisionFailure{Reason: "HealthTimeout", Message: "Deployment web did not become available"}, "HealthTimeout: Deployment web did not become available"},
+		{&corev1alpha1.RevisionFailure{Message: "apply failed"}, "apply failed"},
+	} {
+		rev := &corev1alpha1.Revision{}
+		rev.Status.Failure = tc.failure
+		if got := revisionRow(rev).Failure; got != tc.want {
+			t.Errorf("failure %+v = %q, want %q", tc.failure, got, tc.want)
+		}
+	}
+}
+
+func TestInvalidNamesAreBadRequests(t *testing.T) {
+	srv := newAPIServer(t, env)
+	for _, path := range []string{
+		"/api/applications/a/%2E%2E",
+		"/api/applications/a/%2E%2E/resources",
+		"/api/applications/%2E%2E/web/revisions",
+		"/api/applications/a%2Fb/web",
+		"/api/applications/A_B/web",
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/", nil)
+		req.URL, _ = url.Parse(path)
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid name"`) {
+			t.Errorf("%s = %d %s, want 400", path, rec.Code, rec.Body.String())
 		}
 	}
 }

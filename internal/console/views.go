@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -364,7 +365,7 @@ func revisionRow(rev *corev1alpha1.Revision) RevisionRow {
 		row.ApprovedBy = orDash(a.ApprovedBy)
 	}
 	if f := rev.Status.Failure; f != nil {
-		row.Failure = text(cmp.Or(f.Reason+": "+f.Message, f.Reason))
+		row.Failure = text(strings.Join(slices.DeleteFunc([]string{f.Reason, f.Message}, func(s string) bool { return s == "" }), ": "))
 	}
 	return row
 }
