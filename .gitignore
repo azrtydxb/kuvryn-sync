@@ -37,3 +37,6 @@ go.work
 # Console SPA build output (built by make web-build, the Dockerfile and CI)
 internal/console/ui/dist/*
 !internal/console/ui/dist/.gitkeep
+web/node_modules/
+web/test-results/
+web/playwright-report/

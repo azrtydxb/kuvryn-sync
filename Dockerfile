@@ -1,3 +1,12 @@
+# Build the console's web UI. Its output is platform-independent, so it runs
+# on the build platform, and the Go stage embeds it.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # Build the ksync binary (CLI and manager)
 FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 ARG BUILDPLATFORM
@@ -14,6 +23,8 @@ RUN go mod download
 
 # Copy the Go source (relies on .dockerignore to filter)
 COPY . .
+# Embed the built console UI instead of the placeholder page.
+COPY --from=web /src/internal/console/ui/dist internal/console/ui/dist
 
 # Build
 # the GOARCH has no default value to allow the binary to be built according to the host where the command

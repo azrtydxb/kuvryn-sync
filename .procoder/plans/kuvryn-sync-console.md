@@ -389,22 +389,33 @@ visible:false}`, or a single row named `"—"` when no plan names one.
 Files:
 
 - `web/package.json`: `react@19`, `react-dom@19`, `react-router-dom@7`,
-  `vite@7`, `typescript@5`, `@vitejs/plugin-react`, `@playwright/test` and
-  `@axe-core/playwright`, with the scripts `dev`, `build`, `test:e2e` and
-  `typecheck`. `web/package-lock.json` is committed.
+  `vite@7`, `typescript@5`, `@vitejs/plugin-react@5` (6 needs Vite 8),
+  `vitest@5`, `@playwright/test` and `@axe-core/playwright`, with the scripts
+  `dev`, `build`, `test`, `test:e2e` and `typecheck`. `web/package-lock.json`
+  is committed.
 - `web/vite.config.ts`: `build.outDir` is `../internal/console/ui/dist`, and
-  `emptyOutDir` is true.
+  `emptyOutDir` is true. A small plugin rewrites the tracked `.gitkeep` that
+  `emptyOutDir` deletes, and `assetsInlineLimit: 0` keeps fonts and images
+  out of `data:` URIs, which the CSP's `default-src 'self'` would block for
+  fonts.
 - `web/tsconfig.json` and `web/index.html`.
 - `web/src/azrty/`: vendored from design-system project
   `c1ca7a31-5e20-46fb-8f31-9f912b546f68`:
   - `tokens/*.css` and `components/components.css`;
   - `assets/fonts/*.woff2` and `assets/icons/lucide.woff2`;
-  - `components/{actions/Button, brand/Icon, brand/Logo, brand/ProductLogo, forms/Input, feedback/Alert, feedback/Badge, feedback/EmptyState, data/StatCard, data/Table, data/CodeBlock, navigation/Tabs, navigation/Topbar, navigation/Sidebar, panels/Drawer}.jsx`,
-    each with its `.d.ts`;
+  - `components/{actions/Button, brand/Icon, brand/Logo, brand/ProductLogo, forms/Input, feedback/Alert, feedback/Badge, feedback/EmptyState, data/StatCard, data/Table, data/CodeBlock, navigation/Tabs, navigation/Topbar, navigation/Sidebar, panels/Drawer}.jsx`
+    and their dependencies (IconButton, Select, Avatar, Sparkline). The
+    `.d.ts` files were not vendored: `tsconfig.json` sets `allowJs` and
+    imports the `.jsx` directly, and the directory is read-only (wrappers go
+    in `web/src/ui/`);
   - `README.md` recording the source project ID, file list and sync date.
 - `web/src/assets/kuvryn-sync-emblem-dark.png` and
-  `web/src/assets/kuvryn-sync-emblem-light.png`: from design project
-  `c45e001b-cc5a-4b61-8f11-122044379a06`.
+  `web/src/assets/kuvryn-sync-emblem-light.png`: 640x640 PNGs from the
+  maintainer; the design tool truncates them. Until they are committed, local
+  builds use untracked placeholders listed in `.git/info/exclude`, and the
+  image and CI UI builds fail on the missing import.
+- `web/src/brand.ts`: the emblem imports and the shared ProductLogo props
+  (`name="Kuvryn" sub="Sync" tagline="GitOps that sticks" pillar="build"`).
 - `web/src/main.tsx` and `web/src/App.tsx`: the routes `/login`, `/apps`,
   `/apps/:ns/:name/:tab?`, `/repositories`, `/revisions` and
   `/imagepolicies`.
@@ -415,11 +426,16 @@ Files:
 - `web/src/theme.ts`: `useTheme()`, stored in localStorage `ksync.theme`,
   with dark as the default.
 - `Makefile`: the targets `web-build` (`npm --prefix web ci && npm --prefix web run build`)
-  and `test-ui` (`npm --prefix web run test:e2e`).
+  and `test-ui` (`npm --prefix web run build && npm --prefix web run test:e2e`:
+  `go run ./hack/console-dev` embeds `internal/console/ui/dist` at compile
+  time, so the UI must be built first).
 - `Dockerfile`: a `node:22-alpine` stage that builds `web`, whose output the
   Go stage copies to `internal/console/ui/dist` before `go build`.
-- `.github/workflows/test.yml`: a step
-  `npm --prefix web ci && npm --prefix web run typecheck && npm --prefix web run build`.
+  `.dockerignore` re-includes `internal/console/ui/placeholder/**`, the
+  dist `.gitkeep` and `web/**` (without `node_modules`), since it otherwise
+  admits only `.go` files and `go:embed` would find no placeholder.
+- `.github/workflows/test.yml`: `actions/setup-node` (pinned) and a step
+  `npm --prefix web ci && npm --prefix web run typecheck && npm --prefix web test && npm --prefix web run build`.
 
 Interfaces: consumes the Task 4 JSON shapes. Produces `usePoll`, `getJSON`,
 `useTheme` and the vendored components imported from `web/src/azrty/...`.
@@ -444,8 +460,8 @@ Interfaces: consumes the Task 4 JSON shapes. Produces `usePoll`, `getJSON`,
     });
   });
   ```
-  Run `npm --prefix web test`, and expect it to FAIL with "Failed to resolve
-  import ./client".
+  Run `npm --prefix web test`, and expect it to FAIL with "Cannot find module
+  './client'" (Vitest 5's wording).
 - [ ] Vendor the design-system files. Read each file listed under Files with
       DesignSync `get_file` and write it verbatim under `web/src/azrty/`; binary
       files come back as base64. Record the file list in
