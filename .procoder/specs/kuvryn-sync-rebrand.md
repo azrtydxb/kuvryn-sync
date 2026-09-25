@@ -186,9 +186,10 @@ fail`, the plan reports conflicts, and adopt takes ownership. This is
       `docs/upgrade.md`, `.procoder/` history, and the history section of
       `kuvryn-sync-full-spec.md`.
 - [ ] [S-10] `gh repo view azrtydxb/kuvryn-sync` succeeds, and CI (Tests, Lint,
-      E2E, Image) is green on it. The e2e run (`make test-e2e`) fails if the
-      fixture repo `azrtydxb/kuvryn-sync-e2e-app` or its `.ksync.yaml` is
-      wrong, because the fixture Application is then not discovered.
+      E2E, Image) is green on it. `TestE2E` (`make test-e2e`) fails if the
+      fixture URL `azrtydxb/kuvryn-sync-e2e-app` is wrong, because it cannot
+      clone the fixture. `.ksync.yaml` discovery is covered by
+      `TestDiscoveryReadsKsyncYaml`, since the e2e suite does not use discovery.
 - [ ] [S-11] `TestReleaseImageIsPublic` sends an anonymous `curl` request for
       `ghcr.io/v2/azrtydxb/kuvryn-sync/manifests/v0.4.0`, and fails if the
       package is still private (401 or 403). `gh release view v0.4.0` shows
