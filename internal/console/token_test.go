@@ -451,3 +451,31 @@ func TestOIDCCookieWithoutMethodStillWorks(t *testing.T) {
 		}
 	}
 }
+
+// TestTokenNeverEchoedAsIdentity fails if an API server that reports the token
+// itself as the username or a group lets that session start, or lets the
+// token reach a log line. Static-token files can name a user after its token.
+func TestTokenNeverEchoedAsIdentity(t *testing.T) {
+	const tok = "static-token-0123456789"
+	for name, user := range map[string]authenticationv1.UserInfo{
+		"username":               {Username: tok},
+		"username containing it": {Username: "user-" + tok},
+		"group":                  {Username: "alice", Groups: []string{"team", tok}},
+		"refused and echoed":     {Username: "system:node:" + tok},
+	} {
+		api, _ := fakeReviewServer(t, http.StatusOK, user)
+		srv, _ := tokenServer(t, &rest.Config{Host: api.URL})
+		logs := &logSink{}
+		rec := postToken(srv.Handler(), tok, logs.ctx())
+		if sessionOf(rec) != nil || rec.Header().Get("Location") != "/login?error=token" {
+			t.Errorf("%s: %d to %q (session %v), want the sign-in refused", name, rec.Code, rec.Header().Get("Location"), sessionOf(rec) != nil)
+		}
+		// client-go's own -v=8 body dumps are excluded: they print whatever the
+		// API server returns, as docs/security.md says.
+		for _, line := range strings.Split(logs.all(), "\n") {
+			if strings.Contains(line, tok) && !strings.Contains(line, `"level"=8`) {
+				t.Errorf("%s: the token reached the log: %s", name, line)
+			}
+		}
+	}
+}

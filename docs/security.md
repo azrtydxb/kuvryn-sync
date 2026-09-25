@@ -45,14 +45,19 @@ else:
 - The token is validated with a SelfSubjectReview sent with it (Kubernetes
   1.28 or later). `system:anonymous`, the `system:unauthenticated` group and
   `system:` users other than ServiceAccounts are refused, as are tokens over
-  16 KiB and JWTs past their `exp`.
+  16 KiB and JWTs past their `exp`. So is a token whose review names the
+  user or a group after the token itself, as some static-token files do,
+  because the identity is shown to the user and logged.
 - The token is kept only in the encrypted session cookie, never logged,
   never returned by an API and never put in a URL. The session ends at the
   token's `exp` or 8 hours after sign-in, whichever is first, and a 401 from
   the API server ends it early. The sealed cookie carries the token, so a
   copied cookie works like the token until the session ends; signing out
   only clears it from the browser and does not revoke the token. Delete the
-  token's ServiceAccount, or the object it is bound to, for that.
+  token's ServiceAccount, or the object it is bound to, for that. Running
+  the console with client-go verbosity 8 or higher (`-v=8`) makes client-go
+  log raw API response bodies, which the console does not filter; keep it at
+  the default in production.
 - Requests go only to the API server's own scheme and host: a redirect to
   another host is refused rather than followed, since client-go would send
   the token with it.

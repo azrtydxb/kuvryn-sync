@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -203,8 +204,15 @@ func (a *Auth) SignInWithToken(w http.ResponseWriter, r *http.Request) {
 		a.refuseToken(w, r, err, scrub(err.Error(), token))
 		return
 	}
+	// Some static-token setups name the user or a group after the token. Such a
+	// session would hand the token back through /api/me and the logs, so it is
+	// refused without quoting the identity.
+	if strings.Contains(user.Username, token) || slices.ContainsFunc(user.Groups, func(g string) bool { return strings.Contains(g, token) }) {
+		a.refuseToken(w, r, errTokenRefused, "the API server named the user or a group after the token")
+		return
+	}
 	if err := checkTokenIdentity(user.Username, user.Groups); err != nil {
-		a.refuseToken(w, r, errTokenRefused, err.Error())
+		a.refuseToken(w, r, errTokenRefused, scrub(err.Error(), token))
 		return
 	}
 	id := Identity{Username: user.Username, Groups: user.Groups, Expiry: expiry, Method: MethodToken, Token: Secret(token)}
