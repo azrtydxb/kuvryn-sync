@@ -74,6 +74,13 @@ func TestConsoleDocsCoverTokenSignIn(t *testing.T) {
 			}
 		}
 	}
+	// helm template output carries no namespace, so every kubectl apply or
+	// delete of it must name one, or it acts on the current namespace.
+	for _, bare := range []string{"kubectl apply -f -", "kubectl delete -f -"} {
+		if strings.Contains(raw, bare) {
+			t.Errorf("docs/console.md raw-manifest section uses %q without -n kuvryn-sync-system", bare)
+		}
+	}
 	if tokenAt < 0 || dexAt < 0 || tokenAt > dexAt {
 		t.Errorf("docs/console.md must lead with token sign-in and keep OIDC under \"## Set up OIDC sign-in with Dex\" after it (token at line %d, Dex at %d)", tokenAt, dexAt)
 	}

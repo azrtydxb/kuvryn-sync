@@ -181,7 +181,7 @@ in `kuvryn-sync-system`, and nothing cluster-wide. Add
 Ingress, `--set image.pullSecrets[0]=<secret>` for a private image, or the
 OIDC values from [Install with OIDC](#4-install-the-console-with-oidc) for
 single sign-on. Render again with the same values after upgrading, and remove
-it with `kubectl delete -f -` on the same output.
+it with `kubectl delete -n kuvryn-sync-system -f -` on the same output.
 
 ## Set up OIDC sign-in with Dex
 
