@@ -23,9 +23,18 @@ type readerCache struct {
 	build func(Identity) (client.Reader, error)
 	now   func() time.Time
 
-	mu      sync.Mutex
-	seq     uint64
-	entries map[string]readerEntry
+	mu       sync.Mutex
+	seq      uint64
+	entries  map[string]readerEntry
+	inflight map[string]*readerBuild
+}
+
+// readerBuild is one identity's reader under construction. Requests that
+// arrive while it runs wait on done and share its result.
+type readerBuild struct {
+	done   chan struct{}
+	reader client.Reader
+	err    error
 }
 
 type readerEntry struct {
@@ -35,7 +44,7 @@ type readerEntry struct {
 }
 
 func newReaderCache(build func(Identity) (client.Reader, error)) *readerCache {
-	return &readerCache{build: build, now: time.Now, entries: map[string]readerEntry{}}
+	return &readerCache{build: build, now: time.Now, entries: map[string]readerEntry{}, inflight: map[string]*readerBuild{}}
 }
 
 // readerKey identifies id by username and sorted groups, unambiguously.
@@ -47,38 +56,44 @@ func readerKey(id Identity) string {
 }
 
 // get returns id's reader, building one when there is none or it has passed
-// min(readerTTL, the session's expiry). An identity without a session expiry
-// gets a fresh reader that is not kept.
+// min(readerTTL, the session's expiry). Simultaneous requests for one identity
+// share a single build. An identity without a session expiry gets a fresh
+// reader that is not kept.
 func (c *readerCache) get(id Identity) (client.Reader, error) {
 	key := readerKey(id)
 	c.mu.Lock()
-	e, ok := c.entries[key]
 	now := c.now()
-	c.mu.Unlock()
-	if ok && now.Before(e.expires) {
+	if e, ok := c.entries[key]; ok && now.Before(e.expires) {
+		c.mu.Unlock()
 		return e.reader, nil
 	}
-
-	reader, err := c.build(id)
-	if err != nil {
-		return nil, err
+	if b, ok := c.inflight[key]; ok {
+		c.mu.Unlock()
+		<-b.done
+		return b.reader, b.err
 	}
+	b := &readerBuild{done: make(chan struct{})}
+	c.inflight[key] = b
+	c.mu.Unlock()
+
+	b.reader, b.err = c.build(id)
+
+	c.mu.Lock()
+	delete(c.inflight, key)
 	expires := now.Add(readerTTL)
 	if id.Expiry.Before(expires) {
 		expires = id.Expiry
 	}
-	if !now.Before(expires) {
-		return reader, nil
+	if b.err == nil && now.Before(expires) {
+		if _, ok := c.entries[key]; !ok && len(c.entries) >= maxReaders {
+			c.evict(now)
+		}
+		c.seq++
+		c.entries[key] = readerEntry{reader: b.reader, expires: expires, seq: c.seq}
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.entries[key]; !ok && len(c.entries) >= maxReaders {
-		c.evict(now)
-	}
-	c.seq++
-	c.entries[key] = readerEntry{reader: reader, expires: expires, seq: c.seq}
-	return reader, nil
+	c.mu.Unlock()
+	close(b.done)
+	return b.reader, b.err
 }
 
 // evict drops every expired entry or, when none has expired, the oldest.

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,5 +229,42 @@ func TestReaderCacheIsSafeConcurrently(t *testing.T) {
 	wg.Wait()
 	if n := c.len(); n != 5 {
 		t.Fatalf("cached readers = %d, want 5", n)
+	}
+}
+
+// Catches: simultaneous first requests by one identity each building a
+// reader, so a page load's parallel API calls repeat discovery.
+func TestReaderCacheBuildsOnceForSimultaneousRequests(t *testing.T) {
+	var builds atomic.Int32
+	release := make(chan struct{})
+	c := newReaderCache(func(Identity) (client.Reader, error) {
+		builds.Add(1)
+		<-release
+		return &countedReader{}, nil
+	})
+	id := Identity{Username: "alice", Expiry: time.Now().Add(time.Hour)}
+	readers := make(chan client.Reader, 10)
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			r, err := c.get(id)
+			if err != nil {
+				t.Error(err)
+			}
+			readers <- r
+		})
+	}
+	time.Sleep(50 * time.Millisecond) // let every request reach the cache
+	close(release)
+	wg.Wait()
+	close(readers)
+	if n := builds.Load(); n != 1 {
+		t.Fatalf("10 simultaneous requests built %d readers, want 1", n)
+	}
+	first := <-readers
+	for r := range readers {
+		if r != first {
+			t.Fatal("simultaneous requests got different readers")
+		}
 	}
 }
