@@ -24,6 +24,9 @@ import (
 // apiTimeout bounds every API call, cluster reads included.
 const apiTimeout = 10 * time.Second
 
+// sessionClearer ends a session, as *Auth does.
+type sessionClearer interface{ ClearSession(w http.ResponseWriter) }
+
 // apiHandler serves one read as the signed-in user.
 type apiHandler func(ctx context.Context, r *http.Request, reader client.Reader) (any, error)
 
@@ -78,6 +81,12 @@ func (s *Server) writeError(ctx context.Context, w http.ResponseWriter, r *http.
 	case errors.Is(ctx.Err(), context.DeadlineExceeded), errors.Is(err, context.DeadlineExceeded), apierrors.IsTimeout(err), apierrors.IsServerTimeout(err):
 		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "timeout"})
 	case apierrors.IsUnauthorized(err):
+		// The API server no longer accepts the session's credential: a
+		// token expired or was revoked. End the session, so the browser's
+		// return to the login page does not find it still signed in.
+		if c, ok := s.auth.(sessionClearer); ok {
+			c.ClearSession(w)
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	default:
 		ctrllog.FromContext(r.Context()).Error(errors.New(redact.String(err.Error())), "Could not read the cluster", "path", r.URL.Path)

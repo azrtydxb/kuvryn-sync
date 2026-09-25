@@ -1,6 +1,8 @@
 package console
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"slices"
 	"sync"
@@ -16,7 +18,8 @@ const (
 	maxReaders = 1000
 )
 
-// readerCache keeps one read-only client per identity, so its REST mapper
+// readerCache keeps one read-only client per identity, and per token for
+// token sessions, so its REST mapper
 // runs discovery once rather than on every request. Each reader still
 // impersonates exactly its identity; the cache only saves rebuilding it.
 type readerCache struct {
@@ -47,11 +50,24 @@ func newReaderCache(build func(Identity) (client.Reader, error)) *readerCache {
 	return &readerCache{build: build, now: time.Now, entries: map[string]readerEntry{}, inflight: map[string]*readerBuild{}}
 }
 
-// readerKey identifies id by username and sorted groups, unambiguously.
+// readerKey identifies id unambiguously by its sign-in method, username and
+// sorted groups and, for a token session, the SHA-256 of its token, so two
+// tokens never share a reader: each reader carries the one token it was
+// built with. The key never holds the token itself.
 func readerKey(id Identity) string {
 	groups := slices.Clone(id.Groups)
 	slices.Sort(groups)
-	key, _ := json.Marshal(append([]string{id.Username}, groups...))
+	k := struct {
+		Method   string   `json:"m"`
+		Username string   `json:"u"`
+		Groups   []string `json:"g"`
+		Token    string   `json:"h,omitempty"`
+	}{Method: MethodOIDC, Username: id.Username, Groups: groups}
+	if id.IsToken() {
+		sum := sha256.Sum256([]byte(id.Token.Reveal()))
+		k.Method, k.Token = MethodToken, hex.EncodeToString(sum[:])
+	}
+	key, _ := json.Marshal(k)
 	return string(key)
 }
 
