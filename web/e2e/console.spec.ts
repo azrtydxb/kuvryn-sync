@@ -27,3 +27,15 @@ test("TestConsolePages", async ({ page }) => {
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
   }
 });
+
+test("TestTableRowsAreKeyboardLinks", async ({ page }) => {
+  await page.goto("/apps");
+  await page.getByRole("link", { name: "catalog", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/apps\/[^/]+\/catalog$/);
+  await page.goto("/revisions");
+  const rev = page.getByRole("table").getByRole("link").first();
+  await rev.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/apps\/[^/]+\/[^/]+\/history$/);
+});

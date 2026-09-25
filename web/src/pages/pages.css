@@ -241,3 +241,12 @@
 .ks-nspick__row > .az-field {
   flex: 1;
 }
+
+/* Table rows link through their first cell, so keyboard and screen-reader
+   users get a real link; it keeps the row's text colour. */
+.ks-rowlink {
+  color: inherit;
+}
+.ks-rowlink:focus-visible {
+  outline-offset: 3px;
+}

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { usePoll } from "../api/client";
 import type { RevisionRow } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
@@ -13,14 +13,13 @@ export default function Revisions() {
   const poll = usePoll<RevisionRow[]>(
     withNamespace("/api/revisions", namespace),
   );
-  const open = (r: RevisionRow) =>
-    navigate(
-      "/apps/" +
-        encodeURIComponent(r.namespace) +
-        "/" +
-        encodeURIComponent(r.application) +
-        "/history",
-    );
+  const href = (r: RevisionRow) =>
+    "/apps/" +
+    encodeURIComponent(r.namespace) +
+    "/" +
+    encodeURIComponent(r.application) +
+    "/history";
+  const open = (r: RevisionRow) => navigate(href(r));
   return (
     <>
       <PageHead
@@ -48,11 +47,17 @@ export default function Revisions() {
                 <tr
                   key={r.namespace + "/" + r.name}
                   className="az-table__row--click"
-                  tabIndex={0}
                   onClick={() => open(r)}
-                  onKeyDown={(e) => e.key === "Enter" && open(r)}
                 >
-                  <td className="az-table__mono ks-strong">{r.name}</td>
+                  <td className="az-table__mono ks-strong">
+                    <Link
+                      className="ks-rowlink"
+                      to={href(r)}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {r.name}
+                    </Link>
+                  </td>
                   <td>{r.application}</td>
                   <td className="az-table__mono">{shortSha(r.commit)}</td>
                   <td>

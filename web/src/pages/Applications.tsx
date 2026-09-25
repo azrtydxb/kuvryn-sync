@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { usePoll } from "../api/client";
 import type { AppDetail, AppRow } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
@@ -33,14 +33,13 @@ export default function Applications() {
       : null,
   );
   const cause = diagnosis.data?.diagnosis[0];
-  const open = (a: AppRow, tab?: string) =>
-    navigate(
-      "/apps/" +
-        encodeURIComponent(a.namespace) +
-        "/" +
-        encodeURIComponent(a.name) +
-        (tab ? "/" + tab : ""),
-    );
+  const href = (a: AppRow, tab?: string) =>
+    "/apps/" +
+    encodeURIComponent(a.namespace) +
+    "/" +
+    encodeURIComponent(a.name) +
+    (tab ? "/" + tab : "");
+  const open = (a: AppRow, tab?: string) => navigate(href(a, tab));
 
   const repos = new Set(apps.map((a) => a.repository)).size;
   const healthy = count(apps, (a) => a.health === "Healthy");
@@ -132,12 +131,16 @@ export default function Applications() {
                 <tr
                   key={a.namespace + "/" + a.name}
                   className="az-table__row--click"
-                  tabIndex={0}
                   onClick={() => open(a)}
-                  onKeyDown={(e) => e.key === "Enter" && open(a)}
                 >
                   <td className="az-table__primary">
-                    {a.name}
+                    <Link
+                      className="ks-rowlink"
+                      to={href(a)}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {a.name}
+                    </Link>
                     <small>
                       {a.path} · {a.render}
                     </small>
