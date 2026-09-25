@@ -146,3 +146,11 @@ func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
 		t.Fatalf("redirect was followed: err = %v, followed = %v", err, followed.Load())
 	}
 }
+
+// Receivers verify these exact header names, so they are part of the public
+// contract and must not change with a refactor of the constants.
+func TestNotificationHeaderNames(t *testing.T) {
+	if SignatureHeader != "X-Kuvryn-Sync-Signature" || EventHeader != "X-Kuvryn-Sync-Event" {
+		t.Fatalf("headers = %q, %q; want X-Kuvryn-Sync-Signature, X-Kuvryn-Sync-Event", SignatureHeader, EventHeader)
+	}
+}

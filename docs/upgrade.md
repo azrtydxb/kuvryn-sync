@@ -70,8 +70,19 @@ To move a cluster over, one Application at a time:
    `spec.sync.conflictPolicy: adopt` to take ownership, as in
    [Migrate from Flux](migrate-flux.md). Only the suspended Solder Application
    may still point at these workloads; never run both against them.
-5. **Delete the Solder Application** with `deletionPolicy: Orphan` (the
-   default), which leaves its workloads in place.
+5. **Delete the Solder Application, orphaning its workloads.** Set
+   `deletionPolicy: Orphan` explicitly first. Suspending does not stop
+   Solder's deletion path, and an Application set to `DeleteManagedResources`
+   would delete the workloads you just took over:
+
+   ```sh
+   kubectl -n <namespace> patch applications.solder.io <app> --type merge \
+     -p '{"spec":{"deletionPolicy":"Orphan"}}'
+   kubectl -n <namespace> get applications.solder.io <app> \
+     -o jsonpath='{.spec.deletionPolicy}'   # must print Orphan
+   kubectl -n <namespace> delete applications.solder.io <app>
+   ```
+
 6. **Drop Solder's leftover field ownership.** Where both controllers applied
    the same values, Server-Side Apply records `solder` as a co-owner, and a
    field removed from Git later would stay live. Clear the records on the

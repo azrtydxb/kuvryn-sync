@@ -25,6 +25,9 @@ import (
 // SignatureHeader carries `sha256=<hex HMAC-SHA256 of the body>` on webhook deliveries.
 const SignatureHeader = "X-Kuvryn-Sync-Signature"
 
+// EventHeader names the lifecycle event on webhook deliveries.
+const EventHeader = "X-Kuvryn-Sync-Event"
+
 var deliveries = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Name: "kuvryn_sync_notification_deliveries_total",
 	Help: "Notification deliveries by sink type and result (delivered, failed, dropped).",
@@ -152,7 +155,7 @@ func (d *Dispatcher) send(ctx context.Context, delivery Delivery) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if delivery.Target.Type == corev1alpha1.NotificationSinkWebhook {
-		req.Header.Set("X-Kuvryn-Sync-Event", string(delivery.Message.Event))
+		req.Header.Set(EventHeader, string(delivery.Message.Event))
 		req.Header.Set(SignatureHeader, Sign(delivery.Target.HMACKey, body))
 	}
 	resp, err := d.client.Do(req)
