@@ -602,6 +602,11 @@ Interfaces: consumes the merged rename branch. Produces the repository
 
 ## Task 11: Release v0.4.0 and make the image public
 
+> Decision 2026-09-25: the maintainer kept the GHCR package private ("no need to
+> make it public now, you can use our existing gh tokens"). v0.4.0 was verified on
+> kw with the existing pull secret, and 0.4.1 adds `image.pullSecrets` to the
+> chart. `TestReleaseImageIsPublic` stays for when the package goes public.
+
 Files:
 
 - `charts/kuvryn-sync/Chart.yaml`: `version: 0.4.0` and `appVersion: 0.4.0`.

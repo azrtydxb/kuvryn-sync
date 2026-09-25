@@ -5,6 +5,9 @@ image:
   # with an image built from the same commit.
   tag: ""
   pullPolicy: IfNotPresent
+  # Names of kubernetes.io/dockerconfigjson Secrets in the release namespace,
+  # used by the manager and console Deployments to pull a private image.
+  pullSecrets: []
 
 replicaCount: 2
 leaderElection: true

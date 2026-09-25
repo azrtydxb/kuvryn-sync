@@ -78,6 +78,12 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: {{ $name }}
+      {{- with $.Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:

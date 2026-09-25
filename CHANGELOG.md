@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+
+_The chart can pull a private image._
+
+- **New:** the chart takes `image.pullSecrets`, a list of `dockerconfigjson`
+  Secret names that the manager and console Deployments use to pull a private
+  image. `docs/install.md` shows how to create one, and how to patch the raw
+  manifests instead.
+
 ## 0.4.0
 
 _Solder is now Kuvryn Sync, part of the Kuvryn family of Azrty products, and
