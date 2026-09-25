@@ -333,10 +333,17 @@ Files:
   the check that config paths must name `.ksync.yaml` files.
 - `internal/controller/*_test.go`: fixtures that write `.solder.yaml`.
 - `internal/controller/discovery_file_test.go`: new.
+- `api/v1alpha1/repository_types.go`: the `applicationConfigPaths` doc
+  comments, which become the CRD field descriptions.
+- `config/samples/core_v1alpha1_repository.yaml`: its
+  `applicationConfigPaths` entry, which must now name `.ksync.yaml`.
 
 Interfaces: produces the constant `configFileName = ".ksync.yaml"`, used by
 `solderConfigPaths`, which is renamed `configPaths`, and by
 `applicationsFromSolderFile`, which is renamed `applicationsFromConfigFile`.
+The envelope type `solderRepositoryFile` is renamed `repositoryConfigFile`,
+and `TestSolderConfigCannotLinkOutOfTheRepository` is renamed
+`TestConfigFileCannotLinkOutOfTheRepository`.
 
 - [ ] Write the failing test `internal/controller/discovery_file_test.go`,
       using the existing envtest pattern:

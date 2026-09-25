@@ -27,14 +27,14 @@ type RepositorySpec struct {
 	// git configures a Git desired-state source.
 	// +optional
 	Git *GitRepositorySpec `json:"git,omitempty"`
-	// applicationConfigPaths are repository-relative .solder.yaml files that
-	// declare Applications for this Repository. When empty, Solder reads
-	// .solder.yaml from the repository root.
+	// applicationConfigPaths are repository-relative .ksync.yaml files that
+	// declare Applications for this Repository. When empty, Kuvryn Sync reads
+	// .ksync.yaml from the repository root.
 	// +listType=atomic
 	// +optional
 	ApplicationConfigPaths []string `json:"applicationConfigPaths,omitempty"`
 	// applicationServiceAccountName is the service account that Applications
-	// discovered from .solder.yaml run as. Discovered Applications may only
+	// discovered from .ksync.yaml run as. Discovered Applications may only
 	// name this account; when it is empty they may not set serviceAccountName
 	// and use the controller's default service account.
 	// +kubebuilder:validation:MaxLength=253

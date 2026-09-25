@@ -12,5 +12,5 @@ spec:
       secretRef:
         name: platform-git
   applicationConfigPaths:
-    - .solder.yaml
+    - .ksync.yaml
   pollInterval: 60s

@@ -54,9 +54,9 @@ spec:
               properties:
                 applicationConfigPaths:
                   description: |-
-                    applicationConfigPaths are repository-relative .solder.yaml files that
-                    declare Applications for this Repository. When empty, Solder reads
-                    .solder.yaml from the repository root.
+                    applicationConfigPaths are repository-relative .ksync.yaml files that
+                    declare Applications for this Repository. When empty, Kuvryn Sync reads
+                    .ksync.yaml from the repository root.
                   items:
                     type: string
                   type: array
@@ -64,7 +64,7 @@ spec:
                 applicationServiceAccountName:
                   description: |-
                     applicationServiceAccountName is the service account that Applications
-                    discovered from .solder.yaml run as. Discovered Applications may only
+                    discovered from .ksync.yaml run as. Discovered Applications may only
                     name this account; when it is empty they may not set serviceAccountName
                     and use the controller's default service account.
                   maxLength: 253

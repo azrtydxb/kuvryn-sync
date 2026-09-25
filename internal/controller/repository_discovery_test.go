@@ -43,7 +43,7 @@ func TestUpsertDiscoveredApplicationRefusesAnApplicationAnotherControllerOwns(t 
 	repository := &corev1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: "default", UID: "platform-uid"}}
 	desired := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}, Spec: corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{Path: "taken"}}}
 
-	if err := r.upsertDiscoveredApplication(context.Background(), repository, desired, solderConfigFileName); err == nil {
+	if err := r.upsertDiscoveredApplication(context.Background(), repository, desired, configFileName); err == nil {
 		t.Fatal("took over an Application another controller owns")
 	}
 	got := &corev1alpha1.Application{}
@@ -55,7 +55,7 @@ func TestUpsertDiscoveredApplicationRefusesAnApplicationAnotherControllerOwns(t 
 	}
 }
 
-// Catches a .solder.yaml starting a rollback: rollbacks come from people or
+// Catches a .ksync.yaml starting a rollback: rollbacks come from people or
 // a failure policy, never from Git.
 func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 	repository := &corev1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: "default"}}
@@ -66,7 +66,7 @@ func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 		"team":                                  "payments",
 	}}}
 	app.Spec.Source.Render.Type = corev1alpha1.RenderTypeYAML
-	normalized, err := normalizeDiscoveredApplication(repository, solderConfigFileName, 0, app, map[string]struct{}{})
+	normalized, err := normalizeDiscoveredApplication(repository, configFileName, 0, app, map[string]struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
