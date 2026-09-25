@@ -241,7 +241,13 @@ Files:
 - `internal/console/kube_test.go`.
 
 Interfaces: consumes `Identity`. Produces `UserClient` and
-`ErrWriteRefused`.
+`ErrWriteRefused`, plus `ErrForbiddenPath` and `ErrNotImpersonated`. client-go
+applies `WrapTransport` inside its impersonation wrapper, so
+`readOnlyTransport` sees the final request: besides refusing non-GETs and
+Secret paths, it refuses a request whose `Impersonate-User` is missing, a
+`system:` identity or not the session user, a `system:` `Impersonate-Group`,
+any `Upgrade` header, and the `proxy`, `exec`, `attach`, `portforward` and
+`log` subresources.
 
 - [ ] Write `internal/console/kube_test.go`:
   ```go
