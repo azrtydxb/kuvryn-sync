@@ -287,6 +287,11 @@ Files:
   follows.
 - `Dockerfile`: the build output is `ksync`, copied to `/ksync`, with
   `ENTRYPOINT ["/ksync"]`.
+- `config/manager/manager.yaml`: the container `command` becomes `/ksync`,
+  or the kustomize install runs a binary the image no longer has.
+- The `Usage` text lists every command as `ksync <cmd>`, which the new
+  test requires; `TestHelpListsEveryCommand` follows that layout.
+- The notification tests that assert `ApproveCommand`.
 - `internal/cli/version_test.go`: extended.
 - `internal/cli/help_test.go`: new.
 

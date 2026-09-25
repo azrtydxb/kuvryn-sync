@@ -38,7 +38,7 @@ func rollbackApp(desired, deployed string) *corev1alpha1.Application {
 }
 
 // Catches a default target that is the deployed or desired revision, which
-// made `solder rollback` without --revision do nothing, and one that ignores
+// made `ksync rollback` without --revision do nothing, and one that ignores
 // earlier rollback targets.
 func TestDefaultRollbackTarget(t *testing.T) {
 	other := rollbackRevision("search-z", "z-sha", corev1alpha1.RevisionPhaseHealthy, 9)
@@ -209,7 +209,7 @@ func TestApproveRefusesARolledBackRevision(t *testing.T) {
 	c := rollbackClient(t, rollbackApp("b-sha", "a-sha"), held)
 	var stdout bytes.Buffer
 	err := approve(context.Background(), c, "default", "payments", "payments-b", &stdout)
-	if err == nil || err.Error() != "revision payments-b was replaced by a rollback; push a new commit, delete the Revision, or run solder rollback --revision payments-b" {
+	if err == nil || err.Error() != "revision payments-b was replaced by a rollback; push a new commit, delete the Revision, or run ksync rollback --revision payments-b" {
 		t.Fatalf("err = %v", err)
 	}
 }

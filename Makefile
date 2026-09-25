@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= solder:latest
-# VERSION is embedded in the binary and printed by `solder version`: the Git
+# VERSION is embedded in the binary and printed by `ksync version`: the Git
 # tag of the checkout, or sha-<short commit> when HEAD is not tagged, either
 # suffixed -dirty when the working tree has changes.
 VERSION ?= $(shell git describe --tags --exact-match --dirty 2>/dev/null || echo "sha-$$(git describe --always --dirty --exclude='*' 2>/dev/null || echo unknown)")
@@ -138,8 +138,8 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
-	go build -ldflags "$(LDFLAGS)" -o bin/manager cmd/main.go
+build: manifests generate fmt vet ## Build the ksync binary (CLI and manager).
+	go build -ldflags "$(LDFLAGS)" -o bin/ksync cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

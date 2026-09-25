@@ -1611,7 +1611,7 @@ func (r *ApplicationReconciler) notify(ctx context.Context, application *corev1a
 			Message: redact.String(message), Plan: revision.Status.Plan.Summary, Time: time.Now().UTC(),
 		}
 		if event == corev1alpha1.NotificationAwaitingApproval {
-			msg.ApproveCommand = fmt.Sprintf("solder approve %s -n %s --revision %s", application.Name, application.Namespace, revision.Name)
+			msg.ApproveCommand = fmt.Sprintf("ksync approve %s -n %s --revision %s", application.Name, application.Namespace, revision.Name)
 		}
 		failed := application.DeepCopy()
 		sink := subscription.SinkRef.Name

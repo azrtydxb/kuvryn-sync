@@ -18,7 +18,7 @@ func approvalMessage() Message {
 	return Message{
 		Event: corev1alpha1.NotificationAwaitingApproval, Application: "payments", Namespace: "default",
 		Revision: "payments-abc", SourceRevision: "abc123", Plan: corev1alpha1.PlanSummary{Create: 2},
-		ApproveCommand: "solder approve payments -n default --revision payments-abc",
+		ApproveCommand: "ksync approve payments -n default --revision payments-abc",
 	}
 }
 
@@ -114,7 +114,7 @@ func TestSlackBodyCarriesApproveCommand(t *testing.T) {
 	if err := json.Unmarshal(body, &slack); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(slack["text"], "solder approve payments") || !strings.Contains(slack["text"], "2 create") {
+	if !strings.Contains(slack["text"], "ksync approve payments") || !strings.Contains(slack["text"], "2 create") {
 		t.Fatalf("slack text = %q", slack["text"])
 	}
 }

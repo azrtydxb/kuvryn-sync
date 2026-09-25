@@ -19,13 +19,13 @@ import (
 )
 
 func runGraph(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs, namespace := newFlagSet("solder graph", stderr)
+	fs, namespace := newFlagSet("ksync graph", stderr)
 	output := fs.String("o", "json", "output format: json or dot")
 	if err := fs.Parse(interspersedFlags(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || (*output != "json" && *output != "dot") {
-		return fmt.Errorf("usage: solder graph <application> [-n namespace] [-o json|dot]")
+		return fmt.Errorf("usage: ksync graph <application> [-n namespace] [-o json|dot]")
 	}
 	c, err := clusterClient()
 	if err != nil {

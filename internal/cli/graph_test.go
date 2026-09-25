@@ -182,7 +182,7 @@ func TestGraphDOT(t *testing.T) {
 func TestGraphRejectsUnknownFormats(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	handled, code := Run(context.Background(), []string{"graph", "payments", "-o", "svg"}, &stdout, &stderr)
-	if !handled || code != 1 || !strings.Contains(stderr.String(), "usage: solder graph") {
+	if !handled || code != 1 || !strings.Contains(stderr.String(), "usage: ksync graph") {
 		t.Fatalf("handled=%v code=%d stderr=%s", handled, code, stderr.String())
 	}
 }
@@ -320,7 +320,7 @@ func TestHelpListsEveryCommand(t *testing.T) {
 		t.Fatalf("handled=%v code=%d", handled, code)
 	}
 	for _, command := range []string{"apps", "repos", "repo get", "get", "history", "revision", "plan", "diagnose", "graph", "drift", "sync", "rollback", "suspend", "resume", "install", "version"} {
-		if !strings.Contains(stdout.String(), "  "+command+" ") {
+		if !strings.Contains(stdout.String(), "  ksync "+command+" ") {
 			t.Errorf("help does not list %q", command)
 		}
 	}
