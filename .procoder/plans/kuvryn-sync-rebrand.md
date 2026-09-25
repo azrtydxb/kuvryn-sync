@@ -469,9 +469,29 @@ Files:
 - `hack/migration/*.sh`: the resource names, namespace and field manager
   `kuvryn-sync`.
 
-Interfaces: consumes the fixture repository `azrtydxb/kuvryn-sync-e2e-app` with
-`.ksync.yaml` at the root and under its staged path, plus the names from
-Tasks 2 to 7.
+As found when this task ran:
+
+- The fixture repository holds no `.solder.yaml` anywhere, and the e2e
+  suite creates its Repositories and Applications inline instead of
+  discovering them, so there is no discovery file to rename. What the
+  fixture needed was its `solder.io/hook` and `solder.io/sync-wave`
+  annotations and `test.solder.io/case` labels moved to `sync.kuvryn.io`,
+  and its `solder-e2e*` names and namespaces moved to `kuvryn-sync-e2e*`,
+  which the suite asserts. Discovery stays covered by the envtest suite
+  (`TestDiscoveryReadsKsyncYaml` and the Repository controller specs).
+- Task 1's module-path `sed` already rewrote the fixture URL in
+  `test/e2e/e2e_test.go` to `kuvryn-sync-e2e-app.git`, because it matches
+  the `github.com/azrtydxb/solder` prefix.
+- The four workflows run only on `push` to `main` and on `pull_request`,
+  so pushing the branch alone starts nothing. Until Task 10 opens the PR,
+  a temporary commit adds `feat/kuvryn-sync-rebrand` to their `push`
+  branches, and a follow-up commit reverts it once CI is green.
+- The longer names push two e2e lines past the 120-column `lll` limit;
+  they are wrapped.
+
+Interfaces: consumes the fixture repository `azrtydxb/kuvryn-sync-e2e-app`
+(renamed, with `sync.kuvryn.io` keys and `kuvryn-sync-e2e*` names), plus the
+names from Tasks 2 to 7.
 
 - [ ] Rename the fixture repository, then run
       `gh api repos/azrtydxb/kuvryn-sync-e2e-app --jq .full_name`. Expect

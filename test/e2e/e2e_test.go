@@ -36,16 +36,16 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "solder-system"
+const namespace = "kuvryn-sync-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "solder-controller-manager"
+const serviceAccountName = "kuvryn-sync-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "solder-controller-manager-metrics-service"
+const metricsServiceName = "kuvryn-sync-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "solder-metrics-binding"
+const metricsRoleBindingName = "kuvryn-sync-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -182,7 +182,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=solder-metrics-reader",
+				"--clusterrole=kuvryn-sync-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 				"--dry-run=client", "-o", "yaml",
 			)
@@ -226,7 +226,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("waiting for the webhook service endpoints to be ready")
 			verifyWebhookEndpointsReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "endpointslices.discovery.k8s.io", "-n", namespace,
-					"-l", "kubernetes.io/service-name=solder-webhook-service",
+					"-l", "kubernetes.io/service-name=kuvryn-sync-webhook-service",
 					"-o", "jsonpath={range .items[*]}{range .endpoints[*]}{.addresses[*]}{end}{end}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred(), "Webhook endpoints should exist")
@@ -237,7 +237,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the validating webhook server is ready")
 			verifyValidatingWebhookReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "validatingwebhookconfigurations.admissionregistration.k8s.io",
-					"solder-validating-webhook-configuration",
+					"kuvryn-sync-validating-webhook-configuration",
 					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred(), "ValidatingWebhookConfiguration should exist")
@@ -248,7 +248,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the mutating webhook server is ready")
 			verifyMutatingWebhookReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "mutatingwebhookconfigurations.admissionregistration.k8s.io",
-					"solder-mutating-webhook-configuration",
+					"kuvryn-sync-mutating-webhook-configuration",
 					"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred(), "MutatingWebhookConfiguration should exist")
@@ -292,7 +292,7 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetricsAvailable, 2*time.Minute).Should(Succeed())
 		})
 
-		It("should reconcile a GitHub-backed Solder Application end to end", func() {
+		It("should reconcile a GitHub-backed Kuvryn Sync Application end to end", func() {
 			manifestPath := writeTempManifest(productApplicationManifest)
 
 			By("applying a Repository and Application that render plain YAML from Git")
@@ -302,13 +302,13 @@ var _ = Describe("Manager", Ordered, func() {
 
 			DeferCleanup(func() {
 				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
-				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e", "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "kuvryn-sync-e2e", "--ignore-not-found=true"))
 			})
 
 			By("waiting for the Repository to resolve an immutable Git revision")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "repository", "solder-e2e-product-repo", "-o",
+					"kubectl", "get", "repository", "kuvryn-sync-e2e-product-repo", "-o",
 					"jsonpath={.status.state}:{.status.observedRevision}",
 				)
 				output, err := utils.Run(cmd)
@@ -319,7 +319,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("waiting for the Application to become synced and healthy")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "application", "solder-e2e-product", "-o",
+					"kubectl", "get", "application", "kuvryn-sync-e2e-product", "-o",
 					"jsonpath={.status.sync.state}:{.status.health.state}:{.status.desiredRevision}:{.status.deployedRevision}",
 				)
 				output, err := utils.Run(cmd)
@@ -332,17 +332,17 @@ var _ = Describe("Manager", Ordered, func() {
 			By("verifying the rendered Kubernetes object was applied")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "configmap", "solder-e2e-config", "-n", "solder-e2e", "-o",
-					"jsonpath={.data.source}:{.data.version}:{.metadata.annotations.solder\\.io/revision}",
+					"kubectl", "get", "configmap", "kuvryn-sync-e2e-config", "-n", "kuvryn-sync-e2e", "-o",
+					"jsonpath={.data.source}:{.data.version}:{.metadata.annotations.sync\\.kuvryn\\.io/revision}",
 				)
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(MatchRegexp(`^github:v[0-9]+:solder-e2e-product-[0-9a-f]+$`))
+				g.Expect(output).To(MatchRegexp(`^github:v[0-9]+:kuvryn-sync-e2e-product-[0-9a-f]+$`))
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying a healthy Revision was recorded")
 			cmd = exec.Command(
-				"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=solder-e2e-product", "-o",
+				"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=kuvryn-sync-e2e-product", "-o",
 				"jsonpath={.items[0].status.phase}",
 			)
 			output, err := utils.Run(cmd)
@@ -360,14 +360,14 @@ var _ = Describe("Manager", Ordered, func() {
 
 			DeferCleanup(func() {
 				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
-				_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", "solder-e2e-escalation",
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "clusterrolebinding", "kuvryn-sync-e2e-escalation",
 					"--ignore-not-found=true"))
 			})
 
 			By("waiting for the Revision to fail as Forbidden")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=solder-e2e-escalation", "-o",
+					"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=kuvryn-sync-e2e-escalation", "-o",
 					"jsonpath={.items[0].status.phase}:{.items[0].status.failure.reason}",
 				)
 				output, err := utils.Run(cmd)
@@ -376,11 +376,11 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying the ClusterRoleBinding was not created")
-			cmd = exec.Command("kubectl", "get", "clusterrolebinding", "solder-e2e-escalation",
+			cmd = exec.Command("kubectl", "get", "clusterrolebinding", "kuvryn-sync-e2e-escalation",
 				"--ignore-not-found=true", "-o", "name")
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(BeEmpty(), "tenant escalated through Solder")
+			Expect(output).To(BeEmpty(), "tenant escalated through Kuvryn Sync")
 		})
 
 		It("should apply a manual Application only after an attributed approval", func() {
@@ -390,14 +390,14 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred(), "Failed to apply approval e2e resources")
 			DeferCleanup(func() {
 				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f", manifestPath, "--ignore-not-found=true"))
-				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "solder-e2e", "--ignore-not-found=true"))
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "namespace", "kuvryn-sync-e2e", "--ignore-not-found=true"))
 			})
 
 			By("waiting for the plan to await approval")
 			var revision, digest string
 			Eventually(func(g Gomega) {
 				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
-					"-l", "sync.kuvryn.io/application=solder-e2e-approval",
+					"-l", "sync.kuvryn.io/application=kuvryn-sync-e2e-approval",
 					"-o", "jsonpath={.items[0].metadata.name} {.items[0].status.phase} {.items[0].status.plan.digest}"))
 				g.Expect(err).NotTo(HaveOccurred())
 				fields := strings.Fields(output)
@@ -407,20 +407,20 @@ var _ = Describe("Manager", Ordered, func() {
 			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("approving the Revision as the kubectl user")
-			_, err = utils.Run(exec.Command("kubectl", "annotate", "application", "solder-e2e-approval",
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "application", "kuvryn-sync-e2e-approval",
 				"sync.kuvryn.io/approved-revision="+revision))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying the webhook recorded the approver and a forged approver is reverted")
-			approver, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
-				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			approver, err := utils.Run(exec.Command("kubectl", "get", "application", "kuvryn-sync-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.sync\\.kuvryn\\.io/approved-by}"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(approver).NotTo(BeEmpty())
-			_, err = utils.Run(exec.Command("kubectl", "annotate", "--overwrite", "application", "solder-e2e-approval",
+			_, err = utils.Run(exec.Command("kubectl", "annotate", "--overwrite", "application", "kuvryn-sync-e2e-approval",
 				"sync.kuvryn.io/approved-by=mallory"))
 			Expect(err).NotTo(HaveOccurred())
-			stillApprover, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
-				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
+			stillApprover, err := utils.Run(exec.Command("kubectl", "get", "application", "kuvryn-sync-e2e-approval",
+				"-o", "jsonpath={.metadata.annotations.sync\\.kuvryn\\.io/approved-by}"))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stillApprover).To(Equal(approver))
 
@@ -449,7 +449,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("waiting for the Revision to become Healthy with both hooks done")
 			Eventually(func(g Gomega) {
 				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
-					"-l", "sync.kuvryn.io/application=solder-e2e-staged", "-o",
+					"-l", "sync.kuvryn.io/application=kuvryn-sync-e2e-staged", "-o",
 					"jsonpath={.items[0].status.phase} {range .items[0].status.hooks[*]}{.stage}={.state} {end}"))
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.Fields(output)).To(ConsistOf("Healthy", "PreSync=Healthy", "PostSync=Healthy"))
@@ -460,24 +460,25 @@ var _ = Describe("Manager", Ordered, func() {
 			// not-after check between two objects created in the same second
 			// passes whatever order they were created in. Only the pre-sync
 			// boundary has a gap the fixture forces: the migrate Job sleeps
-			// 5 seconds, so if Solder waits for it, the wave-0 Deployment is
+			// 5 seconds, so if Kuvryn Sync waits for it, the wave-0 Deployment is
 			// created at least 5 seconds after the Job, while without the wait
 			// both are created in the same pass, within a second. That boundary
 			// is asserted strictly. The fixture forces no gap at the other
 			// boundaries, so they are only checked for gross reordering.
 			field := func(kind, name, path string) time.Time {
-				value := get("get", kind, name, "-n", "solder-e2e-staged", "-o", "jsonpath={"+path+"}")
+				value := get("get", kind, name, "-n", "kuvryn-sync-e2e-staged", "-o", "jsonpath={"+path+"}")
 				parsed, err := time.Parse(time.RFC3339, value)
 				Expect(err).NotTo(HaveOccurred(), "%s %s %s = %q", kind, name, path, value)
 				return parsed
 			}
 			created := ".metadata.creationTimestamp"
-			migrateCreated := field("job", "solder-e2e-migrate", created)
-			migrated := field("job", "solder-e2e-migrate", ".status.completionTime")
-			deployed := field("deployment", "solder-e2e-api", created)
-			available := field("deployment", "solder-e2e-api", `.status.conditions[?(@.type=="Available")].lastTransitionTime`)
-			wave1 := field("configmap", "solder-e2e-after-api", created)
-			smoke := field("job", "solder-e2e-smoke", created)
+			migrateCreated := field("job", "kuvryn-sync-e2e-migrate", created)
+			migrated := field("job", "kuvryn-sync-e2e-migrate", ".status.completionTime")
+			deployed := field("deployment", "kuvryn-sync-e2e-api", created)
+			available := field("deployment", "kuvryn-sync-e2e-api",
+				`.status.conditions[?(@.type=="Available")].lastTransitionTime`)
+			wave1 := field("configmap", "kuvryn-sync-e2e-after-api", created)
+			smoke := field("job", "kuvryn-sync-e2e-smoke", created)
 			Expect(deployed.Sub(migrateCreated)).To(BeNumerically(">=", 5*time.Second),
 				"Deployment created %s after the pre-sync hook, which runs for at least 5s", deployed.Sub(migrateCreated))
 			Expect(migrated).NotTo(BeTemporally(">", deployed), "Deployment created before the pre-sync hook finished")
@@ -489,7 +490,7 @@ var _ = Describe("Manager", Ordered, func() {
 			manifestPath := writeTempManifest(`apiVersion: sync.kuvryn.io/v1alpha1
 kind: HealthCheck
 metadata:
-  name: solder-e2e-invalid
+  name: kuvryn-sync-e2e-invalid
 spec:
   group: argoproj.io
   kind: Rollout
@@ -501,7 +502,8 @@ spec:
 			output, err := utils.Run(cmd)
 			Expect(err).To(HaveOccurred(), "invalid HealthCheck was admitted: %s", output)
 			Expect(err.Error()).To(ContainSubstring("spec.rules[0].expression"))
-			_, _ = utils.Run(exec.Command("kubectl", "delete", "healthcheck", "solder-e2e-invalid", "--ignore-not-found=true"))
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "healthcheck", "kuvryn-sync-e2e-invalid",
+				"--ignore-not-found=true"))
 		})
 
 		It("should provision the webhook certificate with cert-manager", func() {
@@ -598,7 +600,7 @@ func metricsPodOverride(token string) (string, error) {
 }
 
 func writeTempManifest(content string) string {
-	file, err := os.CreateTemp("", "solder-product-e2e-*.yaml")
+	file, err := os.CreateTemp("", "kuvryn-sync-product-e2e-*.yaml")
 	Expect(err).NotTo(HaveOccurred())
 	_, err = file.WriteString(content)
 	Expect(err).NotTo(HaveOccurred())
@@ -659,21 +661,21 @@ spec:
 }
 
 var productApplicationManifest = fixtureManifest(
-	"solder-e2e", "solder-e2e-deployer", "solder-e2e-product-repo",
+	"kuvryn-sync-e2e", "kuvryn-sync-e2e-deployer", "kuvryn-sync-e2e-product-repo",
 	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
-  name: solder-e2e-product
+  name: kuvryn-sync-e2e-product
 spec:
-  serviceAccountName: solder-e2e-deployer
+  serviceAccountName: kuvryn-sync-e2e-deployer
   source:
     repositoryRef:
-      name: solder-e2e-product-repo
+      name: kuvryn-sync-e2e-product-repo
     path: manifests
     render:
       type: yaml
   destination:
-    namespace: solder-e2e
+    namespace: kuvryn-sync-e2e
   sync:
     automatic: true
     prune: true
@@ -694,21 +696,21 @@ spec:
 // that would grant the Application's own namespace-scoped service account
 // cluster-admin.
 var escalationApplicationManifest = fixtureManifest(
-	"solder-e2e", "solder-e2e-deployer", "solder-e2e-escalation-repo",
+	"kuvryn-sync-e2e", "kuvryn-sync-e2e-deployer", "kuvryn-sync-e2e-escalation-repo",
 	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
-  name: solder-e2e-escalation
+  name: kuvryn-sync-e2e-escalation
 spec:
-  serviceAccountName: solder-e2e-deployer
+  serviceAccountName: kuvryn-sync-e2e-deployer
   source:
     repositoryRef:
-      name: solder-e2e-escalation-repo
+      name: kuvryn-sync-e2e-escalation-repo
     path: escalation
     render:
       type: yaml
   destination:
-    namespace: solder-e2e
+    namespace: kuvryn-sync-e2e
   sync:
     automatic: true
     conflictPolicy: fail
@@ -716,21 +718,21 @@ spec:
 
 // approvalApplicationManifest deploys the product fixture with manual approval.
 var approvalApplicationManifest = fixtureManifest(
-	"solder-e2e", "solder-e2e-deployer", "solder-e2e-approval-repo",
+	"kuvryn-sync-e2e", "kuvryn-sync-e2e-deployer", "kuvryn-sync-e2e-approval-repo",
 	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
-  name: solder-e2e-approval
+  name: kuvryn-sync-e2e-approval
 spec:
-  serviceAccountName: solder-e2e-deployer
+  serviceAccountName: kuvryn-sync-e2e-deployer
   source:
     repositoryRef:
-      name: solder-e2e-approval-repo
+      name: kuvryn-sync-e2e-approval-repo
     path: manifests
     render:
       type: yaml
   destination:
-    namespace: solder-e2e
+    namespace: kuvryn-sync-e2e
   sync:
     automatic: false
     conflictPolicy: fail
@@ -740,21 +742,21 @@ spec:
 // hook Job that sleeps 5 seconds, a wave-0 Deployment, a wave-1 ConfigMap,
 // and a post-sync hook Job.
 var stagedApplicationManifest = fixtureManifest(
-	"solder-e2e-staged", "solder-e2e-staged-deployer", "solder-e2e-staged-repo",
+	"kuvryn-sync-e2e-staged", "kuvryn-sync-e2e-staged-deployer", "kuvryn-sync-e2e-staged-repo",
 	`apiVersion: sync.kuvryn.io/v1alpha1
 kind: Application
 metadata:
-  name: solder-e2e-staged
+  name: kuvryn-sync-e2e-staged
 spec:
-  serviceAccountName: solder-e2e-staged-deployer
+  serviceAccountName: kuvryn-sync-e2e-staged-deployer
   source:
     repositoryRef:
-      name: solder-e2e-staged-repo
+      name: kuvryn-sync-e2e-staged-repo
     path: staged
     render:
       type: yaml
   destination:
-    namespace: solder-e2e-staged
+    namespace: kuvryn-sync-e2e-staged
   sync:
     automatic: true
     prune: true

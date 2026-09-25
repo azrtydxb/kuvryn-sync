@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  IMG: solder:e2e-${{ github.sha }}
+  IMG: kuvryn-sync:e2e-${{ github.sha }}
 
 jobs:
   test-e2e:
@@ -69,9 +69,9 @@ jobs:
         run: |
           go mod tidy
           # --retain keeps a node that fails to boot so its logs can be read.
-          kind create cluster --name solder-test-e2e --retain || {
+          kind create cluster --name kuvryn-sync-test-e2e --retain || {
             docker info --format 'cgroup {{.CgroupVersion}} driver {{.CgroupDriver}}' || true
-            docker logs solder-test-e2e-control-plane 2>&1 | tail -60 || true
+            docker logs kuvryn-sync-test-e2e-control-plane 2>&1 | tail -60 || true
             exit 1
           }
           make setup-test-e2e manifests generate
@@ -79,10 +79,10 @@ jobs:
           # namespace (arc-runners) when the context names none; the suite
           # expects default.
           kubectl config set-context --current --namespace=default
-          kind load docker-image "$IMG" --name solder-test-e2e
+          kind load docker-image "$IMG" --name kuvryn-sync-test-e2e
 
       - name: Running Test e2e
-        run: IMG="$IMG" KIND_CLUSTER=solder-test-e2e go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+        run: IMG="$IMG" KIND_CLUSTER=kuvryn-sync-test-e2e go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 
       - name: Collect cluster diagnostics
         if: failure()
@@ -93,4 +93,4 @@ jobs:
 
       - name: Delete the Kind cluster
         if: always()
-        run: kind delete cluster --name solder-test-e2e || true
+        run: kind delete cluster --name kuvryn-sync-test-e2e || true

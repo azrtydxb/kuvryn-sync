@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Checks docs/migrate-argocd.md end to end on a throwaway Kind cluster.
 # See common.sh for the requirements.
-C=solder-migrate-argocd
+C=kuvryn-sync-migrate-argocd
 # shellcheck source=hack/migration/common.sh
 source "$(dirname "$0")/common.sh"
 trap 'kind delete cluster --name "$C" >/dev/null 2>&1' EXIT
-setup_solder
+setup_ksync
 k create namespace argocd >/dev/null
 k apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml >/dev/null
 k -n argocd rollout status statefulset/argocd-application-controller deploy/argocd-repo-server --timeout=600s >/dev/null
@@ -18,8 +18,8 @@ metadata:
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
-  source: {repoURL: https://github.com/azrtydxb/solder-e2e-app.git, targetRevision: main, path: manifests}
-  destination: {server: https://kubernetes.default.svc, namespace: solder-e2e}
+  source: {repoURL: https://github.com/azrtydxb/kuvryn-sync-e2e-app.git, targetRevision: main, path: manifests}
+  destination: {server: https://kubernetes.default.svc, namespace: kuvryn-sync-e2e}
   syncPolicy: {automated: {prune: true, selfHeal: true}, syncOptions: [CreateNamespace=true]}
 Y
 s=""
@@ -30,12 +30,12 @@ for _ in $(seq 1 100); do
 done
 [ "$s" = Synced/Healthy ] || fail "Argo CD Application did not become Synced/Healthy (last state: $s)"
 echo "argo cd: $s"
-uid_before=$(k -n solder-e2e get configmap solder-e2e-config -o jsonpath='{.metadata.uid}')
+uid_before=$(k -n kuvryn-sync-e2e get configmap kuvryn-sync-e2e-config -o jsonpath='{.metadata.uid}')
 echo "argo cd deployed configmap uid=$uid_before"
 # Guide step 1.
 k -n argocd patch applications.argoproj.io fixture --type json -p '[{"op":"remove","path":"/spec/syncPolicy/automated"}]' >/dev/null
 k -n argocd patch applications.argoproj.io fixture --type json -p '[{"op":"remove","path":"/metadata/finalizers"}]' >/dev/null
-solder_migrate
+ksync_migrate
 # Guide step 5.
 k -n argocd delete applications.argoproj.io fixture >/dev/null
 sleep 20
