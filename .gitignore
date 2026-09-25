@@ -33,3 +33,7 @@ go.work
 .procoder/state/
 .procoder/index/
 .lycheecache
+
+# Console SPA build output (built by make web-build, the Dockerfile and CI)
+internal/console/ui/dist/*
+!internal/console/ui/dist/.gitkeep

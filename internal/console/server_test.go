@@ -1,0 +1,29 @@
+package console
+
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"k8s.io/client-go/rest"
+)
+
+func TestServerServesHealthAndSecurityHeaders(t *testing.T) {
+	s, err := NewServer(Config{ClusterName: "test"}, &rest.Config{Host: "https://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/apps", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<html") {
+		t.Fatalf("SPA fallback: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("CSP = %q", got)
+	}
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != 503 {
+		t.Fatalf("healthz before OIDC discovery = %d, want 503", rec.Code)
+	}
+}
