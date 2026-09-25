@@ -86,6 +86,11 @@ test("TestLoginPage shows OIDC buttons only when configured", async ({
   }
   // The token form stays next to single sign-on.
   await expect(page.getByLabel("Kubernetes token")).toBeVisible();
+  // The token button turns secondary once OIDC is known; let its colour
+  // transition finish before measuring contrast.
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().map((a) => a.finished)),
+  );
   const results = await new AxeBuilder({ page }).analyze();
   expect(
     results.violations.filter(
