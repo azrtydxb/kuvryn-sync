@@ -474,3 +474,54 @@ func TestSignInUsesOneStateCookie(t *testing.T) {
 		t.Fatalf("sign-in cookies = %+v, want only %s", cookies, StateCookie)
 	}
 }
+
+func TestLogoutRefusesCrossSiteRequests(t *testing.T) {
+	iss := newTestIssuer(t)
+	s, err := NewServer(Config{ClusterName: "test"}, &restConfigForTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.UseAuthenticator(mustAuth(t, iss.URL))
+	for _, tc := range []struct {
+		name   string
+		header map[string]string
+		want   int
+	}{
+		{"cross-site fetch", map[string]string{"Sec-Fetch-Site": "cross-site"}, http.StatusForbidden},
+		{"foreign origin", map[string]string{"Origin": "https://evil.example"}, http.StatusForbidden},
+		{"same-origin fetch", map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusSeeOther},
+		{"same origin", map[string]string{"Origin": "https://console.example"}, http.StatusSeeOther},
+	} {
+		req := httptest.NewRequest("POST", "https://console.example/logout", nil)
+		for k, v := range tc.header {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: POST /logout = %d, want %d", tc.name, rec.Code, tc.want)
+		}
+		if tc.want == http.StatusForbidden && len(rec.Result().Cookies()) != 0 {
+			t.Errorf("%s: a refused logout still touched cookies", tc.name)
+		}
+	}
+}
+
+func TestInsecureCookiesOnlyForLocalhost(t *testing.T) {
+	iss := newTestIssuer(t)
+	for redirect, ok := range map[string]bool{
+		"https://console.example/auth/callback":       false,
+		"http://10.0.0.5:8080/auth/callback":          false,
+		"http://localhost.evil.example/auth/callback": false,
+		"http://localhost:5174/auth/callback":         true,
+		"http://127.0.0.1:8080/auth/callback":         true,
+		"http://[::1]:8080/auth/callback":             true,
+	} {
+		cfg := testConfig(t, iss.URL)
+		cfg.InsecureCookies, cfg.RedirectURL = true, redirect
+		_, err := NewAuth(context.Background(), cfg)
+		if (err == nil) != ok {
+			t.Errorf("--insecure-cookies with %s: err = %v", redirect, err)
+		}
+	}
+}

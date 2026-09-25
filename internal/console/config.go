@@ -48,7 +48,7 @@ func (c *Config) BindFlags(fs *flag.FlagSet) {
 	})
 	fs.StringVar(&c.DocsURL, "docs-url", "", "documentation link shown in the console")
 	fs.StringVar(&c.StatusURL, "status-url", "", "status page link shown in the console")
-	fs.BoolVar(&c.InsecureCookies, "insecure-cookies", false, "allow cookies over plain HTTP, for local development only")
+	fs.BoolVar(&c.InsecureCookies, "insecure-cookies", false, "allow cookies over plain HTTP, for local development only; --redirect-url must then be on localhost, 127.0.0.1 or [::1]")
 }
 
 func splitList(v string) []string {

@@ -63,7 +63,12 @@ whose ServiceAccount may only impersonate users and groups.
   - copy taken verbatim from the design, with "solder" renamed to "ksync"
     and `solder.io/v1alpha1` to `sync.kuvryn.io/v1alpha1`.
 - There is a strict CSP: `default-src 'self'; img-src 'self' data:;
-style-src 'self'; script-src 'self'; frame-ancestors 'none'`.
+style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`
+  (the last two added in review). Every handler is wrapped in Go's
+  `http.NewCrossOriginProtection`, so a cross-site POST, such as a forged
+  `/logout`, is refused with 403.
+- `--insecure-cookies` refuses to start unless `--redirect-url`'s host is
+  `localhost`, `127.0.0.1` or `[::1]`.
 - Commits use imperative subjects of 72 characters or fewer, with a
   why-body and no attribution.
 
@@ -109,6 +114,8 @@ Interfaces: produces
   	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<html") {
   		t.Fatalf("SPA fallback: %d %s", rec.Code, rec.Body.String())
   	}
+  	// Since review, the test pins the whole CSP string, including
+  	// form-action 'self' and base-uri 'none'.
   	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
   		t.Fatalf("CSP = %q", got)
   	}

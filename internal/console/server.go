@@ -19,8 +19,9 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/console/ui"
 )
 
-// ContentSecurityPolicy forbids inline script and style and any framing.
-const ContentSecurityPolicy = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'"
+// ContentSecurityPolicy forbids inline script and style, any framing, forms
+// posting elsewhere, and <base> rewriting relative URLs.
+const ContentSecurityPolicy = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 
 // Server serves the console's routes.
 type Server struct {
@@ -79,7 +80,9 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
 	mux.HandleFunc("/", s.spa)
-	return securityHeaders(mux)
+	// Refuse cross-site POSTs, such as a forged sign-out, by Sec-Fetch-Site
+	// or, from older browsers, Origin. Safe methods pass untouched.
+	return securityHeaders(http.NewCrossOriginProtection().Handler(mux))
 }
 
 // Run serves the console on cfg.Listen until ctx is done.

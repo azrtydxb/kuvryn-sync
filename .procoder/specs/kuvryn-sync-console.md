@@ -112,6 +112,8 @@ and that never becomes a second path for changing the cluster.
   - every API call is impersonated, and the console never reads as itself;
   - the only verbs are get, list and watch;
   - ID tokens are verified (issuer, audience, expiry, signature via JWKS);
+  - the CSP is `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`,
+    and cross-site POSTs, such as a forged sign-out, are refused;
   - PKCE, state and nonce are required;
   - there is a strict Content-Security-Policy with no inline script;
   - all output is redacted with `internal/redact`.
@@ -121,7 +123,9 @@ and that never becomes a second path for changing the cluster.
   plain `go build` without a built UI embeds a placeholder page that explains
   how to build it.
 - It works behind an Ingress with TLS. Plain HTTP is allowed only with an
-  explicit `--insecure-cookies` flag for local development.
+  explicit `--insecure-cookies` flag for local development, and that flag
+  refuses to start unless the redirect URL is on localhost, 127.0.0.1 or
+  [::1].
 - The pages follow the design system's content rules: identifiers are
   monospace and verbatim, unknown values are shown as "—", there are no
   emoji, and headings are in sentence case.

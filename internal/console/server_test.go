@@ -18,8 +18,9 @@ func TestServerServesHealthAndSecurityHeaders(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<html") {
 		t.Fatalf("SPA fallback: %d %s", rec.Code, rec.Body.String())
 	}
-	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
-		t.Fatalf("CSP = %q", got)
+	const csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+	if got := rec.Header().Get("Content-Security-Policy"); got != csp {
+		t.Fatalf("CSP = %q, want %q", got, csp)
 	}
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))

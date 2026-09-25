@@ -100,6 +100,9 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 	if cfg.UsernameClaim == "" {
 		return nil, errors.New("console: --username-claim must not be empty")
 	}
+	if cfg.InsecureCookies && !isLoopbackURL(cfg.RedirectURL) {
+		return nil, fmt.Errorf("console: --insecure-cookies is for local development only; --redirect-url %q must be on localhost, 127.0.0.1 or [::1]", cfg.RedirectURL)
+	}
 	key, err := sessionKey(ctx, cfg.SessionKeyFile)
 	if err != nil {
 		return nil, err
@@ -117,6 +120,19 @@ func NewAuth(ctx context.Context, cfg Config) (*Auth, error) {
 		go a.retryDiscovery(ctx)
 	}
 	return a, nil
+}
+
+// isLoopbackURL reports whether raw names localhost or a loopback address.
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
 
 // sessionKey reads the 32-byte key from path or, without one, generates a

@@ -247,7 +247,8 @@ The same settings are `ksync console` flags when you run it yourself: `--listen`
 `--username-claim`, `--groups-claim`, `--username-prefix`,
 `--groups-prefix`, `--session-key-file`, `--cluster-name`, `--sso-name`,
 `--connectors`, `--docs-url`, `--status-url` and, for local development over
-plain HTTP only, `--insecure-cookies`.
+plain HTTP only, `--insecure-cookies`, which refuses to start unless
+`--redirect-url` is on `localhost`, `127.0.0.1` or `[::1]`.
 
 ## Restrict whom the console may impersonate
 

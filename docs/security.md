@@ -51,7 +51,9 @@ impersonate rules.
   encrypted, HttpOnly, Secure, SameSite=Lax cookie that expires with the ID
   token; no refresh token is stored.
 - Pages are served with a strict Content-Security-Policy:
-  `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'`.
+  `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'`.
+- Cross-site POSTs, such as a forged sign-out, are refused with 403, judged
+  by the browser's `Sec-Fetch-Site` or `Origin` header.
 - Every message it returns goes through the same redaction as the CLI.
 
 ## Server-Side Apply ownership
