@@ -147,6 +147,13 @@ Files:
 Interfaces: consumes `Config` from Task 1. Produces `Identity`, the cookies
 `ksync_session`, `ksync_state` and `ksync_nonce` (the verifier and state
 live in `ksync_state`, which expires after 10 minutes), and `ErrNoSession`.
+It also produces `type Authenticator interface{ Identity(*http.Request) (Identity, error) }`
+and `(*Server).UseAuthenticator(Authenticator)`: `*Auth` implements it and
+adds the sign-in routes, while Task 4's fake and Task 7's stub `Auth` are
+plain `Authenticator`s. A failed sign-in step answers with its status code
+(400, 403 or 503) and a small page that returns the browser to
+`/login?error=<reason>` for the "Sign-in failed" alert. When the username
+claim is `email`, a token whose `email_verified` is false is refused with 403.
 
 - [ ] Write `internal/console/auth_test.go`. It holds an in-process issuer
       (`newTestIssuer(t)`) that serves discovery and JWKS, and signs RS256 ID

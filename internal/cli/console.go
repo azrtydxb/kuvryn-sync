@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/azrtydxb/kuvryn-sync/internal/console"
 )
@@ -33,6 +35,12 @@ func runConsole(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	ctx = ctrllog.IntoContext(ctx, zap.New())
+	auth, err := console.NewAuth(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	srv.UseAuthenticator(auth)
 	_, _ = fmt.Fprintf(stdout, "ksync console listening on %s\n", cfg.Listen)
 	return srv.Run(ctx)
 }

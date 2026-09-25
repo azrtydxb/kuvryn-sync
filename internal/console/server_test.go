@@ -27,3 +27,21 @@ func TestServerServesHealthAndSecurityHeaders(t *testing.T) {
 		t.Fatalf("healthz before OIDC discovery = %d, want 503", rec.Code)
 	}
 }
+
+var restConfigForTest = rest.Config{Host: "https://127.0.0.1:1"}
+
+func TestSPARefusesPathTraversal(t *testing.T) {
+	s, err := NewServer(Config{}, &restConfigForTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/../ui/embed.go", "/assets/../../server.go", "/%2e%2e/embed.go"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/", nil)
+		req.URL.Path = p
+		s.Handler().ServeHTTP(rec, req)
+		if strings.Contains(rec.Body.String(), "package ") {
+			t.Fatalf("%s served a source file: %s", p, rec.Body.String())
+		}
+	}
+}
