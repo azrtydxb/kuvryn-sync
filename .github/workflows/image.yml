@@ -4,7 +4,7 @@ name: Image
 # branch. An unfiltered push trigger ran each PR commit twice (#1).
 on:
   push:
-    branches: [main]
+    branches: [main, feat/kuvryn-sync-rebrand]
     tags: ["v*"]
   pull_request:
 

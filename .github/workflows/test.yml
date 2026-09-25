@@ -3,7 +3,7 @@ name: Tests
 # push covers main; pull_request covers every other branch. An unfiltered push trigger ran each PR commit twice (#1).
 on:
   push:
-    branches: [main]
+    branches: [main, feat/kuvryn-sync-rebrand]
   pull_request:
 
 concurrency:
