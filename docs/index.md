@@ -19,7 +19,9 @@ image automation, and Repository-driven Application discovery from
 When an Application is not Healthy, Kuvryn Sync walks its live resource graph down
 to the root cause, such as a missing Secret or a crash-looping Pod, and
 records the chain in `status.diagnosis`; `ksync diagnose` and `ksync graph`
-print it. The Helm chart and raw manifests expose Prometheus metrics on `:8443`
+print it. An optional, read-only [web console](console.md) shows the same
+state in a browser, signing people in with OIDC and reading the cluster as
+them, so what each person sees follows their own Kubernetes RBAC. The Helm chart and raw manifests expose Prometheus metrics on `:8443`
 (the manager's own default leaves them off), and OpenTelemetry traces are
 exported over OTLP once an endpoint is configured.
 
@@ -39,11 +41,13 @@ Optional companions: **HealthCheck** (CEL health rules for a kind),
 2. [Follow the quickstart](quickstart.md)
 3. [Understand the core concepts](concepts.md)
 4. [Use the CLI](cli.md)
+5. [Set up the web console](console.md)
 
 ## Reference
 
 - [API reference](api.md)
 - [Operations guide](operations.md)
+- [Web console](console.md)
 - [Security model](security.md)
 - [Troubleshooting](troubleshooting.md)
 - [Upgrade notes](upgrade.md)

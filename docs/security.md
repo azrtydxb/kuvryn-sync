@@ -24,6 +24,27 @@ surfaces while still giving operators useful plans, events, and diagnostics.
   so their data never reaches `status.diagnosis`; container messages it quotes
   are redacted and cut to 512 characters.
 
+## Web console
+
+The optional [web console](console.md) runs as its own Deployment and
+ServiceAccount, whose only permission is `impersonate` on `users` and
+`groups`:
+
+- Every cluster read impersonates the signed-in user and their groups, so
+  Kubernetes RBAC decides what each person sees, and the API server's audit
+  log records the reads under their name. Usernames and groups starting with
+  `system:` are refused.
+- Its client sends only GET requests, and refuses Secret paths, proxies,
+  exec, attach, port-forward, logs and connection upgrades before they are
+  sent. Secrets appear only as names recorded in a plan.
+- Sign-in is the OIDC code flow with PKCE (S256), state and nonce, and the ID
+  token is verified against the issuer's keys. The session is an AES-256-GCM
+  encrypted, HttpOnly, Secure, SameSite=Lax cookie that expires with the ID
+  token; no refresh token is stored.
+- Pages are served with a strict Content-Security-Policy:
+  `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'`.
+- Every message it returns goes through the same redaction as the CLI.
+
 ## Server-Side Apply ownership
 
 Kuvryn Sync mutates live objects with Server-Side Apply. The default conflict policy

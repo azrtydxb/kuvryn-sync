@@ -41,6 +41,10 @@ func runConsole(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return err
 	}
 	srv.UseAuthenticator(auth)
+	if err := srv.SelfCheck(ctx); err != nil {
+		// The console still serves; /healthz keeps reporting "unchecked".
+		ctrllog.FromContext(ctx).Error(err, "Could not check the console's impersonation permission")
+	}
 	_, _ = fmt.Fprintf(stdout, "ksync console listening on %s\n", cfg.Listen)
 	return srv.Run(ctx)
 }

@@ -23,10 +23,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"helm.sh/helm/v4/pkg/strvals"
 	rbacv1 "k8s.io/api/rbac/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	sigsyaml "sigs.k8s.io/yaml"
@@ -278,4 +280,89 @@ func containerImages(obj map[string]any) []string {
 		}
 	}
 	return images
+}
+
+// helmTemplate renders charts/kuvryn-sync in process as release kuvryn-sync,
+// with args as helm template's --set pairs, and returns the objects as
+// multi-document YAML.
+func helmTemplate(t *testing.T, args ...string) string {
+	t.Helper()
+	values := map[string]any{}
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] != "--set" {
+			t.Fatalf("helmTemplate supports only --set, got %q", args[i])
+		}
+		if err := strvals.ParseInto(args[i+1], values); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := helmrenderer.Renderer{}.Render(context.Background(), renderer.Input{
+		Workspace: root, Path: filepath.Join("charts", "kuvryn-sync"), ReleaseName: "kuvryn-sync", Namespace: "kuvryn-sync-system", Values: values,
+	})
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	var out strings.Builder
+	for _, obj := range objects {
+		doc, err := sigsyaml.Marshal(obj.Object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.WriteString("---\n")
+		out.Write(doc)
+	}
+	return out.String()
+}
+
+// clusterRoleNamed returns the ClusterRole called name in rendered YAML.
+func clusterRoleNamed(t *testing.T, rendered, name string) rbacv1.ClusterRole {
+	t.Helper()
+	decoder := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(rendered), 4096)
+	for {
+		role := rbacv1.ClusterRole{}
+		if err := decoder.Decode(&role); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if role.Kind == "ClusterRole" && role.Name == name {
+			return role
+		}
+	}
+	t.Fatalf("no ClusterRole %s", name)
+	return rbacv1.ClusterRole{}
+}
+
+func TestHelmChartRendersASeparateConsole(t *testing.T) {
+	out := helmTemplate(t, "--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync")
+	if !strings.Contains(out, "name: kuvryn-sync-kuvryn-sync-console") {
+		t.Fatal("no console Deployment")
+	}
+	if strings.Count(out, "serviceAccountName: kuvryn-sync-kuvryn-sync-console") != 1 {
+		t.Fatal("the console does not run as its own ServiceAccount")
+	}
+	if off := helmTemplate(t); strings.Contains(off, "kuvryn-sync-console") {
+		t.Fatal("the console renders although console.enabled is false")
+	}
+}
+
+func TestConsoleClusterRoleOnlyImpersonates(t *testing.T) {
+	role := clusterRoleNamed(t, helmTemplate(t, "--set", "console.enabled=true", "--set", "console.oidc.issuerURL=https://dex.example", "--set", "console.oidc.clientID=ksync"), "kuvryn-sync-kuvryn-sync-console")
+	if len(role.Rules) == 0 {
+		t.Fatal("the console ClusterRole has no rules, so it cannot impersonate")
+	}
+	for _, rule := range role.Rules {
+		if !slices.Equal(rule.Verbs, []string{"impersonate"}) || !slices.Equal(rule.APIGroups, []string{""}) {
+			t.Fatalf("console rule grants more than impersonate: %+v", rule)
+		}
+		for _, r := range rule.Resources {
+			if r != "users" && r != "groups" {
+				t.Fatalf("console may impersonate %s", r)
+			}
+		}
+	}
 }

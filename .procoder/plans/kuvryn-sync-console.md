@@ -708,17 +708,26 @@ Files:
   `console.sessionKey.secretName` and `.key`, `console.clusterName`,
   `console.connectors`, `console.docsURL`, `console.statusURL`,
   `console.ingress.{enabled, className, host, tls}`, and
-  `console.resources`.
+  `console.resources`, plus `console.ssoName` (Task 6's `--sso-name`) and
+  `console.ingress.annotations`. When `sessionKey.secretName` is empty, the
+  chart creates `<release>-kuvryn-sync-console-session` with 32 random
+  characters, kept across upgrades with `lookup`. When `redirectURL` is empty,
+  it defaults to `https://<ingress.host>/auth/callback`.
 - `charts/kuvryn-sync/templates/console.yaml`: a Deployment
   (`<release>-kuvryn-sync-console`, args `console` with flags, Secrets
   mounted read-only at `/etc/ksync/oidc` and `/etc/ksync/session`,
   runAsNonRoot, readOnlyRootFilesystem), a ServiceAccount, a Service on port
   80 → 8080, an optional Ingress, and a ClusterRole plus ClusterRoleBinding
-  that grant `impersonate` on `users` and `groups` only.
+  that grant `impersonate` on `users` and `groups` only. The console pods are
+  labelled `app.kubernetes.io/name: kuvryn-sync-console`, so the
+  controller's Services never select them.
 - `internal/console/selfcheck.go`: at startup, it creates two
   `SelfSubjectAccessReview`s for impersonate on users and groups, logs the
   result, and sets the `/healthz` `"impersonation":"granted"` or `"missing"`
-  field.
+  field. `ksync console` runs it once at startup; creating a
+  SelfSubjectAccessReview needs no grant beyond `system:basic-user`, so the
+  ClusterRole stays impersonate-only. `selfcheck_test.go` covers it against a
+  fake API server.
 - `docs/console.md`: the Dex setup end to end:
   - a Dex static client with the redirect URL;
   - GitHub and GitLab connectors, and the local password connector;
@@ -728,9 +737,18 @@ Files:
     group;
   - troubleshooting for claims, `system:` identities and namespace-scoped
     viewers.
-- `docs/index.md` and `README.md`: add the console, with a screenshot taken
-  from `make test-ui`.
-- `internal/controller/rbac_manifest_test.go`: the new tests.
+- `docs/index.md` and `README.md`: add the console. The screenshots wait for
+  the real emblem files, since committing ones with placeholder emblems would
+  mislead: `web/e2e/screenshots.spec.ts`, skipped unless
+  `KSYNC_SCREENSHOTS=1`, writes `docs/images/console-{login,applications,diagnosis}.png`
+  for that.
+- `docs/cli.md`, `docs/operations.md`, `docs/security.md` and
+  `CHANGELOG.md`: the console's command, chart pointer, security model and
+  changelog entry.
+- `internal/controller/rbac_manifest_test.go`: the new tests, and the
+  helpers `helmTemplate` (renders the chart in process with Helm's
+  `strvals` for `--set`, so no helm binary is needed) and
+  `clusterRoleNamed`.
 
 Interfaces: consumes the `ksync console` flags from Task 1. Produces the
 chart values listed above, and the console names

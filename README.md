@@ -35,6 +35,9 @@ Kuvryn Sync focuses on the product path that matters for day-two operations:
   `ksync graph` print it.
 - Prometheus metrics and, when an OTLP endpoint is configured,
   OpenTelemetry traces of every Application reconcile.
+- An optional, read-only web console (`ksync console`) signs people in with
+  OIDC, such as Dex, and shows Applications, their diagnosis, plans, history
+  and resources through each person's own Kubernetes RBAC.
 
 > Status: alpha (`sync.kuvryn.io/v1alpha1`). The MVP is functional and covered by
 > controller, CLI, and product-path e2e tests, but the API may still
@@ -53,6 +56,7 @@ Start with:
 - [API reference](docs/api.md)
 - [CLI reference](docs/cli.md)
 - [Operations](docs/operations.md)
+- [Web console](docs/console.md)
 - [Security model](docs/security.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Upgrade notes](docs/upgrade.md)

@@ -44,3 +44,57 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+# The read-only web console (ksync console), off by default. It runs as its
+# own Deployment and ServiceAccount, whose only permission is to impersonate
+# users and groups: every read is made as the signed-in user, so what a person
+# sees follows their own Kubernetes RBAC. See docs/console.md.
+console:
+  enabled: false
+  oidc:
+    # OIDC issuer, for example Dex: https://dex.example.com
+    issuerURL: ""
+    clientID: ""
+    # Secret holding the OIDC client secret. Leave secretName empty for a
+    # public client; PKCE protects the code exchange either way.
+    clientSecret:
+      secretName: ""
+      key: client-secret
+  # Where the issuer sends users back: https://<host>/auth/callback. Defaults
+  # to that URL on ingress.host when the ingress is enabled.
+  redirectURL: ""
+  # ID token claims mapped to the impersonated username and groups, and the
+  # prefixes added to them. With empty prefixes, RBAC bindings name users and
+  # groups exactly as the issuer sends them.
+  usernameClaim: email
+  groupsClaim: groups
+  usernamePrefix: ""
+  groupsPrefix: ""
+  # Secret holding the 32-byte key that encrypts the session cookie. Leave
+  # secretName empty to have the chart create one, kept across upgrades.
+  # Rotating the key signs everyone out.
+  sessionKey:
+    secretName: ""
+    key: session-key
+  # Shown in the console and on the login page.
+  clusterName: cluster
+  # Names the login page's "Sign in with" button, for example Dex.
+  ssoName: ""
+  # Dex connectors offered as extra sign-in buttons: github, gitlab, local.
+  connectors: []
+  docsURL: ""
+  statusURL: ""
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    # For example: [{secretName: console-tls, hosts: [console.example.com]}]
+    tls: []
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
