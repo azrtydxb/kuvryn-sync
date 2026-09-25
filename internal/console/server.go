@@ -31,6 +31,7 @@ type Server struct {
 
 	auth          Authenticator
 	newReader     func(Identity) (client.Reader, error)
+	readers       *readerCache
 	impersonation atomic.Value // string: unchecked, granted or missing
 }
 
@@ -60,7 +61,8 @@ func NewServer(cfg Config, base *rest.Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{cfg: cfg, base: rest.CopyConfig(base), files: ui.Files()}
-	s.newReader = func(id Identity) (client.Reader, error) { return UserClient(s.base, scheme, id) }
+	s.readers = newReaderCache(func(id Identity) (client.Reader, error) { return UserClient(s.base, scheme, id) })
+	s.newReader = s.readers.get
 	s.impersonation.Store("unchecked")
 	return s, nil
 }

@@ -829,13 +829,8 @@ chart values listed above, and the console names
 
 ## Known follow-ups
 
-- **Per-request discovery.** `UserClient` calls `client.New` for every API
-  request, and its REST mapper runs API discovery each time as the user, so
-  each 10-second poll costs a few extra discovery GETs per user. The review
-  kept this for the first release: the fix is a per-identity client cache
-  (keyed by username and groups, expiring with the session), or a shared
-  mapper. A shared mapper needs care, because the console must never read
-  as itself, so it is left for a follow-up rather than done in review.
+- Per-request discovery was fixed in 0.4.2 by a per-identity reader cache,
+  `internal/console/readers.go` (branch `fix/console-reader-cache`).
 
 ## Task 9: Review, merge, and hand over to the release
 
