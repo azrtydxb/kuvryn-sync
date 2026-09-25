@@ -127,6 +127,10 @@ lint lint-fix lint-config: export GOTOOLCHAIN := $(LINT_GOTOOLCHAIN)
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: docs-check
+docs-check: ## Check relative links and anchors in the docs
+	python3 hack/check-links.py docs README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix

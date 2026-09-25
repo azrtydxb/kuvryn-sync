@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
@@ -16,8 +18,6 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
-
-const fieldManager = "kuvryn-sync"
 
 // Change describes one resource-level plan action.
 type Change struct {
@@ -136,7 +136,7 @@ func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.Plan
 		if _, declared := df[path]; declared {
 			continue
 		}
-		if slices.Contains(owners[path], fieldManager) {
+		if slices.Contains(owners[path], applier.FieldManager) {
 			paths[path] = struct{}{}
 		}
 	}
@@ -243,7 +243,7 @@ func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanF
 	conflicts := []corev1alpha1.PlanConflict{}
 	for _, field := range fields {
 		for _, manager := range owners[field.Path] {
-			if manager == fieldManager {
+			if manager == applier.FieldManager {
 				continue
 			}
 			conflicts = append(conflicts, corev1alpha1.PlanConflict{Path: field.Path, Manager: manager, Policy: corev1alpha1.ConflictPolicyFail})

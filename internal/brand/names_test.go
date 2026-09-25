@@ -23,7 +23,7 @@ var history = map[string]string{
 // the sections listed in history. This package names it on purpose.
 func TestNoSolderNameRemains(t *testing.T) {
 	root := filepath.Join("..", "..")
-	out, err := exec.Command("git", "-C", root, "grep", "-n", "-i", OldName, "--", ".",
+	out, err := exec.Command("git", "-C", root, "grep", "--untracked", "-n", "-i", OldName, "--", ".",
 		":!.procoder", ":!CHANGELOG.md", ":!go.sum", ":!internal/brand").Output()
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {

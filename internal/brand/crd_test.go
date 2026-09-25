@@ -19,8 +19,4 @@ func TestCRDsUseTheKuvrynSyncGroup(t *testing.T) {
 			t.Errorf("%s is not in group sync.kuvryn.io", path)
 		}
 	}
-	matches, _ := filepath.Glob(filepath.Join("..", "..", "config", "crd", "bases", OldName+".io_*.yaml"))
-	if len(matches) > 0 {
-		t.Errorf("old CRDs remain: %v", matches)
-	}
 }
