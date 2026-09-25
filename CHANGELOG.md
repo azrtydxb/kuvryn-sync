@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **New:** the web console signs people in with a Kubernetes bearer token,
+  for example from `kubectl create token`, so it works on any cluster with
+  no identity provider. The token is validated with a SelfSubjectReview
+  (Kubernetes 1.28 or later), sealed in the session cookie, and every read
+  carries it, never the console's own credentials or impersonation. A
+  session lasts until the token's expiry, at most 8 hours.
+- **Changed:** OIDC sign-in is optional. `--oidc-issuer-url` and
+  `--oidc-client-id`, and the chart's `console.oidc.issuerURL` and
+  `console.oidc.clientID`, are no longer required but must be set together.
+  Without them the chart renders a token-only console with no impersonate
+  ClusterRole or binding and no redirect URL requirement. With them it
+  renders the same console as 0.4.2, and 0.4.x session cookies keep working.
+- **Docs:** `docs/console.md` leads with token sign-in and shows how to mint
+  a read-only viewer token and how to add the console to a raw-manifest
+  install; `docs/security.md` says what a token session can and cannot do.
+
 ## 0.4.2
 
 _The console stops running API discovery on every request._

@@ -36,8 +36,9 @@ Kuvryn Sync focuses on the product path that matters for day-two operations:
 - Prometheus metrics and, when an OTLP endpoint is configured,
   OpenTelemetry traces of every Application reconcile.
 - An optional, read-only web console (`ksync console`) signs people in with
-  OIDC, such as Dex, and shows Applications, their diagnosis, plans, history
-  and resources through each person's own Kubernetes RBAC.
+  a Kubernetes token or, optionally, OIDC such as Dex, and shows
+  Applications, their diagnosis, plans, history and resources through each
+  person's own Kubernetes RBAC.
 
 ![The Kuvryn Sync console Applications page](docs/images/console-applications.png)
 
