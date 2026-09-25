@@ -20,7 +20,7 @@ func TestPlanOnlyPrunesManagedEligibleResources(t *testing.T) {
 	if len(result.Eligible) != 1 || result.Eligible[0].GetName() != "eligible" {
 		t.Fatalf("eligible = %#v", names(result.Eligible))
 	}
-	// Only an object Solder cannot show it manages is refused; the opt-out
+	// Only an object Kuvryn Sync cannot show it manages is refused; the opt-out
 	// and the high-risk Secret are kept, which is not a failure.
 	if len(result.Rejected) != 1 || result.Rejected[0].Object.GetName() != "unmanaged" {
 		t.Fatalf("rejected = %#v", result.Rejected)

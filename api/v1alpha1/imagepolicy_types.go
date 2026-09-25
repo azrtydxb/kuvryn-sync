@@ -36,7 +36,7 @@ type ImagePolicySpec struct {
 	// policy decides which image is selected.
 	Policy ImageSelectionPolicy `json:"policy"`
 	// webhook lets a registry or CI trigger an immediate scan through
-	// Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+	// Kuvryn Sync's receiver at /hooks/imagepolicies/<namespace>/<name>.
 	// +optional
 	Webhook *ImagePolicyWebhook `json:"webhook,omitempty"`
 }

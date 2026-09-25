@@ -164,7 +164,7 @@ var _ = Describe("Application destination namespace", func() {
 		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
 		plan := listApplicationRevisions(ctx, appName).Items[0].Status.Plan
-		Expect(plan.Summary.Update).To(BeZero(), "Solder's own management metadata was planned as drift: %v", plan.Resources)
+		Expect(plan.Summary.Update).To(BeZero(), "Kuvryn Sync's own management metadata was planned as drift: %v", plan.Resources)
 		Expect(plan.Summary.Unchanged).To(Equal(int32(1)))
 	})
 

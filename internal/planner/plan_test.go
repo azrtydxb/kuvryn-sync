@@ -198,7 +198,7 @@ func TestFieldsOtherManagersOrTheServerOwnAreNotChanges(t *testing.T) {
 	}
 }
 
-func TestRemovingAFieldSolderOwnedIsAChange(t *testing.T) {
+func TestRemovingAFieldKuvrynSyncOwnedIsAChange(t *testing.T) {
 	desired := cm("shrinking", "same")
 	live := cm("shrinking", "same")
 	_ = unstructured.SetNestedField(live.Object, "old", "data", "removed")
@@ -232,8 +232,8 @@ func TestConflictsAreReportedOnlyForExactlyOwnedFields(t *testing.T) {
 	}
 }
 
-func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
-	// Both managers applied the same value, so both own data.value; solder is
+func TestAFieldKuvrynSyncSharesWithAnotherManagerConflicts(t *testing.T) {
+	// Both managers applied the same value, so both own data.value; kuvryn-sync is
 	// listed last so a single-owner map would lose the other manager.
 	live := cm("shared", "live")
 	live.SetManagedFields([]metav1.ManagedFieldsEntry{
@@ -249,7 +249,7 @@ func TestAFieldSolderSharesWithAnotherManagerConflicts(t *testing.T) {
 		t.Fatalf("conflicts = %#v, want one on data.value with kubectl", conflicts)
 	}
 
-	// A field Solder shares is still Solder's: dropping it is a change.
+	// A field Kuvryn Sync shares is still Kuvryn Sync's: dropping it is a change.
 	removed := cm("shared", "live")
 	_ = unstructured.SetNestedField(removed.Object, "old", "data", "removed")
 	removed.SetManagedFields([]metav1.ManagedFieldsEntry{

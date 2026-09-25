@@ -41,7 +41,7 @@ import (
 type revisionResolver struct{ revision *string }
 
 func (r revisionResolver) Resolve(context.Context, source.GitRepository) (source.ResolvedSource, error) {
-	return source.ResolvedSource{Revision: *r.revision, CacheDir: "/tmp/solder-workspace"}, nil
+	return source.ResolvedSource{Revision: *r.revision, CacheDir: "/tmp/kuvryn-sync-workspace"}, nil
 }
 
 var _ = Describe("Sync hooks and waves", func() {

@@ -5,13 +5,13 @@ nav_order: 9
 
 # Security model
 
-Solder is designed to keep sensitive material out of public operational
+Kuvryn Sync is designed to keep sensitive material out of public operational
 surfaces while still giving operators useful plans, events, and diagnostics.
 
 ## Secret handling
 
-- Git credentials are referenced through Kubernetes Secrets. Solder only uses
-  Secrets labelled `solder.io/git-credentials: "true"`, because whoever writes a
+- Git credentials are referenced through Kubernetes Secrets. Kuvryn Sync only uses
+  Secrets labelled `sync.kuvryn.io/git-credentials: "true"`, because whoever writes a
   Repository chooses both the Git URL and the Secret; without the label, any
   Secret in the namespace could be sent to an arbitrary Git server.
 - Secret values are not copied into Repository, Application, or Revision specs.
@@ -26,15 +26,15 @@ surfaces while still giving operators useful plans, events, and diagnostics.
 
 ## Server-Side Apply ownership
 
-Solder mutates live objects with Server-Side Apply. The default conflict policy
-is `fail`, which prevents Solder from taking fields owned by another manager.
+Kuvryn Sync mutates live objects with Server-Side Apply. The default conflict policy
+is `fail`, which prevents Kuvryn Sync from taking fields owned by another manager.
 `conflictPolicy: adopt` takes them over deliberately, for migrations: the plan
 lists every field and its previous manager, and manual approval, when
 enabled, applies to the takeover like any other change.
 
 ## RBAC and service account impersonation
 
-Solder reads, applies, and prunes an Application's resources as a service
+Kuvryn Sync reads, applies, and prunes an Application's resources as a service
 account in the Application's namespace, not as the controller. Kubernetes RBAC
 therefore decides what each Application may change: an Application cannot
 create a ClusterRoleBinding, or touch another team's namespace, unless its
@@ -43,7 +43,7 @@ service account could do so itself.
 The service account is `spec.serviceAccountName`, or the manager's
 `--default-service-account` (Helm value `defaultServiceAccount`) when the
 Application sets none. The default is a name, looked up in each Application's
-namespace. When neither is set, Solder refuses the Application with a
+namespace. When neither is set, Kuvryn Sync refuses the Application with a
 `ServiceAccountRequired` condition and neither reads nor changes its managed
 resources.
 
@@ -55,9 +55,9 @@ to an account with the right permissions starts a fresh Revision.
 
 Diagnosis also reads as the Application's service account: the Pods,
 ReplicaSets, and EndpointSlices below managed resources and the objects they
-refer to. It never widens what Solder can see, and a read the account may not
+refer to. It never widens what Kuvryn Sync can see, and a read the account may not
 make only makes the diagnosis shallower. See
-[Diagnosis permissions](operations.md#diagnosis-permissions). `solder graph`
+[Diagnosis permissions](operations.md#diagnosis-permissions). `ksync graph`
 reads with the caller's own kubeconfig credentials instead.
 
 An Application may name any service account in its own namespace. Creating
@@ -91,7 +91,7 @@ subjects:
 ```
 
 The controller's own role cannot change managed resources at all. It may
-manage Solder's CRDs, record Events, impersonate service accounts, list and
+manage Kuvryn Sync's CRDs, record Events, impersonate service accounts, list and
 watch the metadata of the kinds it watches for drift, and read Secrets. Review
 `config/rbac/role.yaml`; the Helm chart role is kept identical to it by a test.
 
@@ -106,12 +106,12 @@ does with that grant is narrower:
   the same namespace references, and only for these purposes:
   - Git credentials for fetching and image write-back
     (`spec.git.auth.secretRef`, `spec.imageUpdate.secretRef`) must be labelled
-    `solder.io/git-credentials: "true"`.
+    `sync.kuvryn.io/git-credentials: "true"`.
   - Registry credentials for ImagePolicy scans and Helm chart pulls
     (`spec.secretRef` of an ImagePolicy, `render.helm.chart.secretRef`) must be
-    labelled `solder.io/registry-credentials: "true"`.
+    labelled `sync.kuvryn.io/registry-credentials: "true"`.
   - age keys for decryption (`spec.decryption.secretRef`) must be labelled
-    `solder.io/decryption-key: "true"`.
+    `sync.kuvryn.io/decryption-key: "true"`.
   - Webhook receiver tokens (`spec.webhook.secretRef` of a Repository or
     ImagePolicy) and NotificationSink Secrets (`spec.secretRef`) need no label.
     They are only ever compared against incoming requests or used to reach the
@@ -128,7 +128,7 @@ Secret in the namespace could be sent to a server of the author's choosing.
 Published controller images are built by GitHub Actions and pushed to GHCR:
 
 ```text
-ghcr.io/azrtydxb/solder:<tag>
+ghcr.io/azrtydxb/kuvryn-sync:<tag>
 ```
 
 For production, pin immutable tags or digests and use your cluster's image

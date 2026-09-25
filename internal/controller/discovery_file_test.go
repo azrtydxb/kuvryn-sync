@@ -24,10 +24,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/brand"
 )
 
 // TestDiscoveryReadsKsyncYaml catches a discovery that still reads the old
-// .solder.yaml name, or never learned the new .ksync.yaml one.
+// product's discovery file, or never learned the new .ksync.yaml one.
 func TestDiscoveryReadsKsyncYaml(t *testing.T) {
 	dir := t.TempDir()
 	app := "applications:\n  - name: web\n    source:\n      path: web\n"
@@ -40,13 +41,14 @@ func TestDiscoveryReadsKsyncYaml(t *testing.T) {
 		t.Fatalf("apps=%v found=%v err=%v, want one Application from .ksync.yaml", apps, found, err)
 	}
 	old := t.TempDir()
-	if err := os.WriteFile(filepath.Join(old, ".solder.yaml"), []byte(app), 0o600); err != nil {
+	oldFile := "." + brand.OldName + ".yaml"
+	if err := os.WriteFile(filepath.Join(old, oldFile), []byte(app), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	paths, _ := configPaths(repo)
 	for _, p := range paths {
 		if _, found, _ := applicationsFromConfigFile(repo, old, p); found {
-			t.Fatalf("a repository with only .solder.yaml discovered %s", p)
+			t.Fatalf("a repository with only %s discovered %s", oldFile, p)
 		}
 	}
 }

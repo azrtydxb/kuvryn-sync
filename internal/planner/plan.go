@@ -103,10 +103,10 @@ func createFieldChanges(obj unstructured.Unstructured) []corev1alpha1.PlanFieldC
 	return nil
 }
 
-// changedFields lists what Server-Side Apply would change: every field Solder
-// declares that differs from live, and fields Solder owned that desired state
+// changedFields lists what Server-Side Apply would change: every field Kuvryn Sync
+// declares that differs from live, and fields Kuvryn Sync owned that desired state
 // no longer declares. Fields only other managers own, or that the API server
-// defaulted, are not Solder's and are never reported.
+// defaulted, are not Kuvryn Sync's and are never reported.
 func changedFields(desired, live unstructured.Unstructured) ([]corev1alpha1.PlanFieldChange, error) {
 	if isSecret(desired) || isSecret(live) {
 		equal, err := normalize.Equal(desired, live)
@@ -236,7 +236,7 @@ func (p *Plan) Keep(kept []prune.Rejected) error {
 }
 
 // detectConflicts reports changed fields another field manager owns, which
-// Server-Side Apply would refuse without force. A field Solder shares with
+// Server-Side Apply would refuse without force. A field Kuvryn Sync shares with
 // other managers conflicts with each of them.
 func detectConflicts(live unstructured.Unstructured, fields []corev1alpha1.PlanFieldChange) []corev1alpha1.PlanConflict {
 	owners := fieldOwners(live)

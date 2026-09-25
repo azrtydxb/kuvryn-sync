@@ -50,7 +50,7 @@ import (
 // to watch, impersonate, apply, and self-heal.
 var _ = Describe("Manager with the generated controller role", Ordered, func() {
 	const (
-		controllerAccount = "solder-test-controller"
+		controllerAccount = "kuvryn-sync-test-controller"
 		appName           = "least-privilege-app"
 		configName        = "least-privilege-config"
 	)
@@ -151,7 +151,7 @@ var _ = Describe("Manager with the generated controller role", Ordered, func() {
 		}, 2*time.Second, 200*time.Millisecond).Should(Succeed())
 
 		// Deleting a managed object is drift no other field manager owns, so
-		// only the metadata watch can bring Solder back to recreate it.
+		// only the metadata watch can bring Kuvryn Sync back to recreate it.
 		deleted := live.UID
 		Expect(k8sClient.Delete(ctx, live)).To(Succeed())
 		Eventually(func(g Gomega) {

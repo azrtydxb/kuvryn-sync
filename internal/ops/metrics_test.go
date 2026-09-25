@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/brand"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -20,7 +21,7 @@ func TestMetricNamesUseKuvrynSyncPrefix(t *testing.T) {
 	}
 	ours := 0
 	for _, f := range families {
-		if strings.HasPrefix(f.GetName(), "solder_") {
+		if strings.HasPrefix(f.GetName(), brand.OldName+"_") {
 			t.Errorf("metric %s keeps the old prefix", f.GetName())
 		}
 		if strings.HasPrefix(f.GetName(), "kuvryn_sync_") {

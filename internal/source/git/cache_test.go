@@ -298,7 +298,7 @@ func commitFiles(t *testing.T, repo *gogit.Repository, dir string, files, symlin
 }
 
 func signature() *object.Signature {
-	return &object.Signature{Name: "Solder Test", Email: "solder@example.com", When: time.Unix(1700000000, 0)}
+	return &object.Signature{Name: "Kuvryn Sync Test", Email: "kuvryn-sync@example.com", When: time.Unix(1700000000, 0)}
 }
 
 func TestCacheResolvesAnnotatedTagsShortCommitsAndDefaultBranch(t *testing.T) {

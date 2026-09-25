@@ -68,7 +68,7 @@ func TestSpanErrorsAreRedacted(t *testing.T) {
 	}
 }
 
-func TestSetupTracingNamesTheServiceSolder(t *testing.T) {
+func TestSetupTracingNamesTheServiceKuvrynSync(t *testing.T) {
 	before := otel.GetTracerProvider()
 	t.Cleanup(func() { otel.SetTracerProvider(before) })
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4317")

@@ -45,7 +45,7 @@ type RepositorySpec struct {
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
 	// webhook lets GitHub or GitLab push events trigger an immediate fetch
-	// through Solder's webhook receiver at /hooks/<namespace>/<name>.
+	// through Kuvryn Sync's webhook receiver at /hooks/<namespace>/<name>.
 	// +optional
 	Webhook *RepositoryWebhook `json:"webhook,omitempty"`
 	// imageUpdate commits the images selected by ImagePolicies in this
@@ -109,7 +109,7 @@ type RepositoryStatus struct {
 	// +kubebuilder:validation:Enum=Unknown;Ready;Failed
 	// +optional
 	State RepositoryState `json:"state,omitempty"`
-	// observedRevision is the latest resolved source revision Solder observed.
+	// observedRevision is the latest resolved source revision Kuvryn Sync observed.
 	// +optional
 	ObservedRevision string `json:"observedRevision,omitempty"`
 	// lastFetchedAt records the last successful source fetch/inspection time.

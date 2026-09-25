@@ -55,7 +55,7 @@ func (p pathRenderer) Render(_ context.Context, input renderer.Input) ([]unstruc
 // periodic resync.
 var _ = Describe("Drift detection for custom kinds", Ordered, func() {
 	const (
-		controllerAccount = "solder-test-drift"
+		controllerAccount = "kuvryn-sync-test-drift"
 		resync            = 8 * time.Second
 	)
 	var stop context.CancelFunc
@@ -165,7 +165,7 @@ func settleApplication(key types.NamespacedName) {
 	}, 2*time.Second, 200*time.Millisecond).Should(Succeed())
 }
 
-// recreatedWithin deletes a managed object in payments and expects Solder to
+// recreatedWithin deletes a managed object in payments and expects Kuvryn Sync to
 // recreate it within the given time.
 func recreatedWithin(obj unstructured.Unstructured, within time.Duration) {
 	obj.SetNamespace("payments")

@@ -42,7 +42,7 @@ type Result struct {
 	// sync.kuvryn.io/prune: disabled, or are of a high-risk kind. Keeping them is
 	// not a failure.
 	Skipped []Rejected
-	// Rejected are objects Solder cannot show it manages, which must never
+	// Rejected are objects Kuvryn Sync cannot show it manages, which must never
 	// be pruned.
 	Rejected []Rejected
 }

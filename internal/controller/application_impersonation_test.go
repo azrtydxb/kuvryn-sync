@@ -123,7 +123,7 @@ var _ = Describe("Application service account impersonation", func() {
 		Expect(revision.Status.Failure.Message).To(ContainSubstring("clusterrolebindings"))
 
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: escalation}, &rbacv1.ClusterRoleBinding{})
-		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant escalated through Solder")
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "tenant escalated through Kuvryn Sync")
 		Expect(drainEvents(recorder)).To(ContainElement(And(ContainSubstring("PruneInventoryIncomplete"), ContainSubstring("Secret"))))
 
 		By("keeping the Forbidden failure once retries are exhausted")

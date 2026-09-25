@@ -103,7 +103,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
-		"Service account in the Application namespace that Solder impersonates when an Application sets no "+
+		"Service account in the Application namespace that Kuvryn Sync impersonates when an Application sets no "+
 			"serviceAccountName. When empty, such Applications are refused.")
 	flag.DurationVar(&driftResyncInterval, "drift-resync-interval", 5*time.Minute,
 		"How often Applications managing kinds the controller may not watch are re-checked for drift. 0 disables it.")

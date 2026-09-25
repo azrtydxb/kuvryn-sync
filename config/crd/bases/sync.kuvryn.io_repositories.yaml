@@ -153,7 +153,7 @@ spec:
                 webhook:
                   description: |-
                     webhook lets GitHub or GitLab push events trigger an immediate fetch
-                    through Solder's webhook receiver at /hooks/<namespace>/<name>.
+                    through Kuvryn Sync's webhook receiver at /hooks/<namespace>/<name>.
                   properties:
                     secretRef:
                       description: |-
@@ -246,7 +246,7 @@ spec:
                 observedRevision:
                   description:
                     observedRevision is the latest resolved source revision
-                    Solder observed.
+                    Kuvryn Sync observed.
                   type: string
                 state:
                   description: state is the high-level observed readiness of the source.

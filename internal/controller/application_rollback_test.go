@@ -64,7 +64,7 @@ func (r namedWorkspaceResolver) Resolve(_ context.Context, repository source.Git
 	if resolved == "main" {
 		resolved = *r.revision
 	}
-	return source.ResolvedSource{Revision: resolved, CacheDir: "/tmp/solder-workspace-" + resolved}, nil
+	return source.ResolvedSource{Revision: resolved, CacheDir: "/tmp/kuvryn-sync-workspace-" + resolved}, nil
 }
 
 type renderFunc func(renderer.Input) ([]unstructured.Unstructured, error)
@@ -78,7 +78,7 @@ func (f renderFunc) Render(_ context.Context, input renderer.Input) ([]unstructu
 func commitRenderer(extra map[string][]unstructured.Unstructured, failing ...string) RendererFactory {
 	return func(corev1alpha1.RenderType) (renderer.Renderer, error) {
 		return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
-			commit := strings.TrimPrefix(input.Workspace, "/tmp/solder-workspace-")
+			commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
 			if slices.Contains(failing, commit) {
 				return nil, errors.New("render failed")
 			}
@@ -355,7 +355,7 @@ var _ = Describe("Rollbacks", func() {
 		failing := true
 		r.Renderers = func(corev1alpha1.RenderType) (renderer.Renderer, error) {
 			return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
-				commit := strings.TrimPrefix(input.Workspace, "/tmp/solder-workspace-")
+				commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
 				if commit == "a-sha" && failing && application().GetAnnotations()[corev1alpha1.RollbackRevisionAnnotation] != "" {
 					return nil, errors.New("chart pull failed")
 				}

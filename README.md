@@ -1,17 +1,17 @@
-# Solder
+# Kuvryn Sync
 
-[![Tests](https://github.com/azrtydxb/solder/actions/workflows/test.yml/badge.svg)](https://github.com/azrtydxb/solder/actions/workflows/test.yml)
-[![Lint](https://github.com/azrtydxb/solder/actions/workflows/lint.yml/badge.svg)](https://github.com/azrtydxb/solder/actions/workflows/lint.yml)
-[![E2E](https://github.com/azrtydxb/solder/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/azrtydxb/solder/actions/workflows/test-e2e.yml)
-[![Image](https://github.com/azrtydxb/solder/actions/workflows/image.yml/badge.svg)](https://github.com/azrtydxb/solder/actions/workflows/image.yml)
+[![Tests](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/test.yml/badge.svg)](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/test.yml)
+[![Lint](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/lint.yml/badge.svg)](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/lint.yml)
+[![E2E](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/test-e2e.yml)
+[![Image](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/image.yml/badge.svg)](https://github.com/azrtydxb/kuvryn-sync/actions/workflows/image.yml)
 
-**Solder — GitOps that sticks.**
+**Kuvryn Sync — an Azrty product.**
 
-Solder is a lightweight, deterministic, Kubernetes-native GitOps controller for
+Kuvryn Sync is a lightweight, deterministic, Kubernetes-native GitOps controller for
 applying desired state from Git to Kubernetes. It is intentionally an operator,
 not a platform bundle: no Redis, PostgreSQL, broker, or mandatory UI.
 
-Solder focuses on the product path that matters for day-two operations:
+Kuvryn Sync focuses on the product path that matters for day-two operations:
 
 - `Repository` CRDs resolve Git branches, tags, or commits with Secret-backed auth,
   and can fetch immediately on signed GitHub or GitLab push webhooks.
@@ -29,14 +29,14 @@ Solder focuses on the product path that matters for day-two operations:
 - Server-Side Apply is used for mutations; ownership conflicts fail by default,
   and `adopt` takes fields over deliberately when migrating from Flux or Argo CD.
 - `Revision` CRDs keep bounded, redacted, auditable plan and rollout history.
-- Unhealthy Applications explain themselves: Solder walks the live resource
+- Unhealthy Applications explain themselves: Kuvryn Sync walks the live resource
   graph down to the root cause, such as a missing Secret or an image pull
-  failure, records it in `status.diagnosis`, and `solder diagnose` and
-  `solder graph` print it.
+  failure, records it in `status.diagnosis`, and `ksync diagnose` and
+  `ksync graph` print it.
 - Prometheus metrics and, when an OTLP endpoint is configured,
   OpenTelemetry traces of every Application reconcile.
 
-> Status: alpha (`solder.io/v1alpha1`). The MVP is functional and covered by
+> Status: alpha (`sync.kuvryn.io/v1alpha1`). The MVP is functional and covered by
 > controller, CLI, and product-path e2e tests, but the API may still
 > change before a stable release.
 
@@ -44,7 +44,7 @@ Solder focuses on the product path that matters for day-two operations:
 
 The full documentation site is published with GitHub Pages:
 
-**https://azrtydxb.github.io/solder/**
+**https://azrtydxb.github.io/kuvryn-sync/**
 
 Start with:
 
@@ -60,7 +60,7 @@ Start with:
 
 ## Quickstart
 
-Solder's admission webhooks get their certificate from
+Kuvryn Sync's admission webhooks get their certificate from
 [cert-manager](https://cert-manager.io), so install that first, then the CRDs
 and the controller. Run this from a checkout of a release tag: the chart
 deploys the image of its own release (`v<appVersion>`), and a chart from one
@@ -73,16 +73,16 @@ kubectl -n cert-manager rollout status deployment/cert-manager-webhook
 until printf 'apiVersion: cert-manager.io/v1\nkind: Issuer\nmetadata: {name: probe, namespace: cert-manager}\nspec: {selfSigned: {}}\n' |
   kubectl apply --dry-run=server -f - >/dev/null 2>&1; do sleep 2; done
 kubectl apply -f config/crd/bases
-helm upgrade --install solder charts/solder \
-  --namespace solder-system \
+helm upgrade --install kuvryn-sync charts/kuvryn-sync \
+  --namespace kuvryn-sync-system \
   --create-namespace
-kubectl -n solder-system rollout status deployment/solder-solder
+kubectl -n kuvryn-sync-system rollout status deployment/kuvryn-sync-kuvryn-sync
 ```
 
 Create a Git source:
 
 ```yaml
-apiVersion: solder.io/v1alpha1
+apiVersion: sync.kuvryn.io/v1alpha1
 kind: Repository
 metadata:
   name: platform
@@ -96,7 +96,7 @@ spec:
   pollInterval: 60s
 ```
 
-Add `.solder.yaml` at the root of that Git repository to declare Applications. For monorepos, set `spec.applicationConfigPaths` on the Repository to point at one or more nested `.solder.yaml` files instead. Each configured path must be repository-relative, stay inside the repository, and be named `.solder.yaml`.
+Add `.ksync.yaml` at the root of that Git repository to declare Applications. For monorepos, set `spec.applicationConfigPaths` on the Repository to point at one or more nested `.ksync.yaml` files instead. Each configured path must be repository-relative, stay inside the repository, and be named `.ksync.yaml`.
 
 ```yaml
 applications:
@@ -125,15 +125,15 @@ applications:
         limit: 20
 ```
 
-Discovered Applications run as the Repository's `spec.applicationServiceAccountName` (here `payments-deployer`); a `.solder.yaml` cannot choose a different service account — grant that account what the Applications deploy, as described in the [security model](docs/security.md). When the `Repository` reconciles, Solder discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
+Discovered Applications run as the Repository's `spec.applicationServiceAccountName` (here `payments-deployer`); a `.ksync.yaml` cannot choose a different service account — grant that account what the Applications deploy, as described in the [security model](docs/security.md). When the `Repository` reconciles, Kuvryn Sync discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
 
 Then inspect state:
 
 ```sh
-kubectl get repositories.solder.io,applications.solder.io,revisions.solder.io
-solder apps -n default
-solder plan payments -n default
-solder diagnose payments -n default
+kubectl get repositories.sync.kuvryn.io,applications.sync.kuvryn.io,revisions.sync.kuvryn.io
+ksync apps -n default
+ksync plan payments -n default
+ksync diagnose payments -n default
 ```
 
 ## Project layout
@@ -146,9 +146,9 @@ internal/               source, renderer, plan, apply, health, drift, graph,
                         diagnosis, ops packages
 config/                 CRDs, RBAC, manager manifests, samples
 docs/                   GitHub Pages documentation
-charts/solder/          alpha Helm chart
+charts/kuvryn-sync/          alpha Helm chart
 test/e2e/               product-path Kubernetes e2e tests
-solder-full-spec.md     product and engineering specification
+kuvryn-sync-full-spec.md   product and engineering specification
 ```
 
 ## Development

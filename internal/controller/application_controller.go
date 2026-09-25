@@ -344,7 +344,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	// A hook value Solder does not know is refused rather than guessed at.
+	// A hook value Kuvryn Sync does not know is refused rather than guessed at.
 	if err := ordering.ValidateHooks(rendered); err != nil {
 		failure := corev1alpha1.RevisionFailure{Reason: "ValidationFailure", Message: safeMessage(err, "Rendered hook annotation is invalid"), Retryable: false}
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
@@ -395,7 +395,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// pruning splits stale managed objects. Skipped ones, which opted out or
 	// are high-risk, stay out of the plan's deletes, so a Revision that only
 	// leaves them behind converges instead of retrying a delete that never
-	// happens, and they stay labelled, so Solder keeps tracking them.
+	// happens, and they stay labelled, so Kuvryn Sync keeps tracking them.
 	var pruning prune.Result
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
@@ -632,7 +632,7 @@ func (r *ApplicationReconciler) ensureWatches(ctx context.Context, kinds []schem
 }
 
 // warnSkippedKinds records kinds the service account may not list, whose
-// managed objects Solder therefore cannot find or delete.
+// managed objects Kuvryn Sync therefore cannot find or delete.
 func (r *ApplicationReconciler) warnSkippedKinds(application *corev1alpha1.Application, reason string, kinds []string) {
 	if len(kinds) == 0 {
 		return
@@ -1023,7 +1023,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 	if application.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources {
 		tenant, err := r.tenantClient(application)
 		if err != nil {
-			// Without a service account Solder may not delete anything, so the
+			// Without a service account Kuvryn Sync may not delete anything, so the
 			// managed resources are orphaned rather than blocking deletion forever.
 			r.event(application, corev1.EventTypeWarning, "ManagedResourcesOrphaned", safeMessage(err, "Application service account could not be used"))
 			controllerutil.RemoveFinalizer(application, applicationFinalizer)
@@ -1243,7 +1243,7 @@ func inventoryKinds(desired []unstructured.Unstructured, kept []prune.Rejected) 
 }
 
 // groupHealth reads and evaluates the live state of one group's objects,
-// all of which Solder has applied, and returns the live objects it read. A
+// all of which Kuvryn Sync has applied, and returns the live objects it read. A
 // missing object is not there yet and is Progressing, except a hook: one
 // that vanished before it was seen to succeed has failed, since it is never
 // applied twice.
@@ -1740,7 +1740,7 @@ func (r *ApplicationReconciler) dependentsOf(ctx context.Context, obj client.Obj
 	return requests
 }
 
-// DecryptionKeyLabel marks a Secret that Solder may use for decryption keys.
+// DecryptionKeyLabel marks a Secret that Kuvryn Sync may use for decryption keys.
 const DecryptionKeyLabel = "sync.kuvryn.io/decryption-key"
 
 // decryptor loads the Application's age keys. Without spec.decryption it

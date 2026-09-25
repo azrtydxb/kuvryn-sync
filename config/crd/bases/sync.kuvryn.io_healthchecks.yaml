@@ -28,7 +28,7 @@ spec:
       schema:
         openAPIV3Schema:
           description: |-
-            HealthCheck defines how Solder judges the health of a kind that kstatus
+            HealthCheck defines how Kuvryn Sync judges the health of a kind that kstatus
             conventions cannot describe.
           properties:
             apiVersion:
@@ -64,7 +64,7 @@ spec:
                   description: |-
                     rules are evaluated in order against each live object of the kind; the
                     first rule whose expression is true decides its health. When no rule
-                    matches, Solder falls back to kstatus conventions.
+                    matches, Kuvryn Sync falls back to kstatus conventions.
                   items:
                     description: HealthRule maps a CEL condition to a health state.
                     properties:

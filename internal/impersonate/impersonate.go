@@ -1,5 +1,5 @@
 // Package impersonate builds Kubernetes clients that act as an Application's
-// service account, so tenant RBAC decides what Solder may change.
+// service account, so tenant RBAC decides what Kuvryn Sync may change.
 package impersonate
 
 import (

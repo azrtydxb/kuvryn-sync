@@ -555,7 +555,7 @@ func knownHostsCallback(knownHosts string) (gossh.HostKeyCallback, error) {
 	return callback, nil
 }
 
-// RemoteURL reports whether rawURL uses a network transport Solder accepts.
+// RemoteURL reports whether rawURL uses a network transport Kuvryn Sync accepts.
 func RemoteURL(rawURL string) bool {
 	for _, scheme := range []string{"https://", "http://", "ssh://", "git://"} {
 		if strings.HasPrefix(rawURL, scheme) {

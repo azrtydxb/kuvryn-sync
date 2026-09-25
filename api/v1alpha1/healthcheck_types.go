@@ -29,7 +29,7 @@ type HealthCheckSpec struct {
 	Kind string `json:"kind"`
 	// rules are evaluated in order against each live object of the kind; the
 	// first rule whose expression is true decides its health. When no rule
-	// matches, Solder falls back to kstatus conventions.
+	// matches, Kuvryn Sync falls back to kstatus conventions.
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
@@ -58,7 +58,7 @@ type HealthRule struct {
 // +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// HealthCheck defines how Solder judges the health of a kind that kstatus
+// HealthCheck defines how Kuvryn Sync judges the health of a kind that kstatus
 // conventions cannot describe.
 type HealthCheck struct {
 	metav1.TypeMeta `json:",inline"`

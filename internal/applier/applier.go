@@ -42,7 +42,7 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	return nil
 }
 
-// MarkManaged adds the labels and annotation Solder applies with every
+// MarkManaged adds the labels and annotation Kuvryn Sync applies with every
 // object. Planning marks desired objects the same way, so this metadata is
 // never mistaken for drift.
 func MarkManaged(obj *unstructured.Unstructured, application, applicationNamespace, revision string) {

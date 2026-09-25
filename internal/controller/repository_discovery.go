@@ -88,7 +88,7 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 	if app.Spec.Source.Render.Type == "" {
 		return app, fmt.Errorf("%s application %q must set spec.source.render.type", configPath, app.Name)
 	}
-	// Git write access must not choose which service account Solder acts as;
+	// Git write access must not choose which service account Kuvryn Sync acts as;
 	// the Repository owner decides.
 	pinned := repository.Spec.ApplicationServiceAccountName
 	if name := app.Spec.ServiceAccountName; name != "" && name != pinned {
@@ -184,8 +184,8 @@ func applicationsFromConfigFile(repository *corev1alpha1.Repository, workspace, 
 	return nil, true, fmt.Errorf("%s must contain kind: Application or an applications list for repository %q", configPath, repository.Name)
 }
 
-// upsertDiscoveredApplication creates or updates the Application a Solder
-// config file declares, refusing one another controller owns.
+// upsertDiscoveredApplication creates or updates the Application a .ksync.yaml
+// file declares, refusing one another controller owns.
 func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, repository *corev1alpha1.Repository, desired *corev1alpha1.Application, configPath string) error {
 	app := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: desired.Namespace, Name: desired.Name}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, app, func() error {

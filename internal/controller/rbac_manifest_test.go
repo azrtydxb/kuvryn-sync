@@ -32,6 +32,7 @@ import (
 	sigsyaml "sigs.k8s.io/yaml"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/brand"
 	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
 	helmrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/helm"
 )
@@ -257,8 +258,8 @@ func TestHelmChartUsesKuvrynSyncNames(t *testing.T) {
 	if images == 0 {
 		t.Error("the chart renders no Deployment container")
 	}
-	if strings.Contains(strings.ToLower(rendered.String()), "solder") {
-		t.Errorf("the rendered chart still says solder:\n%s", rendered.String())
+	if strings.Contains(strings.ToLower(rendered.String()), brand.OldName) {
+		t.Errorf("the rendered chart still says %s:\n%s", brand.OldName, rendered.String())
 	}
 }
 

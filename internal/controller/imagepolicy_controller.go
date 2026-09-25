@@ -38,7 +38,7 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/imagepolicy"
 )
 
-// RegistryCredentialsLabel marks a Secret that Solder may send to a registry.
+// RegistryCredentialsLabel marks a Secret that Kuvryn Sync may send to a registry.
 const RegistryCredentialsLabel = "sync.kuvryn.io/registry-credentials"
 
 // imagePolicyChanges admits spec edits and annotation changes, such as the

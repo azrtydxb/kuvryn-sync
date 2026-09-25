@@ -45,7 +45,7 @@ import (
 
 // testServiceAccount is bound to cluster-admin and impersonated by default in
 // controller tests; impersonation tests use their own restricted accounts.
-const testServiceAccount = "solder-test-admin"
+const testServiceAccount = "kuvryn-sync-test-admin"
 
 var (
 	ctx       context.Context

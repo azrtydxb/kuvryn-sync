@@ -345,7 +345,7 @@ var _ = Describe("Application Controller", func() {
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(capture.input.Workspace).To(Equal("/tmp/solder-workspace"))
+		Expect(capture.input.Workspace).To(Equal("/tmp/kuvryn-sync-workspace"))
 		Expect(capture.input.Path).To(Equal("apps/payments"))
 		Expect(capture.input.ReleaseName).To(Equal("payments"))
 		Expect(capture.input.ValuesFiles).To(Equal([]string{"values/prod.yaml"}))
@@ -391,7 +391,7 @@ var _ = Describe("Application Controller", func() {
 type fakeResolver struct{}
 
 func (fakeResolver) Resolve(ctx context.Context, repository source.GitRepository) (source.ResolvedSource, error) {
-	return source.ResolvedSource{Revision: "resolved-sha", CacheDir: "/tmp/solder-workspace"}, nil
+	return source.ResolvedSource{Revision: "resolved-sha", CacheDir: "/tmp/kuvryn-sync-workspace"}, nil
 }
 
 type capturingRenderer struct {

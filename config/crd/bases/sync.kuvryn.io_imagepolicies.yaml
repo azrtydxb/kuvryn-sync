@@ -127,7 +127,7 @@ spec:
                 webhook:
                   description: |-
                     webhook lets a registry or CI trigger an immediate scan through
-                    Solder's receiver at /hooks/imagepolicies/<namespace>/<name>.
+                    Kuvryn Sync's receiver at /hooks/imagepolicies/<namespace>/<name>.
                   properties:
                     secretRef:
                       description: |-

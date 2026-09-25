@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/azrtydxb/kuvryn-sync/internal/brand"
 )
 
 func TestKsyncVersionAndHelp(t *testing.T) {
@@ -17,7 +19,7 @@ func TestKsyncVersionAndHelp(t *testing.T) {
 	}
 	out.Reset()
 	Run(context.Background(), []string{"help"}, &out, &errb)
-	if strings.Contains(out.String(), "solder") || !strings.Contains(out.String(), "ksync diagnose") {
+	if strings.Contains(out.String(), brand.OldName) || !strings.Contains(out.String(), "ksync diagnose") {
 		t.Fatalf("help still names the old CLI:\n%s", out.String())
 	}
 }

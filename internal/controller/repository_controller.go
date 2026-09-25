@@ -165,7 +165,7 @@ func (r *RepositoryReconciler) resolver() source.Resolver {
 	return r.SourceResolver
 }
 
-// GitCredentialsLabel marks a Secret that Solder may use as Git credentials.
+// GitCredentialsLabel marks a Secret that Kuvryn Sync may use as Git credentials.
 const GitCredentialsLabel = "sync.kuvryn.io/git-credentials"
 
 func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repository *corev1alpha1.Repository) (source.Credentials, error) {

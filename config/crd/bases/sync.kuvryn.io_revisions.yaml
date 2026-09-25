@@ -538,8 +538,8 @@ spec:
                               properties:
                                 manager:
                                   description:
-                                    manager is the non-Solder field manager
-                                    currently owning the field.
+                                    manager is the other field manager currently
+                                    owning the field.
                                   minLength: 1
                                   type: string
                                 path:

@@ -5,7 +5,7 @@ nav_order: 12
 
 # Deferred roadmap boundaries
 
-Solder keeps the first release small and Kubernetes-native. These features are deliberately extension points, not hidden requirements.
+Kuvryn Sync keeps the first release small and Kubernetes-native. These features are deliberately extension points, not hidden requirements.
 
 ## Progressive delivery
 
@@ -13,7 +13,7 @@ Canary and blue/green support should fit under explicit strategy fields and reus
 
 ## Multi-cluster
 
-Multi-cluster operation should stay pull-based. A workload cluster should run Solder locally and reconcile its own Kubernetes API instead of requiring a central mandatory management plane.
+Multi-cluster operation should stay pull-based. A workload cluster should run Kuvryn Sync locally and reconcile its own Kubernetes API instead of requiring a central mandatory management plane.
 
 ## OCI desired-state source
 
@@ -25,11 +25,11 @@ Policy, signature, SBOM, and build-attestation checks should run after render/pl
 
 ## AI explanations
 
-AI remains an optional explanation layer over redacted plans, health, drift, and the deterministic `status.diagnosis` Solder already records. It must not be required for reconciliation and must never receive Secret values by default.
+AI remains an optional explanation layer over redacted plans, health, drift, and the deterministic `status.diagnosis` Kuvryn Sync already records. It must not be required for reconciliation and must never receive Secret values by default.
 
 ## Delivered since 0.2.0
 
 The live resource graph and root-cause diagnosis (`status.diagnosis`,
-`solder diagnose`, `solder graph`) and OpenTelemetry trace export over OTLP
+`ksync diagnose`, `ksync graph`) and OpenTelemetry trace export over OTLP
 are no longer deferred; they ship in the next release. See the
-[changelog](https://github.com/azrtydxb/solder/blob/main/CHANGELOG.md).
+[changelog](https://github.com/azrtydxb/kuvryn-sync/blob/main/CHANGELOG.md).

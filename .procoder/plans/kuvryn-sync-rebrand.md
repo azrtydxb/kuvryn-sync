@@ -523,9 +523,44 @@ Files:
   can adopt existing workloads with `conflictPolicy: adopt`.
 - `internal/brand/names_test.go`: widened to the whole repository.
 
+- The files `procoder agents` derives from `AGENTS.md` (`.agents/`,
+  `.clinerules/`, `.codex/`, `.cursor/`, `.kilo/`, `.kilocode/`, `.kiro/`,
+  `.qoder/`, `.roo/`, `.windsurf/`, `.github/copilot-instructions.md`),
+  which the gate blocks on when they drift.
+- Go doc comments, test fixtures and identifiers that still named the old
+  product, for example `ordering.SolderHookAnnotation`, renamed
+  `KuvrynSyncHookAnnotation`. The CRDs and `dist/install.yaml` are
+  regenerated from the comments.
+- `internal/brand/brand.go`: new; `const OldName = "solder"`.
+- `hack/check-links.py`: new.
+
+As built:
+
+- The guard excludes its own package, `internal/brand`, as well as the
+  allowlist. The guard has to spell the old name, and so do the
+  negative assertions that earlier tasks added (`TestMetricNamesUseKuvrynSyncPrefix`,
+  `TestKsyncVersionAndHelp`, `TestHelmChartUsesKuvrynSyncNames`,
+  `TestDiscoveryReadsKsyncYaml` and `TestCRDsUseTheKuvrynSyncGroup`). They
+  now use `brand.OldName`, so no file outside `internal/brand` and the
+  history allowlist names the old product.
+- The history sections are found by heading and run to the next heading of
+  the same or a higher level. A missing heading allows nothing, so every
+  line of that file is checked.
+- `docs/upgrade.md` keeps only the clean-break section. The 0.1.x and 0.2.x
+  upgrade notes described Solder installs only, so they are replaced by a
+  pointer to the changelog and to the v0.3.0 tag's `docs/upgrade.md`.
+- The tagline "GitOps that sticks" was a pun on the old name. It gives way
+  to the spec's brand line, "Kuvryn Sync — an Azrty product", and the
+  History section of the full spec records it.
+- No link-check script from the 0.3.0 audit exists in the repository, so
+  `hack/check-links.py` is written here. It checks relative inline links,
+  images and reference definitions, outside code, for an existing target,
+  and checks their `#fragment` against GitHub-style heading anchors. It
+  exits 1 when any link is broken.
+
 Interfaces: consumes every name from Tasks 1 to 8. Produces
 `TestNoSolderNameRemains` over the whole repository, with the history
-allowlist.
+allowlist, and `brand.OldName`.
 
 - [ ] Widen `TestNoSolderNameRemains` to
       `git grep -n -i solder -- . ':!.procoder' ':!CHANGELOG.md' ':!go.sum'`.
