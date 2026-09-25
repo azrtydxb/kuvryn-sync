@@ -62,7 +62,7 @@ func TestConsoleDocsCoverTokenSignIn(t *testing.T) {
 	}{
 		"## Sign in with a Kubernetes token":           {token, []string{"SelfSubjectReview", "8 hours", "POST /auth/token", "1.28"}},
 		"## Create a viewer token":                     {viewer, []string{"kind: ServiceAccount", "kind: RoleBinding", "kubectl create token", "sync.kuvryn.io", "--duration"}},
-		"## Add the console to a raw-manifest install": {raw, []string{"dist/install.yaml", "helm template kuvryn-sync charts/kuvryn-sync", "--set console.enabled=true", "--show-only templates/console.yaml", "kubectl apply -f -"}},
+		"## Add the console to a raw-manifest install": {raw, []string{"dist/install.yaml", "helm template kuvryn-sync charts/kuvryn-sync", "--set console.enabled=true", "--show-only templates/console.yaml", "kubectl apply -n kuvryn-sync-system -f -"}},
 	} {
 		if tc.body == "" {
 			t.Errorf("docs/console.md has no %q section", name)
@@ -72,6 +72,13 @@ func TestConsoleDocsCoverTokenSignIn(t *testing.T) {
 			if !strings.Contains(tc.body, want) {
 				t.Errorf("docs/console.md %q does not mention %q", name, want)
 			}
+		}
+	}
+	// helm template output carries no namespace, so every kubectl apply or
+	// delete of it must name one, or it acts on the current namespace.
+	for _, bare := range []string{"kubectl apply -f -", "kubectl delete -f -"} {
+		if strings.Contains(raw, bare) {
+			t.Errorf("docs/console.md raw-manifest section uses %q without -n kuvryn-sync-system", bare)
 		}
 	}
 	if tokenAt < 0 || dexAt < 0 || tokenAt > dexAt {

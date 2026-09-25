@@ -168,8 +168,12 @@ of the same release tag, so the image matches the controller:
 ```sh
 helm template kuvryn-sync charts/kuvryn-sync --namespace kuvryn-sync-system \
   --set console.enabled=true --set console.clusterName=prod-eu-1 \
-  --show-only templates/console.yaml | kubectl apply -f -
+  --show-only templates/console.yaml | kubectl apply -n kuvryn-sync-system -f -
 ```
+
+The rendered objects carry no namespace of their own, so keep the `-n` on
+`kubectl apply`; without it they land in the current namespace, usually
+`default`.
 
 That is the token-only console: a ServiceAccount, a Deployment and a Service
 in `kuvryn-sync-system`, and nothing cluster-wide. Add
@@ -177,7 +181,7 @@ in `kuvryn-sync-system`, and nothing cluster-wide. Add
 Ingress, `--set image.pullSecrets[0]=<secret>` for a private image, or the
 OIDC values from [Install with OIDC](#4-install-the-console-with-oidc) for
 single sign-on. Render again with the same values after upgrading, and remove
-it with `kubectl delete -f -` on the same output.
+it with `kubectl delete -n kuvryn-sync-system -f -` on the same output.
 
 ## Set up OIDC sign-in with Dex
 
