@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+_The console signs people in with a Kubernetes token, so it runs on any
+cluster; OIDC becomes optional._
 
 - **New:** the web console signs people in with a Kubernetes bearer token,
   for example from `kubectl create token`, so it works on any cluster with
