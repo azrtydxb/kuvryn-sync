@@ -576,6 +576,13 @@ Files:
     It runs the console with a stub `Auth` that always returns
     `Identity{Username: "viewer", Groups: ["viewers"]}`, bound to a view-all
     ClusterRole, on `:5174`. It prints `ready` when it is serving.
+  - The seed lives in `hack/console-dev/seed.go`: Applications, Repositories,
+    Revisions and ImagePolicies in namespace `default` (the design's
+    "Application · default"), with destinations `payments`, `shop`, `ingress`,
+    `cert-manager` and `finance`, plus each Application's managed Deployment,
+    Service, ConfigMap, ServiceAccount and PodDisruptionBudget. `.golangci.yml`
+    exempts `hack/console-dev/*` from `lll`, as it does `internal/*`, for the
+    seed tables.
 - `web/src/layout/Shell.tsx`: a Sidebar with the brand lockup and cluster,
   and navigation for Applications (with a degraded-count badge),
   Repositories, Revisions and Image policies. The footer shows "Watching
@@ -604,7 +611,24 @@ Files:
   Input on 403, and stores the choice in localStorage `ksync.namespace`.
 - `web/src/components/StatusBadge.tsx`: the sync, health, phase and action
   tone maps from the design's `SYNC_T`, `HEALTH_T`, `PHASE_T` and `ACT_T`.
+- `web/src/layout/context.ts`, `web/src/pages/common.tsx`, `pages.css` and
+  `web/src/format.ts`: the shell context (namespace, refresh time,
+  breadcrumb), the page heading, and the poll-failure rendering: the
+  namespace picker for `needNamespace`, or a "Refresh failed" banner that
+  keeps the last data.
 - `web/e2e/console.spec.ts` and `web/e2e/refresh.spec.ts`.
+- Changes to Task 4's API that the pages needed:
+  - Revisions sort newest first by `status.startedAt`, falling back to
+    creation, since creation timestamps have one-second resolution;
+  - poll intervals read `60s`, `5m` or `2h`;
+  - diagnosis references are `namespace/name`, as the design shows them.
+- Deviations from the design:
+  - there is no "Discovered from" or "History limit" property, and no
+    "Writes to" column on Image policies, because the API has no such data;
+  - the webhook column reads "Signed" or "—", since the provider is unknown;
+  - chain links show a state only where one is recorded;
+  - the shell adds the signed-in user with "Sign out" (spec S-2), a
+    theme toggle (spec S-8), and the chosen namespace with "All".
 
 Interfaces: consumes the Task 4 endpoints, `usePoll`, and the vendored
 components. Produces the tests `TestConsolePages` and `TestLiveRefresh`, and
@@ -662,6 +686,8 @@ the dev server `go run ./hack/console-dev`, which listens on
   });
   ```
   Run `make test-ui`, and expect both to FAIL: the stat cards are not found.
+  `refresh.spec.ts` also resets catalog to Healthy before it starts, so it
+  passes against a reused dev server.
 - [ ] Implement `hack/console-dev`, including the subcommand
       `set-health <app> <state>`, which patches the seeded Application's status
       through the envtest kubeconfig the server writes to

@@ -34,6 +34,9 @@ linters:
           - dupl
           - lll
         path: internal/*
+      - linters:
+          - lll
+        path: hack/console-dev/*
     paths:
       - third_party$
       - builtin$

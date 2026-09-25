@@ -3,6 +3,7 @@ package console
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -284,16 +285,24 @@ func causes(in []corev1alpha1.DiagnosisCause) []Cause {
 			if ref == c.Resource {
 				state = orDash(c.Reason)
 			}
-			chain = append(chain, ChainLink{Kind: ref.Kind, Name: ref.Name, State: state})
+			chain = append(chain, ChainLink{Kind: ref.Kind, Name: qualified(ref), State: state})
 		}
 		out = append(out, Cause{
-			Resource: c.Resource.Kind + "/" + c.Resource.Name,
+			Resource: c.Resource.Kind + "/" + qualified(c.Resource),
 			Reason:   orDash(c.Reason),
 			Message:  text(c.Message),
 			Chain:    chain,
 		})
 	}
 	return out
+}
+
+// qualified is a reference's namespace/name, or its name when cluster-scoped.
+func qualified(ref corev1alpha1.ResourceRef) string {
+	if ref.Namespace == "" {
+		return ref.Name
+	}
+	return ref.Namespace + "/" + ref.Name
 }
 
 func summaryView(s corev1alpha1.PlanSummary) SummaryView {
@@ -360,14 +369,36 @@ func revisionRow(rev *corev1alpha1.Revision) RevisionRow {
 	return row
 }
 
-// newestFirst sorts Revisions by creation, newest first, then by name.
+// startOf is when a Revision started, or its creation before it has.
+func startOf(rev *corev1alpha1.Revision) time.Time {
+	if rev.Status.StartedAt != nil {
+		return rev.Status.StartedAt.Time
+	}
+	return rev.CreationTimestamp.Time
+}
+
+// newestFirst sorts Revisions newest first by start, then by name.
+// Creation timestamps have one-second resolution, so Revisions created
+// together would otherwise sort by name alone.
 func newestFirst(revs []corev1alpha1.Revision) {
 	slices.SortStableFunc(revs, func(a, b corev1alpha1.Revision) int {
-		if c := b.CreationTimestamp.Compare(a.CreationTimestamp.Time); c != 0 {
+		if c := startOf(&b).Compare(startOf(&a)); c != 0 {
 			return c
 		}
 		return cmp.Compare(b.Name, a.Name)
 	})
+}
+
+// shortDuration formats a poll interval as 90s, 5m or 2h.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d >= time.Hour && d%time.Hour == 0:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d >= time.Minute && d%time.Minute == 0:
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	default:
+		return strconv.FormatInt(int64(d.Round(time.Second)/time.Second), 10) + "s"
+	}
 }
 
 func repoRow(repo *corev1alpha1.Repository, apps *int) RepoRow {
@@ -389,7 +420,7 @@ func repoRow(repo *corev1alpha1.Repository, apps *int) RepoRow {
 		row.Ref = orDash(g.Revision)
 	}
 	if repo.Spec.PollInterval != nil {
-		row.Poll = repo.Spec.PollInterval.Duration.String()
+		row.Poll = shortDuration(repo.Spec.PollInterval.Duration)
 	}
 	for _, c := range repo.Status.Conditions {
 		if c.Type == "Ready" {

@@ -264,7 +264,7 @@ func TestConsoleAPIShowsWhatTheUserMayRead(t *testing.T) {
 	for path, want := range map[string][]string{
 		"/api/applications/a/web": {
 			`"sync":"AwaitingApproval"`, `"health":"Degraded"`, `"reason":"ImagePullBackOff"`,
-			`{"kind":"Pod","name":"web-abc","state":"ImagePullBackOff"}`, `{"kind":"Deployment","name":"web","state":"—"}`,
+			`"resource":"Pod/a/web-abc"`, `{"kind":"Pod","name":"a/web-abc","state":"ImagePullBackOff"}`, `{"kind":"Deployment","name":"a/web","state":"—"}`,
 			`"digest":"sha256:plan"`, `"planVisible":true`, `"path":"metadata.labels.tier","before":"v","after":"w","redacted":false`, `"path":"data.k","before":"REDACTED","after":"REDACTED","redacted":true`,
 		},
 		"/api/applications/a/web/revisions": {`"name":"web-1"`, `"phase":"AwaitingApproval"`, `"commit":"0123456789abcdef"`},
@@ -355,5 +355,27 @@ func TestViewsShowUnknownForMissingStatus(t *testing.T) {
 	d := appDetail(&corev1alpha1.Application{}, nil, true)
 	if d.Plan != nil || len(d.Diagnosis) != 0 || d.Diagnosis == nil || d.Conditions == nil {
 		t.Fatalf("empty detail = %+v", d)
+	}
+}
+
+func TestNewestFirstPrefersStartTime(t *testing.T) {
+	created := metav1.Now()
+	rev := func(name string, started time.Duration) corev1alpha1.Revision {
+		r := corev1alpha1.Revision{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
+		if started > 0 {
+			s := metav1.NewTime(created.Add(-started))
+			r.Status.StartedAt = &s
+		}
+		return r
+	}
+	revs := []corev1alpha1.Revision{rev("z-old", 48*time.Hour), rev("a-new", time.Minute), rev("m-mid", 24*time.Hour)}
+	newestFirst(revs)
+	if revs[0].Name != "a-new" || revs[1].Name != "m-mid" || revs[2].Name != "z-old" {
+		t.Fatalf("order = %s, %s, %s", revs[0].Name, revs[1].Name, revs[2].Name)
+	}
+	for d, want := range map[time.Duration]string{time.Minute: "1m", 5 * time.Minute: "5m", 90 * time.Second: "90s", 2 * time.Hour: "2h"} {
+		if got := shortDuration(d); got != want {
+			t.Errorf("shortDuration(%v) = %q, want %q", d, got, want)
+		}
 	}
 }
