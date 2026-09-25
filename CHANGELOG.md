@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed:** the console reuses one read-only client per signed-in identity
+  for up to five minutes instead of running API discovery on every request.
+
 ## 0.4.1
 
 _The chart can pull a private image._
