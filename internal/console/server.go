@@ -73,7 +73,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /auth/callback", flow.Callback)
 		mux.HandleFunc("POST /logout", flow.Logout)
 	}
-	mux.HandleFunc("GET /api/me", s.withIdentity(s.me))
+	mux.HandleFunc("GET /api/me", s.me)
 	s.registerAPI(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -142,26 +142,35 @@ func (s *Server) withIdentity(next func(http.ResponseWriter, *http.Request, Iden
 	}
 }
 
+// meResponse is /api/me: the login page's settings, and the signed-in user
+// when there is one.
 type meResponse struct {
 	Authenticated bool     `json:"authenticated"`
 	Username      string   `json:"username,omitempty"`
 	Groups        []string `json:"groups,omitempty"`
 	Cluster       string   `json:"cluster"`
 	Connectors    []string `json:"connectors"`
+	SSOName       string   `json:"ssoName"`
 	DocsURL       string   `json:"docsURL,omitempty"`
 	StatusURL     string   `json:"statusURL,omitempty"`
 }
 
-func (s *Server) me(w http.ResponseWriter, _ *http.Request, id Identity) {
-	writeJSON(w, http.StatusOK, meResponse{
-		Authenticated: true,
-		Username:      id.Username,
-		Groups:        id.Groups,
-		Cluster:       s.cfg.ClusterName,
-		Connectors:    append([]string{}, s.cfg.Connectors...),
-		DocsURL:       s.cfg.DocsURL,
-		StatusURL:     s.cfg.StatusURL,
-	})
+// me answers 200 with or without a session, since the login page needs the
+// cluster name and sign-in connectors before anyone has signed in.
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	out := meResponse{
+		Cluster:    s.cfg.ClusterName,
+		Connectors: append([]string{}, s.cfg.Connectors...),
+		SSOName:    s.cfg.SSOName,
+		DocsURL:    s.cfg.DocsURL,
+		StatusURL:  s.cfg.StatusURL,
+	}
+	if s.auth != nil {
+		if id, err := s.auth.Identity(r); err == nil && checkIdentity(id) == nil {
+			out.Authenticated, out.Username, out.Groups = true, id.Username, id.Groups
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // spa serves the SPA's files, long-cached under /assets/, and index.html for

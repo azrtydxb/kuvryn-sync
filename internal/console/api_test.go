@@ -319,10 +319,11 @@ func TestConsoleAPIShowsWhatTheUserMayRead(t *testing.T) {
 func TestConsoleRefusesSystemIdentitiesAndAnonymous(t *testing.T) {
 	for _, id := range []Identity{{}, {Username: "system:admin"}, {Username: "eve", Groups: []string{"system:masters"}}} {
 		srv := newAPIServerAs(t, env, id)
-		for _, path := range []string{"/api/me", "/api/applications?namespace=b"} {
-			if rec := get(t, srv, path); rec.Code != http.StatusUnauthorized {
-				t.Fatalf("%+v %s = %d %s", id, path, rec.Code, rec.Body.String())
-			}
+		if rec := get(t, srv, "/api/applications?namespace=b"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%+v = %d %s", id, rec.Code, rec.Body.String())
+		}
+		if rec := get(t, srv, "/api/me"); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"authenticated":false`) || strings.Contains(rec.Body.String(), "system:") {
+			t.Fatalf("%+v /api/me = %d %s", id, rec.Code, rec.Body.String())
 		}
 	}
 }

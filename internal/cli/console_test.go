@@ -15,7 +15,7 @@ func TestConsoleHelpListsEveryFlag(t *testing.T) {
 	for _, flag := range []string{
 		"-listen", "-oidc-issuer-url", "-oidc-client-id", "-oidc-client-secret-file", "-redirect-url",
 		"-username-claim", "-groups-claim", "-username-prefix", "-groups-prefix", "-session-key-file",
-		"-cluster-name", "-connectors", "-docs-url", "-status-url", "-insecure-cookies",
+		"-cluster-name", "-sso-name", "-connectors", "-docs-url", "-status-url", "-insecure-cookies",
 	} {
 		if !strings.Contains(errb.String(), flag+" ") && !strings.Contains(errb.String(), flag+"\n") {
 			t.Errorf("console --help lacks %s:\n%s", flag, errb.String())

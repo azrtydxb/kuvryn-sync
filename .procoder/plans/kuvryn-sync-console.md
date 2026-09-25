@@ -501,9 +501,23 @@ Files:
     explained."
 - `web/src/pages/login.css`: layout only; colours come from tokens.
 - `internal/console/server.go`: `/login` serves the SPA. Before the session
-  exists, `/api/me` returns `{authenticated:false, connectors, cluster, ssoName, docsURL, statusURL}`.
+  exists, `/api/me` returns `{authenticated:false, connectors, cluster, ssoName, docsURL, statusURL}`,
+  with status 200; with a session it adds `username` and `groups`. `ssoName`
+  comes from a new flag `--sso-name` (`Config.SSOName`, empty by default,
+  when the button reads "Single sign-on"), which Task 1's flag list lacked.
+- `web/src/ui/azrty.ts`: typed re-exports of the vendored components, since
+  TypeScript infers every destructured prop of an untyped `.jsx` as required.
+- `hack/console-dev/main.go`, minimal: the console with a stub viewer `Auth`,
+  `--sso-name Dex`, the `github` connector and cluster `prod-eu-1` on
+  `127.0.0.1:5174`. Task 7 adds envtest and the seed data. The login page
+  does not redirect a signed-in user, so the stub does not hide it.
 - `web/e2e/login.spec.ts` and `web/playwright.config.ts`. The latter's
-  `webServer` is `go run ./hack/console-dev` (Task 7).
+  `webServer` is `go run ./hack/console-dev`. Besides the steps below, the
+  suite asserts that the visible emblem's `naturalWidth` is at least 512 (a
+  truncated emblem fails) and that the page logs no console errors, which is
+  how CSP violations surface. The design's password form is replaced by the
+  "Sign in with email" button, and "Ask your cluster admin for access." is
+  plain text rather than a link with no target.
 
 Interfaces: consumes `/api/me` (unauthenticated shape), `/auth/start`,
 `ProductLogo`, `Button`, `Alert` and `Logo`. Produces the route `/login` and
@@ -541,8 +555,9 @@ the test `TestLoginPage` (the `login.spec.ts` suite).
     }
   }
   ```
-  Run `make test-ui`, and expect it to FAIL with a timeout finding the
-  "Welcome back" heading.
+  Run `make test-ui`, and expect it to FAIL. Task 5's stand-in page already
+  shows the heading, so all four cases fail at `getByRole('button', { name: /Sign in with/ })`:
+  "element(s) not found".
 - [ ] Implement `Login.tsx` and `login.css` from "Kuvryn Sync Login.dc.html",
       using the component props that file uses.
 - [ ] Run `make test-ui`, and expect all four TestLoginPage cases to pass.

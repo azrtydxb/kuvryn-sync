@@ -335,7 +335,7 @@ func TestOIDCSessionIdentityAndRefusals(t *testing.T) {
 func TestServerReportsOIDCReadinessAndRoutesSignIn(t *testing.T) {
 	iss := newTestIssuer(t)
 	a := mustAuth(t, iss.URL)
-	s, err := NewServer(Config{ClusterName: "test"}, &restConfigForTest)
+	s, err := NewServer(Config{ClusterName: "test", SSOName: "Dex", Connectors: []string{"github"}}, &restConfigForTest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +347,9 @@ func TestServerReportsOIDCReadinessAndRoutesSignIn(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/me", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("/api/me without a session = %d", rec.Code)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"authenticated":false`) || !strings.Contains(rec.Body.String(), `"cluster":"test"`) ||
+		!strings.Contains(rec.Body.String(), `"ssoName":"Dex"`) || !strings.Contains(rec.Body.String(), `"connectors":["github"]`) || strings.Contains(rec.Body.String(), "username") {
+		t.Fatalf("/api/me without a session = %d %s", rec.Code, rec.Body.String())
 	}
 	cb := signIn(t, a, iss, func(n string) { iss.issueFor(n, "alice@acme.io", []string{"team-a"}) })
 	req := httptest.NewRequest("GET", "/api/me", nil)

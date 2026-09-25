@@ -1,11 +1,12 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import Login from "./pages/Login";
 import Pending from "./pages/Pending";
 
 /** The console routes. */
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Pending title="Welcome back" />} />
+      <Route path="/login" element={<Login />} />
       <Route path="/apps" element={<Pending title="Applications" />} />
       <Route
         path="/apps/:ns/:name/:tab?"
