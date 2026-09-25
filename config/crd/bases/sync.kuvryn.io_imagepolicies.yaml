@@ -115,7 +115,7 @@ spec:
                 secretRef:
                   description: |-
                     secretRef names a kubernetes.io/dockerconfigjson Secret, labelled
-                    solder.io/registry-credentials=true, used to read the registry.
+                    sync.kuvryn.io/registry-credentials=true, used to read the registry.
                   properties:
                     name:
                       description: name is the Secret name.

@@ -78,7 +78,7 @@ import (
 
 const (
 	defaultPlanResourceLimit = 50
-	applicationFinalizer     = "applications.solder.io/finalizer"
+	applicationFinalizer     = "applications.sync.kuvryn.io/finalizer"
 )
 
 // RendererFactory builds a renderer for an Application render type.
@@ -874,7 +874,7 @@ func (r *ApplicationReconciler) ensureRevision(ctx context.Context, application 
 			Name:      name,
 			Namespace: application.Namespace,
 			Labels: map[string]string{
-				"solder.io/application": application.Name,
+				"sync.kuvryn.io/application": application.Name,
 			},
 		},
 		Spec: corev1alpha1.RevisionSpec{
@@ -1741,7 +1741,7 @@ func (r *ApplicationReconciler) dependentsOf(ctx context.Context, obj client.Obj
 }
 
 // DecryptionKeyLabel marks a Secret that Solder may use for decryption keys.
-const DecryptionKeyLabel = "solder.io/decryption-key"
+const DecryptionKeyLabel = "sync.kuvryn.io/decryption-key"
 
 // decryptor loads the Application's age keys. Without spec.decryption it
 // returns nil, which refuses encrypted files rather than applying ciphertext.

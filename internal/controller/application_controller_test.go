@@ -97,13 +97,13 @@ var _ = Describe("Application Controller", func() {
 
 		updated := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-		Expect(updated.Finalizers).To(ContainElement("applications.solder.io/finalizer"))
+		Expect(updated.Finalizers).To(ContainElement("applications.sync.kuvryn.io/finalizer"))
 	})
 
 	It("prunes stale managed resources during automatic sync", func() {
 		createRepository(ctx)
 		stale := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "payments", Labels: map[string]string{"solder.io/application": resourceName}},
+			ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "payments", Labels: map[string]string{"sync.kuvryn.io/application": resourceName}},
 			Data:       map[string]string{"key": "stale"},
 		}
 		Expect(k8sClient.Create(ctx, stale)).To(Succeed())
@@ -127,13 +127,13 @@ var _ = Describe("Application Controller", func() {
 	// object opted out of prune or is of a high-risk kind.
 	It("skips opted-out and high-risk objects while pruning the rest", func() {
 		createRepository(ctx)
-		managed := map[string]string{"solder.io/application": resourceName}
+		managed := map[string]string{"sync.kuvryn.io/application": resourceName}
 		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "stale-config", Namespace: "payments", Labels: managed},
 			Data:       map[string]string{"key": "stale"},
 		})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments", Labels: managed, Annotations: map[string]string{"solder.io/prune": "disabled"}},
+			ObjectMeta: metav1.ObjectMeta{Name: "kept-config", Namespace: "payments", Labels: managed, Annotations: map[string]string{"sync.kuvryn.io/prune": "disabled"}},
 			Data:       map[string]string{"key": "kept"},
 		})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &corev1.Secret{
@@ -173,7 +173,7 @@ var _ = Describe("Application Controller", func() {
 				Expect(planned.Action).To(Equal(corev1alpha1.PlanActionUnchanged))
 			}
 		}
-		Expect(warnings["ConfigMap/kept-config"]).To(ContainElement(ContainSubstring("prune skipped: prune disabled by solder.io/prune annotation")))
+		Expect(warnings["ConfigMap/kept-config"]).To(ContainElement(ContainSubstring("prune skipped: prune disabled by sync.kuvryn.io/prune annotation")))
 		Expect(warnings["Secret/kept-secret"]).To(ContainElement(ContainSubstring("prune skipped: high-risk Secret")))
 		updated := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
@@ -217,8 +217,8 @@ var _ = Describe("Application Controller", func() {
 		live := &corev1.ConfigMap{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "app-config", Namespace: "payments"}, live)).To(Succeed())
 		Expect(live.Data).To(HaveKeyWithValue("key", "desired"))
-		Expect(live.Labels).To(HaveKeyWithValue("solder.io/application", resourceName))
-		Expect(live.Labels).To(HaveKeyWithValue("solder.io/application-namespace", "default"))
+		Expect(live.Labels).To(HaveKeyWithValue("sync.kuvryn.io/application", resourceName))
+		Expect(live.Labels).To(HaveKeyWithValue("sync.kuvryn.io/application-namespace", "default"))
 
 		updated := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
@@ -234,7 +234,7 @@ var _ = Describe("Application Controller", func() {
 	It("applies only the exact approved manual Revision", func() {
 		createRepository(ctx)
 		resource := newApplication(resourceName, corev1alpha1.RenderTypeYAML)
-		resource.SetAnnotations(map[string]string{"solder.io/approved-revision": "wrong-revision"})
+		resource.SetAnnotations(map[string]string{"sync.kuvryn.io/approved-revision": "wrong-revision"})
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 
 		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
@@ -485,7 +485,7 @@ func secretObject(name string) unstructured.Unstructured {
 
 func listApplicationRevisions(ctx context.Context, appName string) corev1alpha1.RevisionList {
 	list := &corev1alpha1.RevisionList{}
-	Expect(k8sClient.List(ctx, list, client.InNamespace("default"), client.MatchingLabels{"solder.io/application": appName})).To(Succeed())
+	Expect(k8sClient.List(ctx, list, client.InNamespace("default"), client.MatchingLabels{"sync.kuvryn.io/application": appName})).To(Succeed())
 	return *list
 }
 

@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const PruneAnnotationKey = "solder.io/prune"
+const PruneAnnotationKey = "sync.kuvryn.io/prune"
 
 // Policy controls prune eligibility.
 type Policy struct {
@@ -39,7 +39,7 @@ func Plan(live []unstructured.Unstructured, policy Policy) Result {
 type Result struct {
 	Eligible []unstructured.Unstructured
 	// Skipped are managed objects prune keeps: they opted out with
-	// solder.io/prune: disabled, or are of a high-risk kind. Keeping them is
+	// sync.kuvryn.io/prune: disabled, or are of a high-risk kind. Keeping them is
 	// not a failure.
 	Skipped []Rejected
 	// Rejected are objects Solder cannot show it manages, which must never
@@ -65,7 +65,7 @@ func rejectReason(obj unstructured.Unstructured, policy Policy) string {
 
 func skipReason(obj unstructured.Unstructured, policy Policy) string {
 	if obj.GetAnnotations()[PruneAnnotationKey] == "disabled" {
-		return "prune disabled by solder.io/prune annotation"
+		return "prune disabled by sync.kuvryn.io/prune annotation"
 	}
 	if highRisk(obj) && !policy.AllowHighRisk {
 		return fmt.Sprintf("high-risk %s is never pruned automatically", obj.GetKind())

@@ -74,7 +74,7 @@ spec:
                     secretRef:
                       description: |-
                         secretRef names a Secret in the Application namespace, labelled
-                        solder.io/decryption-key=true, whose entries ending in .agekey hold age
+                        sync.kuvryn.io/decryption-key=true, whose entries ending in .agekey hold age
                         private keys.
                       properties:
                         name:
@@ -229,7 +229,7 @@ spec:
                                   type: string
                                 secretRef:
                                   description: |-
-                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    secretRef names a Secret, labelled sync.kuvryn.io/registry-credentials=true,
                                     with `username` and `password` for the repository.
                                   properties:
                                     name:

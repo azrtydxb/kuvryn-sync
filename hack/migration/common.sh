@@ -66,16 +66,16 @@ Y
 	# Guide step 4: review, then approve.
 	local phase=""
 	for _ in $(seq 1 60); do
-		phase=$(k -n solder-e2e get revision -l solder.io/application=fixture -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
+		phase=$(k -n solder-e2e get revision -l sync.kuvryn.io/application=fixture -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)
 		[ "$phase" = AwaitingApproval ] && break
 		sleep 3
 	done
 	[ "$phase" = AwaitingApproval ] || fail "Revision did not reach AwaitingApproval (last phase: ${phase:-none})"
 	local rev
-	rev=$(k -n solder-e2e get revision -l solder.io/application=fixture -o jsonpath='{.items[0].metadata.name}')
+	rev=$(k -n solder-e2e get revision -l sync.kuvryn.io/application=fixture -o jsonpath='{.items[0].metadata.name}')
 	[ -n "$rev" ] || fail "no Revision found for Application fixture"
 	echo "takeover in plan: $(k -n solder-e2e get revision "$rev" -o jsonpath='{.status.plan.resources[0].conflicts}')"
-	k -n solder-e2e annotate applications.sync.kuvryn.io fixture "solder.io/approved-revision=$rev" >/dev/null
+	k -n solder-e2e annotate applications.sync.kuvryn.io fixture "sync.kuvryn.io/approved-revision=$rev" >/dev/null
 	local state=""
 	for _ in $(seq 1 60); do
 		state=$(k -n solder-e2e get applications.sync.kuvryn.io fixture -o jsonpath='{.status.sync.state}/{.status.health.state}' 2>/dev/null || true)

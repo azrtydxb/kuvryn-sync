@@ -28,7 +28,7 @@ import (
 )
 
 // RequestedAtAnnotation is stamped on a Repository to request a fetch.
-const RequestedAtAnnotation = "solder.io/reconcile-requested-at"
+const RequestedAtAnnotation = "sync.kuvryn.io/reconcile-requested-at"
 
 const maxBody = 1 << 20
 

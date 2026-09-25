@@ -39,6 +39,6 @@ solder_migrate
 # Guide step 5.
 k -n argocd delete applications.argoproj.io fixture >/dev/null
 sleep 20
-clear_ownership solder.io/application=fixture
+clear_ownership sync.kuvryn.io/application=fixture
 settle
 verify argocd-controller "$uid_before"

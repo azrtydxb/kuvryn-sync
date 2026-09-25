@@ -57,7 +57,7 @@ type RepositorySpec struct {
 
 // ImageUpdateSpec configures image write-back commits.
 type ImageUpdateSpec struct {
-	// secretRef names a Secret, labelled solder.io/git-credentials=true, with
+	// secretRef names a Secret, labelled sync.kuvryn.io/git-credentials=true, with
 	// credentials allowed to push (same keys as spec.git.auth).
 	SecretRef SecretReference `json:"secretRef"`
 	// branch receives the commits; it defaults to spec.git.revision.

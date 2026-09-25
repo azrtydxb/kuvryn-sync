@@ -210,11 +210,11 @@ var _ = Describe("Repository Controller", func() {
 
 		payments := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, payments)).To(Succeed())
-		Expect(payments.Annotations["solder.io/discovered-from"]).To(Equal("teams/payments/.solder.yaml"))
+		Expect(payments.Annotations["sync.kuvryn.io/discovered-from"]).To(Equal("teams/payments/.solder.yaml"))
 		search := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "search", Namespace: "default"}, search)).To(Succeed())
 		Expect(search.Spec.Source.RepositoryRef.Name).To(Equal(resourceName))
-		Expect(search.Annotations["solder.io/discovered-from"]).To(Equal("teams/search/.solder.yaml"))
+		Expect(search.Annotations["sync.kuvryn.io/discovered-from"]).To(Equal("teams/search/.solder.yaml"))
 	})
 
 	It("rejects unsafe configured .solder.yaml paths", func() {

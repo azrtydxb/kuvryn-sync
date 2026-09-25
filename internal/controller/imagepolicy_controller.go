@@ -39,7 +39,7 @@ import (
 )
 
 // RegistryCredentialsLabel marks a Secret that Solder may send to a registry.
-const RegistryCredentialsLabel = "solder.io/registry-credentials"
+const RegistryCredentialsLabel = "sync.kuvryn.io/registry-credentials"
 
 // imagePolicyChanges admits spec edits and annotation changes, such as the
 // receiver's scan request, but not the controller's own status writes: each

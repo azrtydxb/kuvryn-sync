@@ -107,7 +107,7 @@ spec:
                                   type: string
                                 secretRef:
                                   description: |-
-                                    secretRef names a Secret, labelled solder.io/registry-credentials=true,
+                                    secretRef names a Secret, labelled sync.kuvryn.io/registry-credentials=true,
                                     with `username` and `password` for the repository.
                                   properties:
                                     name:

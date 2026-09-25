@@ -188,6 +188,8 @@ Files:
 - `internal/prune/prune.go`: the opt-out key.
 - `internal/webhook/v1alpha1/*.go`.
 - Every test that literally uses `solder.io/`.
+- `hack/migration/common.sh`: the approved-revision annotation, so the
+  migration scripts keep approving under the new key.
 - `internal/brand/names_test.go`: extended.
 
 Interfaces: produces constants with unchanged Go names and new values, for
@@ -200,7 +202,7 @@ and `ordering` keys `sync.kuvryn.io/hook` and `sync.kuvryn.io/sync-wave`.
       `config/crd/bases`. Run it, and expect it to FAIL with "old key prefix
       remains".
 - [ ] Rewrite the prefix:
-      `git grep -l 'solder\.io/' -- '*.go' 'config' 'charts' | xargs sed -i '' 's#solder\.io/#sync.kuvryn.io/#g'`.
+      `git grep -l 'solder\.io/' -- '*.go' 'config' 'charts' 'hack' ':!internal/brand/names_test.go' | xargs sed -i '' 's#solder\.io/#sync.kuvryn.io/#g'`.
       Then grep for keys built by concatenation, such as `"solder.io"+`, and fix
       them by hand.
 - [ ] Run `make manifests generate && make test`, and expect PASS. Run

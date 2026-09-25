@@ -342,7 +342,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("verifying a healthy Revision was recorded")
 			cmd = exec.Command(
-				"kubectl", "get", "revision", "-l", "solder.io/application=solder-e2e-product", "-o",
+				"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=solder-e2e-product", "-o",
 				"jsonpath={.items[0].status.phase}",
 			)
 			output, err := utils.Run(cmd)
@@ -367,7 +367,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("waiting for the Revision to fail as Forbidden")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command(
-					"kubectl", "get", "revision", "-l", "solder.io/application=solder-e2e-escalation", "-o",
+					"kubectl", "get", "revision", "-l", "sync.kuvryn.io/application=solder-e2e-escalation", "-o",
 					"jsonpath={.items[0].status.phase}:{.items[0].status.failure.reason}",
 				)
 				output, err := utils.Run(cmd)
@@ -397,7 +397,7 @@ var _ = Describe("Manager", Ordered, func() {
 			var revision, digest string
 			Eventually(func(g Gomega) {
 				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
-					"-l", "solder.io/application=solder-e2e-approval",
+					"-l", "sync.kuvryn.io/application=solder-e2e-approval",
 					"-o", "jsonpath={.items[0].metadata.name} {.items[0].status.phase} {.items[0].status.plan.digest}"))
 				g.Expect(err).NotTo(HaveOccurred())
 				fields := strings.Fields(output)
@@ -408,7 +408,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 			By("approving the Revision as the kubectl user")
 			_, err = utils.Run(exec.Command("kubectl", "annotate", "application", "solder-e2e-approval",
-				"solder.io/approved-revision="+revision))
+				"sync.kuvryn.io/approved-revision="+revision))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying the webhook recorded the approver and a forged approver is reverted")
@@ -417,7 +417,7 @@ var _ = Describe("Manager", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(approver).NotTo(BeEmpty())
 			_, err = utils.Run(exec.Command("kubectl", "annotate", "--overwrite", "application", "solder-e2e-approval",
-				"solder.io/approved-by=mallory"))
+				"sync.kuvryn.io/approved-by=mallory"))
 			Expect(err).NotTo(HaveOccurred())
 			stillApprover, err := utils.Run(exec.Command("kubectl", "get", "application", "solder-e2e-approval",
 				"-o", "jsonpath={.metadata.annotations.solder\\.io/approved-by}"))
@@ -449,7 +449,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("waiting for the Revision to become Healthy with both hooks done")
 			Eventually(func(g Gomega) {
 				output, err := utils.Run(exec.Command("kubectl", "get", "revision",
-					"-l", "solder.io/application=solder-e2e-staged", "-o",
+					"-l", "sync.kuvryn.io/application=solder-e2e-staged", "-o",
 					"jsonpath={.items[0].status.phase} {range .items[0].status.hooks[*]}{.stage}={.state} {end}"))
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.Fields(output)).To(ConsistOf("Healthy", "PreSync=Healthy", "PostSync=Healthy"))

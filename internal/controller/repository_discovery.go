@@ -203,7 +203,7 @@ func (r *RepositoryReconciler) upsertDiscoveredApplication(ctx context.Context, 
 
 func ensureDiscoveredApplicationMetadata(repository *corev1alpha1.Repository, app *corev1alpha1.Application, configPath string) {
 	metav1.SetMetaDataLabel(&app.ObjectMeta, repositoryApplicationLabel, repository.Name)
-	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "solder.io/discovered-from", configPath)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, "sync.kuvryn.io/discovered-from", configPath)
 }
 
 func (r *RepositoryReconciler) pruneRemovedDiscoveredApplications(ctx context.Context, repository *corev1alpha1.Repository, seen map[string]struct{}) error {

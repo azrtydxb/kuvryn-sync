@@ -95,7 +95,7 @@ func (r *ApplicationReconciler) recordRollbackIntent(ctx context.Context, applic
 // name and referring to it.
 func (r *ApplicationReconciler) applicationRevisions(ctx context.Context, application *corev1alpha1.Application) ([]corev1alpha1.Revision, error) {
 	var list corev1alpha1.RevisionList
-	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"solder.io/application": application.Name}); err != nil {
+	if err := r.List(ctx, &list, client.InNamespace(application.Namespace), client.MatchingLabels{"sync.kuvryn.io/application": application.Name}); err != nil {
 		return nil, err
 	}
 	return slices.DeleteFunc(list.Items, func(rev corev1alpha1.Revision) bool {

@@ -19,4 +19,12 @@ func TestNoSolderNameRemains(t *testing.T) {
 		t.Fatalf("git grep failed: %s", out)
 	}
 	_ = os.Getenv
+
+	out, err = exec.Command("git", "-C", root, "grep", "-n", `solder\.io/`, "--", "*.go", "config", "charts", ":!config/crd/bases", ":!internal/brand/names_test.go").CombinedOutput()
+	if err == nil {
+		t.Fatalf("old key prefix remains:\n%s", out)
+	}
+	if len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatalf("git grep failed: %s", out)
+	}
 }

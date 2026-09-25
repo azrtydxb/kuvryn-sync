@@ -161,7 +161,7 @@ var _ = Describe("Application service account impersonation", func() {
 		createTenant(ctx, tenant, []string{"get", "list", "watch", "create", "patch"}, false)
 		stale := configMapObject("payments", "stale")
 		stale.SetName("stale-config")
-		stale.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		stale.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &stale)).To(Succeed())
 		DeferCleanup(deleteObject, ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "stale-config", Namespace: "payments"}})
 		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
@@ -189,7 +189,7 @@ var _ = Describe("Application service account impersonation", func() {
 		controllerutil.AddFinalizer(app, applicationFinalizer)
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		managed := configMapObject("payments", "managed")
-		managed.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		managed.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &managed)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, app)).To(Succeed())
 
@@ -211,7 +211,7 @@ var _ = Describe("Application service account impersonation", func() {
 		controllerutil.AddFinalizer(app, applicationFinalizer)
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		managed := configMapObject("payments", "kept")
-		managed.SetLabels(map[string]string{"solder.io/application": appName, "solder.io/application-namespace": "default"})
+		managed.SetLabels(map[string]string{"sync.kuvryn.io/application": appName, "sync.kuvryn.io/application-namespace": "default"})
 		Expect(k8sClient.Create(ctx, &managed)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, app)).To(Succeed())
 

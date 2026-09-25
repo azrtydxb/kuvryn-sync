@@ -126,7 +126,7 @@ spec:
                       type: string
                     secretRef:
                       description: |-
-                        secretRef names a Secret, labelled solder.io/git-credentials=true, with
+                        secretRef names a Secret, labelled sync.kuvryn.io/git-credentials=true, with
                         credentials allowed to push (same keys as spec.git.auth).
                       properties:
                         name:

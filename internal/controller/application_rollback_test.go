@@ -266,7 +266,7 @@ var _ = Describe("Rollbacks", func() {
 	// Catches a rollout still in progress resuming after a manual rollback.
 	It("holds a rollout in progress a manual rollback replaces", func() {
 		hook := customObject("Widget", "migrate", "v1")
-		hook.SetAnnotations(map[string]string{"solder.io/hook": "post-sync"})
+		hook.SetAnnotations(map[string]string{"sync.kuvryn.io/hook": "post-sync"})
 		r.Renderers = commitRenderer(map[string][]unstructured.Unstructured{"b-sha": {hook}})
 		reconcileOnce()
 		source = "b-sha"
@@ -655,7 +655,7 @@ func TestApplicationRevisionsRequireTheApplicationRef(t *testing.T) {
 	}
 	revision := func(name, application string) *corev1alpha1.Revision {
 		return &corev1alpha1.Revision{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"solder.io/application": "payments"}},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"sync.kuvryn.io/application": "payments"}},
 			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: application}},
 		}
 	}

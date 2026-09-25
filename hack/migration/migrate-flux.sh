@@ -29,6 +29,6 @@ solder_migrate
 # Guide step 5.
 k -n flux-system delete kustomization fixture >/dev/null
 sleep 20
-clear_ownership solder.io/application=fixture
+clear_ownership sync.kuvryn.io/application=fixture
 settle
 verify kustomize-controller "$uid_before"

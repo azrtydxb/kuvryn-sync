@@ -51,7 +51,7 @@ import (
 const (
 	defaultSourceCacheDir      = "solder-source-cache"
 	solderConfigFileName       = ".solder.yaml"
-	repositoryApplicationLabel = "solder.io/repository"
+	repositoryApplicationLabel = "sync.kuvryn.io/repository"
 )
 
 // RepositoryReconciler reconciles a Repository object.
@@ -166,7 +166,7 @@ func (r *RepositoryReconciler) resolver() source.Resolver {
 }
 
 // GitCredentialsLabel marks a Secret that Solder may use as Git credentials.
-const GitCredentialsLabel = "solder.io/git-credentials"
+const GitCredentialsLabel = "sync.kuvryn.io/git-credentials"
 
 func (r *RepositoryReconciler) loadGitCredentials(ctx context.Context, repository *corev1alpha1.Repository) (source.Credentials, error) {
 	if repository.Spec.Git == nil || repository.Spec.Git.Auth == nil || repository.Spec.Git.Auth.SecretRef == nil {

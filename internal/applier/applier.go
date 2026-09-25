@@ -11,9 +11,9 @@ import (
 
 const (
 	FieldManager                 = "solder"
-	ApplicationLabelKey          = "solder.io/application"
-	ApplicationNamespaceLabelKey = "solder.io/application-namespace"
-	RevisionAnnotationKey        = "solder.io/revision"
+	ApplicationLabelKey          = "sync.kuvryn.io/application"
+	ApplicationNamespaceLabelKey = "sync.kuvryn.io/application-namespace"
+	RevisionAnnotationKey        = "sync.kuvryn.io/revision"
 )
 
 // Applier mutates Kubernetes resources with server-side apply.

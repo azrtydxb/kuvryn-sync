@@ -299,7 +299,7 @@ func TestRollbackKeepsTheStatusThisReconcileComputed(t *testing.T) {
 	app.Spec.Strategy.FailurePolicy.Action = corev1alpha1.FailureActionRollback
 	revision := func(name, source string, phase corev1alpha1.RevisionPhase) *corev1alpha1.Revision {
 		return &corev1alpha1.Revision{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"solder.io/application": "api"}},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", Labels: map[string]string{"sync.kuvryn.io/application": "api"}},
 			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: "api"}, Source: corev1alpha1.RevisionSource{Revision: source}},
 			Status:     corev1alpha1.RevisionStatus{Phase: phase},
 		}
@@ -335,7 +335,7 @@ func TestRollbackKeepsTheStatusThisReconcileComputed(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKeyFromObject(app), stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.GetAnnotations()["solder.io/rollback-revision"] != "old-sha" {
+	if stored.GetAnnotations()["sync.kuvryn.io/rollback-revision"] != "old-sha" {
 		t.Fatalf("rollback was not requested: %v", stored.GetAnnotations())
 	}
 	if len(stored.Status.Diagnosis) != 1 || stored.Status.Diagnosis[0].Reason != "MissingSecret" {

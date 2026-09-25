@@ -27,17 +27,17 @@ import (
 // authenticated request and restores them on every other change.
 const (
 	// ApprovedRevisionAnnotation names the Revision being approved.
-	ApprovedRevisionAnnotation = "solder.io/approved-revision"
+	ApprovedRevisionAnnotation = "sync.kuvryn.io/approved-revision"
 	// ApproveDigestAnnotation requests an approval of the plan digest the
 	// approver reviewed. The admission webhook rejects it when the Revision's
 	// plan has since changed, and never stores it.
-	ApproveDigestAnnotation = "solder.io/approve-digest"
+	ApproveDigestAnnotation = "sync.kuvryn.io/approve-digest"
 	// ApprovedByAnnotation is the authenticated user who approved.
-	ApprovedByAnnotation = "solder.io/approved-by"
+	ApprovedByAnnotation = "sync.kuvryn.io/approved-by"
 	// ApprovedAtAnnotation is when the approval was admitted, in RFC 3339.
-	ApprovedAtAnnotation = "solder.io/approved-at"
+	ApprovedAtAnnotation = "sync.kuvryn.io/approved-at"
 	// ApprovedDigestAnnotation is the plan digest the approval binds to.
-	ApprovedDigestAnnotation = "solder.io/approved-digest"
+	ApprovedDigestAnnotation = "sync.kuvryn.io/approved-digest"
 )
 
 // Rollback request annotations on an Application. `solder rollback` and a
@@ -45,13 +45,13 @@ const (
 // rollback completes or is abandoned.
 const (
 	// RollbackRevisionAnnotation is the source revision to roll back to.
-	RollbackRevisionAnnotation = "solder.io/rollback-revision"
+	RollbackRevisionAnnotation = "sync.kuvryn.io/rollback-revision"
 	// RollbackFromAnnotation is the source revision rolled back from. Once
 	// the rollback completes, every Revision of that source revision is held:
 	// Solder does not deploy it again until a new commit arrives.
-	RollbackFromAnnotation = "solder.io/rollback-from"
+	RollbackFromAnnotation = "sync.kuvryn.io/rollback-from"
 	// RollbackKindAnnotation is RollbackKindManual or RollbackKindAutomatic.
-	RollbackKindAnnotation = "solder.io/rollback-kind"
+	RollbackKindAnnotation = "sync.kuvryn.io/rollback-kind"
 	// RollbackKindManual is a rollback a user requested.
 	RollbackKindManual = "manual"
 	// RollbackKindAutomatic is a rollback the failure policy started after a
@@ -121,7 +121,7 @@ type DecryptionSpec struct {
 	// +kubebuilder:validation:Enum=sops
 	Provider string `json:"provider"`
 	// secretRef names a Secret in the Application namespace, labelled
-	// solder.io/decryption-key=true, whose entries ending in .agekey hold age
+	// sync.kuvryn.io/decryption-key=true, whose entries ending in .agekey hold age
 	// private keys.
 	SecretRef SecretReference `json:"secretRef"`
 }
@@ -218,7 +218,7 @@ type HelmChartSource struct {
 	// version is the exact chart version to pull.
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version"`
-	// secretRef names a Secret, labelled solder.io/registry-credentials=true,
+	// secretRef names a Secret, labelled sync.kuvryn.io/registry-credentials=true,
 	// with `username` and `password` for the repository.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
