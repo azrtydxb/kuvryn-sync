@@ -19,8 +19,10 @@ what the Application wants._
   target waits for `ksync sync` with `ApprovalStale` and `RollbackTargetChanged`
   Events, and the command's output says so when it can tell. A failure
   policy's rollback on an Application with manual sync still waits for
-  approval, and automatic Applications are unchanged.
-
+  approval, and automatic Applications are unchanged. With webhooks disabled
+  these annotations are not verified, as with approvals; at startup the
+  manager logs every pending rollback request with a requester, since one
+  written while webhooks were off survives turning them on.
 - **Changed:** `ksync graph` prints a text tree by default, like `ksync
 diagnose`'s chains: each managed resource, what it leads to with the edge
   type, and missing, unreadable and optional references marked. `-o json`,

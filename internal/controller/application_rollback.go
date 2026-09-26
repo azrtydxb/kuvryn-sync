@@ -27,6 +27,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
@@ -308,4 +309,51 @@ func (r *ApplicationReconciler) reportHold(ctx context.Context, application *cor
 	application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
 	setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(hold.manual))
 	return r.updateApplicationStatus(withHold(ctx, hold), application)
+}
+
+// RollbackRequestAudit logs, once at startup, every Application carrying a
+// pending rollback request with a recorded requester. The admission webhook
+// keeps the record of an unchanged request, so one written by hand while
+// webhooks were disabled survives turning them on again, and on an
+// Application with manual sync it still approves its target. Requests are
+// not ignored by age instead: a legitimate rollback whose rollout spans a
+// manager restart, such as an upgrade, would then lose its approval.
+type RollbackRequestAudit struct {
+	// Reader lists Applications before the cache has started.
+	Reader client.Reader
+}
+
+// Start implements manager.Runnable.
+func (a *RollbackRequestAudit) Start(ctx context.Context) error {
+	log := logf.FromContext(ctx).WithName("rollback-audit")
+	pending, err := pendingRollbackRequests(ctx, a.Reader)
+	if err != nil {
+		log.Error(err, "Could not list Applications for pending rollback requests")
+		return nil
+	}
+	for _, name := range pending {
+		log.Info("Application carries a pending rollback request; if it was recorded while admission webhooks were disabled, its requester was not verified: remove its sync.kuvryn.io/rollback-* annotations and request the rollback again", "application", name)
+	}
+	return nil
+}
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable: every
+// replica warns.
+func (a *RollbackRequestAudit) NeedLeaderElection() bool { return false }
+
+// pendingRollbackRequests names, as namespace/name and sorted, the
+// Applications with a pending rollback request that records a requester.
+func pendingRollbackRequests(ctx context.Context, reader client.Reader) ([]string, error) {
+	var list corev1alpha1.ApplicationList
+	if err := reader.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, app := range list.Items {
+		if rollbackRequestOf(&app).active() && app.Annotations[corev1alpha1.RollbackRequestedByAnnotation] != "" {
+			out = append(out, app.Namespace+"/"+app.Name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }

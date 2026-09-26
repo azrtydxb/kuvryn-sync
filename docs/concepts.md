@@ -228,7 +228,14 @@ annotations: anyone who can update the Application can write
 `rollback-requested-by`, `rollback-target-hash` and the rest by hand, and
 Kuvryn Sync trusts them and deploys the target under the name written there,
 as it trusts forged approval annotations; see
-[Manual approval](operations.md#manual-approval).
+[Manual approval](operations.md#manual-approval). Turning webhooks on again
+does not clear a record written meanwhile, since the webhook keeps an
+unchanged request's record. At startup with webhooks enabled, the manager logs
+every Application carrying a pending rollback request with a requester; if one
+may have been written while webhooks were off, remove its
+`sync.kuvryn.io/rollback-*` annotations and request the rollback again.
+Requests are not dropped by age, because a legitimate rollback whose rollout
+spans a manager restart, such as an upgrade, would then lose its approval.
 
 Kuvryn Sync takes the approval from the rollback rather than having
 `ksync rollback` wait for the new plan and approve its digest: a digest the

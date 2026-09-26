@@ -877,3 +877,35 @@ func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 		t.Fatalf("a rollout in progress approved a new desired state: %+v, changed %v", approval, changed)
 	}
 }
+
+// Catches rollback requests recorded while admission webhooks were off
+// passing unnoticed once they are on again: the webhook keeps an unchanged
+// request's record, so the manager names every Application carrying a
+// pending request's requester at startup.
+func TestPendingRollbackRequestsAreListedAtStartup(t *testing.T) {
+	scheme := k8sruntime.NewScheme()
+	if err := corev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	app := func(namespace, name string, annotations map[string]string) *corev1alpha1.Application {
+		return &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: annotations}}
+	}
+	pending := map[string]string{
+		corev1alpha1.RollbackRevisionAnnotation:    "a-sha",
+		corev1alpha1.RollbackRequestedByAnnotation: "mallory@example.com",
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		app("payments", "api", pending),
+		app("payments", "web", map[string]string{corev1alpha1.RollbackRevisionAnnotation: "a-sha"}),
+		app("search", "index", nil),
+		app("billing", "ledger", pending),
+	).Build()
+	got, err := pendingRollbackRequests(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"billing/ledger", "payments/api"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pending requests = %v, want %v", got, want)
+	}
+}

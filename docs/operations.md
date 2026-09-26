@@ -75,7 +75,9 @@ The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated. With `ENABLE_WEBHOOKS=false` nothing verifies
 the approval or rollback request annotations, anyone who can update an
 Application can forge them, and the manager says so at startup; do not disable
-webhooks where approvals matter.
+webhooks where approvals matter. Records forged meanwhile survive turning
+webhooks on again; the manager then logs each pending rollback request at
+startup so you can check it.
 
 ## Image automation
 
