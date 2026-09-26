@@ -26,7 +26,10 @@ what the Application wants._
   approval, and automatic Applications are unchanged. With webhooks disabled
   these annotations are not verified, as with approvals; at startup the
   manager logs every pending rollback request with a requester, since one
-  written while webhooks were off survives turning them on.
+  written while webhooks were off survives turning them on. **Upgrade:**
+  re-apply the CRDs (`dist/install.yaml`, or `config/crd/bases` with Helm,
+  which does not ship them); until the Revision CRD has the new status field,
+  no deployed hash is stored and every manual rollback waits for `ksync sync`.
 - **Changed:** `ksync graph` prints a text tree by default, like `ksync
 diagnose`'s chains: each managed resource, what it leads to with the edge
   type, and missing, unreadable and optional references marked. `-o json`,

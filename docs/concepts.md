@@ -200,14 +200,19 @@ target, the chosen Revision or the kind changes, and restores them on every
 other change.
 
 `rollback-target-hash` fingerprints the desired state the Revision's last
-completed, Healthy rollout deployed (its `status.deployedDesiredStateHash`),
+completed, Healthy rollout deployed, or that was found already in sync
+(its `status.deployedDesiredStateHash`),
 together with the Application's `spec.sync` (prune, conflict policy,
 self-heal) and `spec.strategy` at request time. It is not the Revision's
 latest render: `spec.desiredStateHash` follows every render, including drift
 checks that deploy nothing, so values changed after the Revision deployed
 could otherwise be approved. A Revision no completed rollout deployed,
 including one deployed before Kuvryn Sync 0.6.4 recorded that hash, gets no
-`rollback-target-hash`, and a rollback to it waits for `ksync sync`.
+`rollback-target-hash`, and a rollback to it waits for `ksync sync`. The
+field needs the Revision CRD from 0.6.4: re-apply the CRDs when upgrading
+(the Helm chart does not ship them). Until then the API server drops it, and
+every manual rollback waits for `ksync sync`, which `ksync rollback` reports
+as a Revision that never deployed.
 
 The approval is bound to that Revision, to the desired state it deployed,
 and to the sync policy and strategy at request time. Kuvryn Sync re-renders
