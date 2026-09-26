@@ -43,6 +43,13 @@ func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Conte
 	if err != nil {
 		return err
 	}
+	type discovered struct {
+		app        corev1alpha1.Application
+		configPath string
+	}
+	// Check every file before writing anything, so a refused Application
+	// leaves all of them as they were rather than some updated.
+	var desired []discovered
 	seen := map[string]struct{}{}
 	for _, configPath := range paths {
 		apps, found, err := applicationsFromConfigFile(repository, resolved.CacheDir, configPath)
@@ -57,10 +64,13 @@ func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Conte
 			if err != nil {
 				return err
 			}
-			if err := r.upsertDiscoveredApplication(ctx, repository, &app, configPath); err != nil {
-				return err
-			}
 			seen[app.Name] = struct{}{}
+			desired = append(desired, discovered{app: app, configPath: configPath})
+		}
+	}
+	for i := range desired {
+		if err := r.upsertDiscoveredApplication(ctx, repository, &desired[i].app, desired[i].configPath); err != nil {
+			return err
 		}
 	}
 	return r.pruneRemovedDiscoveredApplications(ctx, repository, seen)
@@ -241,6 +251,15 @@ func (r *RepositoryReconciler) pruneRemovedDiscoveredApplications(ctx context.Co
 		app := &list.Items[i]
 		if _, ok := seen[app.Name]; ok {
 			continue
+		}
+		// Removing an Application from .ksync.yaml is a commit like any
+		// other, so it deletes the workloads only when the Repository
+		// allows discovered Applications to.
+		if app.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources && !repository.Spec.ApplicationPolicy.AllowDeleteManagedResources {
+			app.Spec.DeletionPolicy = corev1alpha1.DeletionPolicyOrphan
+			if err := r.Update(ctx, app); client.IgnoreNotFound(err) != nil {
+				return err
+			}
 		}
 		if err := r.Delete(ctx, app); client.IgnoreNotFound(err) != nil {
 			return err

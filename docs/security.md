@@ -153,8 +153,13 @@ decides how far that reaches:
 
 With `allowAutomatic` off, a commit can change what is deployed but a person
 approves every plan. A `.ksync.yaml` that asks for more than the policy allows
-fails discovery, and the Applications already in the cluster are left as they
-are. `selfHeal` is not limited: it only restores the state last approved.
+fails discovery, and no discovered Application is created, changed or deleted
+until the file or the policy is fixed. Applications already in the cluster keep
+the spec they had: one that was already automatic keeps syncing new commits
+without approval, so set it to manual when you tighten a policy. An
+Application removed from `.ksync.yaml` keeps its workloads unless
+`allowDeleteManagedResources` is set. `selfHeal` is not limited: it only
+restores the state last approved.
 
 A typical tenant grant binds the built-in `admin` ClusterRole in the
 destination namespace only:

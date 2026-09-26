@@ -43,8 +43,11 @@ type RepositorySpec struct {
 	ApplicationServiceAccountName string `json:"applicationServiceAccountName,omitempty"`
 	// applicationPolicy limits what Applications discovered from .ksync.yaml
 	// may do without a person's approval. Everything it names is refused
-	// unless allowed here; a discovered Application that asks for more fails
-	// discovery and the Applications already in the cluster stay as they are.
+	// unless allowed here. A discovered Application that asks for more fails
+	// discovery, and no discovered Application is created or changed until
+	// the file or the policy is fixed. An Application removed from
+	// .ksync.yaml is deleted with deletionPolicy Orphan unless
+	// allowDeleteManagedResources is set.
 	// +optional
 	ApplicationPolicy ApplicationPolicy `json:"applicationPolicy,omitempty"`
 	// pollInterval controls source polling when no external wake-up signal exists.

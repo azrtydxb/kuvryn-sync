@@ -102,8 +102,13 @@ For discovered Applications:
   `allowAdopt` or `allowDeleteManagedResources`. This keeps Git write access
   from skipping approval, deleting workloads or taking over objects. A refused
   Application fails discovery with the Repository `Ready` condition saying
-  which field and allowance; Applications already in the cluster are neither
-  updated nor deleted until the file or the policy is fixed.
+  which field and allowance, and no discovered Application is created,
+  changed or deleted until the file or the policy is fixed. Applications
+  already in the cluster keep the spec they had, so one that was already
+  automatic keeps syncing without approval: set it to manual, or allow it.
+- An Application removed from the configured files is deleted with
+  `deletionPolicy: Orphan`, keeping its workloads, unless the Repository sets
+  `allowDeleteManagedResources`.
 - `applicationConfigPaths` entries must be repository-relative paths named
   `.ksync.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.

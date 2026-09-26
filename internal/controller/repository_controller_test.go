@@ -360,6 +360,100 @@ var _ = Describe("Repository Controller", func() {
 		Expect(app.Spec.Source.Path).To(Equal("apps/payments"))
 	})
 
+	It("updates no discovered Application when a later one asks for more than the application policy allows", func() {
+		workspace := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:
+- metadata:
+    name: payments
+  spec:
+    source:
+      path: apps/payments-next
+      render:
+        type: yaml
+- metadata:
+    name: search
+  spec:
+    sync:
+      prune: true
+    source:
+      path: apps/search
+      render:
+        type: yaml
+`), 0o600)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+			Spec: corev1alpha1.RepositorySpec{
+				Type: corev1alpha1.RepositoryTypeGit,
+				Git:  &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+			},
+		})).To(Succeed())
+		existing := &corev1alpha1.Application{
+			ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default", Labels: map[string]string{repositoryApplicationLabel: resourceName}},
+			Spec:       corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{RepositoryRef: corev1alpha1.LocalObjectReference{Name: resourceName}, Path: "apps/payments", Render: corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML}}},
+		}
+		Expect(k8sClient.Create(ctx, existing)).To(Succeed())
+
+		resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: workspace}}
+		controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1alpha1.Repository{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		Expect(updated.Status.Conditions[0].Message).To(ContainSubstring("spec.applicationPolicy.allowPrune"))
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, app)).To(Succeed())
+		Expect(app.Spec.Source.Path).To(Equal("apps/payments"), "an allowed Application was updated before a refused one")
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "search", Namespace: "default"}, &corev1alpha1.Application{}))).To(BeTrue())
+	})
+
+	DescribeTable("keeps the workloads of a discovered Application removed from Git unless the policy allows deleting them",
+		func(allow bool, want corev1alpha1.DeletionPolicy) {
+			workspace := GinkgoT().TempDir()
+			Expect(k8sClient.Create(ctx, &corev1alpha1.Repository{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+				Spec: corev1alpha1.RepositorySpec{
+					Type:              corev1alpha1.RepositoryTypeGit,
+					Git:               &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+					ApplicationPolicy: corev1alpha1.ApplicationPolicy{AllowDeleteManagedResources: allow},
+				},
+			})).To(Succeed())
+			removed := &corev1alpha1.Application{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "old-payments", Namespace: "default",
+					Labels: map[string]string{repositoryApplicationLabel: resourceName},
+					// Holds the Application so the test can read the policy
+					// it was deleted with.
+					Finalizers: []string{"test.kuvryn.io/hold"},
+				},
+				Spec: corev1alpha1.ApplicationSpec{
+					Source:         corev1alpha1.ApplicationSource{RepositoryRef: corev1alpha1.LocalObjectReference{Name: resourceName}, Path: "old", Render: corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML}},
+					DeletionPolicy: corev1alpha1.DeletionPolicyDeleteManagedResources,
+				},
+			}
+			Expect(k8sClient.Create(ctx, removed)).To(Succeed())
+			DeferCleanup(func() {
+				held := &corev1alpha1.Application{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "old-payments", Namespace: "default"}, held); err == nil {
+					held.Finalizers = nil
+					Expect(k8sClient.Update(ctx, held)).To(Succeed())
+				}
+			})
+
+			resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: workspace}}
+			controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+			Expect(err).NotTo(HaveOccurred())
+
+			got := &corev1alpha1.Application{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "old-payments", Namespace: "default"}, got)).To(Succeed())
+			Expect(got.DeletionTimestamp).NotTo(BeNil(), "the removed Application was not deleted")
+			Expect(got.Spec.DeletionPolicy).To(Equal(want))
+		},
+		Entry("orphans the workloads by default", false, corev1alpha1.DeletionPolicyOrphan),
+		Entry("deletes them when allowed", true, corev1alpha1.DeletionPolicyDeleteManagedResources),
+	)
+
 	It("reports invalid .ksync.yaml files as validation failures", func() {
 		workspace := GinkgoT().TempDir()
 		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:

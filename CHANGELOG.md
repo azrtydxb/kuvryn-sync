@@ -13,9 +13,15 @@ Applications._
   without approval, or set `deletionPolicy: DeleteManagedResources` and then
   remove the Application from `.ksync.yaml` to delete its workloads. A
   discovered Application that asks for more than its Repository allows fails
-  discovery; the Repository turns `Failed` with a message naming the field
-  and the allowance, and the Applications already in the cluster are neither
-  updated nor deleted. Applications created directly are not affected. See
+  discovery: the Repository turns `Failed` with a message naming the field
+  and the allowance, and none of its discovered Applications is created,
+  changed or deleted until the file or the policy is fixed. Applications
+  already in the cluster keep the spec they had, so one that was already
+  automatic keeps syncing without approval until you set it to manual or
+  allow it. An Application removed from `.ksync.yaml` is now deleted with
+  `deletionPolicy: Orphan`, keeping its workloads, unless
+  `allowDeleteManagedResources` is set. Applications created directly are not
+  affected. See
   [Upgrading to 0.7.0](docs/upgrade.md#upgrading-to-070) for finding the
   discovered Applications and allowing what they use before upgrading.
 

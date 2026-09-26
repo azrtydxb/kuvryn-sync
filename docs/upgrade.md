@@ -28,17 +28,20 @@ Repositories now limit what Applications discovered from `.ksync.yaml` may
 switch on, through the new `spec.applicationPolicy`. Everything defaults to
 off, so a discovered Application that sets `spec.sync.automatic`,
 `spec.sync.prune`, `spec.sync.conflictPolicy: adopt` or
-`spec.deletionPolicy: DeleteManagedResources` stops updating after the
-upgrade: its Repository turns `Failed` with a message naming the allowance,
-and the Application keeps running as it is, neither updated nor deleted.
-Applications you create yourself are not affected.
+`spec.deletionPolicy: DeleteManagedResources` is refused after the upgrade.
+Its Repository turns `Failed` with a message naming the allowance, and
+discovery creates, changes and deletes no Application of that Repository
+until the file or the policy is fixed. The Applications in the cluster keep
+the spec they had: one that is already automatic still syncs new commits
+without approval. Allow what you want Git to control, and set the others to
+manual yourself. Applications you create yourself are not affected.
 
 Before upgrading, find the discovered Applications and what they use:
 
 ```sh
 kubectl get applications.sync.kuvryn.io -A \
   -l sync.kuvryn.io/repository \
-  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,REPO:.metadata.labels.sync\.kuvryn\.io/repository,AUTO:.spec.sync.automatic,PRUNE:.spec.sync.prune,CONFLICT:.spec.sync.conflictPolicy,DELETE:.spec.deletionPolicy
+  -o 'custom-columns=NS:.metadata.namespace,NAME:.metadata.name,REPO:.metadata.labels.sync\.kuvryn\.io/repository,AUTO:.spec.sync.automatic,PRUNE:.spec.sync.prune,CONFLICT:.spec.sync.conflictPolicy,DELETE:.spec.deletionPolicy'
 ```
 
 Then allow what each Repository should allow once the new CRDs are applied,
@@ -47,6 +50,14 @@ for example:
 ```sh
 kubectl patch repository platform -n default --type merge \
   -p '{"spec":{"applicationPolicy":{"allowAutomatic":true,"allowPrune":true}}}'
+```
+
+or, to put a person back in the loop, remove `automatic: true` from the
+Application in `.ksync.yaml` and patch the running one to manual:
+
+```sh
+kubectl patch application payments -n default --type merge \
+  -p '{"spec":{"sync":{"automatic":false}}}'
 ```
 
 ## Moving from Solder 0.3.x to Kuvryn Sync 0.4.0
