@@ -48,15 +48,16 @@ Then allow what each Repository should allow once the new CRDs are applied,
 for example:
 
 ```sh
-kubectl patch repository platform -n default --type merge \
+kubectl patch repositories.sync.kuvryn.io platform -n default --type merge \
   -p '{"spec":{"applicationPolicy":{"allowAutomatic":true,"allowPrune":true}}}'
 ```
 
 or, to put a person back in the loop, remove `automatic: true` from the
-Application in `.ksync.yaml` and patch the running one to manual:
+Application in `.ksync.yaml`; discovery then sets it to manual. Until that
+commit lands, patch the running one to manual:
 
 ```sh
-kubectl patch application payments -n default --type merge \
+kubectl patch applications.sync.kuvryn.io payments -n default --type merge \
   -p '{"spec":{"sync":{"automatic":false}}}'
 ```
 

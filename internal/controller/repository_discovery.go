@@ -256,8 +256,11 @@ func (r *RepositoryReconciler) pruneRemovedDiscoveredApplications(ctx context.Co
 		// other, so it deletes the workloads only when the Repository
 		// allows discovered Applications to.
 		if app.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources && !repository.Spec.ApplicationPolicy.AllowDeleteManagedResources {
+			original := app.DeepCopy()
 			app.Spec.DeletionPolicy = corev1alpha1.DeletionPolicyOrphan
-			if err := r.Update(ctx, app); client.IgnoreNotFound(err) != nil {
+			// A merge patch takes no resourceVersion, so a status write by the
+			// Application controller cannot fail it with a conflict.
+			if err := r.Patch(ctx, app, client.MergeFrom(original)); client.IgnoreNotFound(err) != nil {
 				return err
 			}
 		}
