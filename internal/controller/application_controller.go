@@ -1299,7 +1299,14 @@ func replaceStaleHooks(ctx context.Context, tenant client.Client, hooks []unstru
 }
 
 func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, healthyMessage string, transition bool) error {
-	status.CompleteHealthy(revision, application, metav1.Now())
+	// A Revision whose rollout already completed is only being confirmed
+	// again (every already-synced reconcile, every manager restart): keep the
+	// time its rollout finished instead of the time of this check.
+	completedAt := metav1.Now()
+	if done := apimeta.FindStatusCondition(revision.Status.Conditions, RolloutCompleteCondition); done != nil && done.Status == metav1.ConditionTrue && revision.Status.CompletedAt != nil {
+		completedAt = *revision.Status.CompletedAt
+	}
+	status.CompleteHealthy(revision, application, completedAt)
 	application.Status.Diagnosis = nil
 	setRolloutComplete(revision, true)
 	if request := rollbackRequestOf(application); request.active() {

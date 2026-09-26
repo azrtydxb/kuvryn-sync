@@ -231,6 +231,32 @@ var _ = Describe("Application Controller", func() {
 		Expect(revision.Status.Health.Healthy).To(Equal(int32(1)))
 	})
 
+	It("keeps a healthy Revision's completion time on later already-synced reconciles", func() {
+		// Every steady-state reconcile moves the Revision to Planning and then
+		// completes it again; a manager restart forces one. The completion time
+		// must still say when the rollout finished.
+		createRepository(ctx)
+		resource := newApplication(resourceName, corev1alpha1.RenderTypeYAML)
+		resource.Spec.Sync.Automatic = true
+		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		first := listApplicationRevisions(ctx, resourceName).Items[0]
+		Expect(first.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(first.Status.CompletedAt).NotTo(BeNil())
+
+		// metav1.Time keeps whole seconds, so wait past the next one.
+		time.Sleep(1100 * time.Millisecond)
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		again := listApplicationRevisions(ctx, resourceName).Items[0]
+		Expect(again.Name).To(Equal(first.Name))
+		Expect(again.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		Expect(again.Status.CompletedAt.Time).To(Equal(first.Status.CompletedAt.Time))
+	})
+
 	It("applies only the exact approved manual Revision", func() {
 		createRepository(ctx)
 		resource := newApplication(resourceName, corev1alpha1.RenderTypeYAML)
