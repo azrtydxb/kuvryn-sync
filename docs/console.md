@@ -39,6 +39,12 @@ link shares them. They work with the chosen namespace.
 
 ![No Revision matches the filters](images/console-no-match.png)
 
+A table with nothing in it at all, such as Image policies in a namespace
+without any, says what those objects are and links to the docs instead of
+showing empty filters.
+
+![Image policies in a namespace without any](images/console-empty.png)
+
 Tooltips explain what the console abbreviates, on hover and on keyboard
 focus: each Sync and Health state, the absolute local time behind "4 min
 ago", full commit SHAs, digests, long paths and URLs, the signed-in username,
