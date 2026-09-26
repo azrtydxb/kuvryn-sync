@@ -1,0 +1,4 @@
+$ ksync apps -n ksync-demo
+NAME            SYNC              HEALTH    DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo         AwaitingApproval  Unknown   a30fa3224289a3f3e413157104dee8844e329926                                            ksync-deployer
+podinfo-broken  OutOfSync         Degraded  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  ksync-deployer

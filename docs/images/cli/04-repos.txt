@@ -1,0 +1,7 @@
+$ ksync repos -n ksync-demo
+NAME     TYPE  STATE  REVISION
+podinfo  git   Ready  3e0ff8ae123b710bc91de1315cba0f996a8896c2
+
+$ ksync repo get podinfo -n ksync-demo
+NAME     TYPE  STATE  REVISION
+podinfo  git   Ready  3e0ff8ae123b710bc91de1315cba0f996a8896c2

@@ -1,0 +1,3 @@
+$ ksync approve podinfo -n ksync-demo --revision podinfo-1a77a0f91d12
+approving podinfo-1a77a0f91d12 for podinfo with plan digest 896644f21f48b9007d6df5fcd4bca3aff2dcc4bc1c757c8aaca5e390cc5d2a8f
+approved podinfo-1a77a0f91d12 for podinfo

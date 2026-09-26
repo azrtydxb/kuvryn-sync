@@ -1,0 +1,25 @@
+$ ksync graph podinfo-broken -n ksync-demo -o dot
+digraph kuvryn_sync {
+  rankdir=LR;
+  node [shape=box, fontname="Helvetica"];
+  "apps/v1/Deployment/ksync-demo/podinfo-broken" [label="Deployment\nksync-demo/podinfo-broken"];
+  "apps/v1/ReplicaSet/ksync-demo/podinfo-broken-589b5b8475" [label="ReplicaSet\nksync-demo/podinfo-broken-589b5b8475"];
+  "discovery.k8s.io/v1/EndpointSlice/ksync-demo/podinfo-broken-5vspt" [label="EndpointSlice\nksync-demo/podinfo-broken-5vspt"];
+  "v1/ConfigMap/ksync-demo/kube-root-ca.crt" [label="ConfigMap\nksync-demo/kube-root-ca.crt"];
+  "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" [label="Pod\nksync-demo/podinfo-broken-589b5b8475-br2rr"];
+  "v1/Secret/ksync-demo/podinfo-db" [label="Secret\nksync-demo/podinfo-db", style=dashed, color=red, xlabel="missing"];
+  "v1/Service/ksync-demo/podinfo-broken" [label="Service\nksync-demo/podinfo-broken"];
+  "v1/ServiceAccount/ksync-demo/default" [label="ServiceAccount\nksync-demo/default"];
+  "apps/v1/Deployment/ksync-demo/podinfo-broken" -> "apps/v1/ReplicaSet/ksync-demo/podinfo-broken-589b5b8475" [label="Owns"];
+  "apps/v1/Deployment/ksync-demo/podinfo-broken" -> "v1/Secret/ksync-demo/podinfo-db" [label="Uses"];
+  "apps/v1/ReplicaSet/ksync-demo/podinfo-broken-589b5b8475" -> "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" [label="Owns"];
+  "apps/v1/ReplicaSet/ksync-demo/podinfo-broken-589b5b8475" -> "v1/Secret/ksync-demo/podinfo-db" [label="Uses"];
+  "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" -> "v1/ConfigMap/ksync-demo/kube-root-ca.crt" [label="Uses"];
+  "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" -> "v1/Secret/ksync-demo/podinfo-db" [label="Uses"];
+  "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" -> "v1/ServiceAccount/ksync-demo/default" [label="RunsAs"];
+  "v1/Service/ksync-demo/podinfo-broken" -> "apps/v1/Deployment/ksync-demo/podinfo-broken" [label="Selects"];
+  "v1/Service/ksync-demo/podinfo-broken" -> "apps/v1/ReplicaSet/ksync-demo/podinfo-broken-589b5b8475" [label="Selects"];
+  "v1/Service/ksync-demo/podinfo-broken" -> "discovery.k8s.io/v1/EndpointSlice/ksync-demo/podinfo-broken-5vspt" [label="Endpoints"];
+  "v1/Service/ksync-demo/podinfo-broken" -> "discovery.k8s.io/v1/EndpointSlice/ksync-demo/podinfo-broken-5vspt" [label="Owns"];
+  "v1/Service/ksync-demo/podinfo-broken" -> "v1/Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr" [label="Selects"];
+}

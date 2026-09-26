@@ -1,0 +1,2 @@
+$ ksync version
+ksync v0.6.4

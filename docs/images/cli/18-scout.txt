@@ -1,0 +1,19 @@
+$ ksync apps -n kuvryn-scout
+NAME          SYNC    HEALTH   DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+kuvryn-scout  Synced  Healthy  5262cb7b1a07daf5bf1d035446a71926781d5a73  5262cb7b1a07daf5bf1d035446a71926781d5a73  kuvryn-sync-deployer
+
+$ ksync get kuvryn-scout -n kuvryn-scout
+NAME          SYNC    HEALTH   DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+kuvryn-scout  Synced  Healthy  5262cb7b1a07daf5bf1d035446a71926781d5a73  5262cb7b1a07daf5bf1d035446a71926781d5a73  kuvryn-sync-deployer
+
+$ ksync history kuvryn-scout -n kuvryn-scout
+NAME                       PHASE    REVISION                                  APPROVED BY
+kuvryn-scout-6e040de6f9b2  Healthy  5262cb7b1a07daf5bf1d035446a71926781d5a73  —
+kuvryn-scout-ceed6a44b238  Healthy  872e9e56061d92d838ad857196d9d7d76d1e4e26  —
+kuvryn-scout-987bfe395109  Healthy  5e0890518b7f0081bc4673d661efd062ae486908  —
+kuvryn-scout-0888d78304ba  Healthy  e21d7b7a8b6eb924f47dc395a61a0ff1ff620be2  —
+kuvryn-scout-73c489fb3dd6  Healthy  e21d7b7a8b6eb924f47dc395a61a0ff1ff620be2  —
+
+$ ksync repos -n kuvryn-scout
+NAME          TYPE  STATE  REVISION
+kuvryn-scout  git   Ready  5262cb7b1a07daf5bf1d035446a71926781d5a73

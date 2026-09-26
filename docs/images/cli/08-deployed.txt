@@ -1,0 +1,7 @@
+$ ksync get podinfo -n ksync-demo
+NAME     SYNC    HEALTH   DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo  Synced  Healthy  a30fa3224289a3f3e413157104dee8844e329926  a30fa3224289a3f3e413157104dee8844e329926  ksync-deployer
+
+$ ksync history podinfo -n ksync-demo
+NAME                  PHASE    REVISION                                  APPROVED BY
+podinfo-b939e830aae1  Healthy  a30fa3224289a3f3e413157104dee8844e329926  system:admin

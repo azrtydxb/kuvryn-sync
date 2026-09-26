@@ -1,0 +1,18 @@
+$ ksync install
+Install Kuvryn Sync v0.6.4. cert-manager must be running first.
+
+With the release manifests:
+
+  kubectl apply -f https://github.com/azrtydxb/kuvryn-sync/releases/download/v0.6.4/install.yaml
+
+Or with the Helm chart, from a checkout of the release tag:
+
+  git clone --depth 1 --branch v0.6.4 https://github.com/azrtydxb/kuvryn-sync.git
+  cd kuvryn-sync
+  kubectl apply -f config/crd/bases
+  helm upgrade --install kuvryn-sync charts/kuvryn-sync \
+    --namespace kuvryn-sync-system --create-namespace
+
+The image ghcr.io/azrtydxb/kuvryn-sync:v0.6.4 may be private: create a pull Secret and set
+image.pullSecrets with Helm, or patch the Deployment with the raw manifests.
+See https://github.com/azrtydxb/kuvryn-sync/blob/v0.6.4/docs/install.md
