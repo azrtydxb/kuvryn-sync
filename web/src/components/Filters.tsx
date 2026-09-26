@@ -1,6 +1,7 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { readFilters, writeFilters, type Filters } from "../filters";
+import { useShell } from "../layout/context";
 import {
   Button,
   EmptyState,
@@ -193,6 +194,42 @@ export function NoMatch({
         <Button size="sm" variant="secondary" icon="x" onClick={onClear}>
           Clear filters
         </Button>
+      }
+    />
+  );
+}
+
+/**
+ * What a table shows when there is nothing to list at all, as opposed to
+ * filters hiding every row: what the objects are, and a link to the docs
+ * when the console has one.
+ */
+export function NothingYet({
+  icon,
+  what,
+  description,
+}: {
+  icon: string;
+  /** The objects, plural, such as "image policies". */
+  what: string;
+  /** One sentence saying what these objects do. */
+  description: string;
+}) {
+  const { me, namespace } = useShell();
+  return (
+    <EmptyState
+      icon={icon}
+      title={"No " + what + (namespace ? " in this namespace" : " yet")}
+      description={
+        <>
+          {description}
+          {me?.docsURL && (
+            <>
+              {" "}
+              See <a href={me.docsURL}>the docs</a>.
+            </>
+          )}
+        </>
       }
     />
   );

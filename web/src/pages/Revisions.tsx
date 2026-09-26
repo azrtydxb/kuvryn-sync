@@ -4,6 +4,7 @@ import type { RevisionRow } from "../api/types";
 import {
   FilterBar,
   NoMatch,
+  NothingYet,
   SearchFilter,
   SelectFilter,
   useFilters,
@@ -47,7 +48,7 @@ export default function Revisions() {
         lead="One record per deployment attempt, newest first. Bounded and redacted."
       />
       <PollState poll={poll} />
-      {poll.data && (
+      {poll.data && all.length > 0 && (
         <FilterBar
           label="Filter revisions"
           shown={rows.length}
@@ -83,6 +84,13 @@ export default function Revisions() {
             onChange={(phase) => set({ phase })}
           />
         </FilterBar>
+      )}
+      {poll.data && all.length === 0 && (
+        <NothingYet
+          icon="history"
+          what="revisions"
+          description="A Revision records one deployment attempt of an Application: its commit, plan and approval."
+        />
       )}
       {poll.data && rows.length === 0 && all.length > 0 && (
         <NoMatch what="revisions" onClear={clear} />

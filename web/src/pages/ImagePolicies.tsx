@@ -3,6 +3,7 @@ import type { ImagePolicyRow } from "../api/types";
 import {
   FilterBar,
   NoMatch,
+  NothingYet,
   SearchFilter,
   useFilters,
 } from "../components/Filters";
@@ -28,7 +29,7 @@ export default function ImagePolicies() {
         lead="Registry scans that commit new image digests back to Git."
       />
       <PollState poll={poll} />
-      {poll.data && (
+      {poll.data && all.length > 0 && (
         <FilterBar
           label="Filter image policies"
           shown={rows.length}
@@ -42,6 +43,13 @@ export default function ImagePolicies() {
             onChange={(q) => set({ q }, { replace: true })}
           />
         </FilterBar>
+      )}
+      {poll.data && all.length === 0 && (
+        <NothingYet
+          icon="scan-search"
+          what="image policies"
+          description="Image policies scan a registry and commit new image tags back to Git."
+        />
       )}
       {poll.data && rows.length === 0 && all.length > 0 && (
         <NoMatch what="image policies" onClear={clear} />

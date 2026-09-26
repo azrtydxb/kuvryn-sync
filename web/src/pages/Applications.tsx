@@ -5,6 +5,7 @@ import type { AppDetail, AppRow } from "../api/types";
 import {
   FilterBar,
   NoMatch,
+  NothingYet,
   SearchFilter,
   SegmentFilter,
   SelectFilter,
@@ -147,7 +148,7 @@ export default function Applications() {
             : "No cause is recorded yet."}
         </Alert>
       )}
-      {poll.data && (
+      {poll.data && apps.length > 0 && (
         <div className="ks-stats">
           <Tip text={STAT_TIP.applications} className="ks-stat-tip">
             <StatCard
@@ -203,7 +204,7 @@ export default function Applications() {
           </FilterCard>
         </div>
       )}
-      {poll.data && (
+      {poll.data && apps.length > 0 && (
         <FilterBar
           label="Filter applications"
           shown={rows.length}
@@ -234,6 +235,13 @@ export default function Applications() {
             onChange={(health) => set({ health })}
           />
         </FilterBar>
+      )}
+      {poll.data && apps.length === 0 && (
+        <NothingYet
+          icon="boxes"
+          what="applications"
+          description="An Application deploys a path of a Repository into a namespace and reports its sync and health."
+        />
       )}
       {poll.data && rows.length === 0 && apps.length > 0 && (
         <NoMatch what="applications" onClear={clear} />
