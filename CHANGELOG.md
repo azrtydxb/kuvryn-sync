@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.2
+
+_The CLI's output can be acted on as printed, and the console explains its
+empty tables._
+
+- **Fixed:** `ksync apps`, `repos`, `repo get`, `get`, `status`, `drift`,
+  `history` and `revision` align their columns with spaces; they printed
+  tab-separated rows that were ragged in a terminal. `-o json` is unchanged.
+- **Fixed:** `ksync install` prints the release's own install commands:
+  `kubectl apply -f` of the `install.yaml` attached to the GitHub release, or
+  the Helm chart from a checkout of the release tag, with a note on pulling a
+  private image. It printed `dist/install.yaml` and `config/default`, which
+  exist only in a checkout. A development build says it is unreleased.
+- **Fixed:** `ksync plan` names the Revision object, its commit and its
+  phase, and a plan awaiting approval ends with the exact `ksync sync`
+  command that approves it. It showed only the commit, but `--revision`
+  takes the Revision object's name. The JSON and YAML output add
+  `revisionName` and `phase`.
+- **Fixed:** a console table with nothing in it says what those objects are
+  and links to the docs, instead of an empty filter bar and "0 of 0". Filters
+  that hide every row still say so.
+- **Fixed:** the console's filter labels share one line and its filter
+  controls one height; the Sync label sat about 2px above the Health label.
+
 ## 0.6.1
 
 _Revisions keep the time their rollout finished._
