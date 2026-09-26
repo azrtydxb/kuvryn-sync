@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3
+
+_Null fields in built-in resources no longer count as drift._
+
+- **Fixed:** in built-in Kubernetes resources, a field a rendered manifest
+  sets to `null` is compared as absent, as the API server stores it. Helm
+  charts render such nulls often (podinfo renders `resources.limits: null`),
+  and every such Application showed `Drifted`, with the field in its plan,
+  although nothing had changed. Custom resources keep their nulls, since a CRD
+  field marked `nullable` preserves an explicit null.
+
 ## 0.6.2
 
 _The CLI's output can be acted on as printed, and the console explains its
