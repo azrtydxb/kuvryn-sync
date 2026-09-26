@@ -2721,7 +2721,7 @@ spec:
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
           command:
             - /ksync
-          image: ghcr.io/azrtydxb/kuvryn-sync:v0.6.3
+          image: ghcr.io/azrtydxb/kuvryn-sync:v0.6.4
           livenessProbe:
             httpGet:
               path: /healthz

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.4
+
+_A manual rollback deploys without a separate approval, and the CLI shows
+what the Application wants._
+
+- **Changed:** on an Application with manual sync, `ksync rollback` approves
+  and deploys its target; no `ksync sync` is needed. The rollback target was
+  re-planned against the live state, its new plan digest matched no approval,
+  and it sat in `AwaitingApproval`. The admission webhook now records who
+  requested a rollback in `sync.kuvryn.io/rollback-requested-by` and
+  `rollback-requested-at`, and Kuvryn Sync records that user's approval on the
+  target Revision, bound to the digest of the plan it applies, with a
+  `RollbackApproved` Event. The command's output says so. A failure policy's
+  rollback on an Application with manual sync still waits for approval, and
+  automatic Applications are unchanged.
+- **Changed:** `ksync graph` prints a text tree by default, like `ksync
+diagnose`'s chains: each managed resource, what it leads to with the edge
+  type, and missing, unreadable and optional references marked. `-o json`,
+  the previous default, and `-o dot` print exactly what they did.
+- **Fixed:** `ksync plan` shows the Revision the Application wants, such as
+  a pending rollback's target or the Revision awaiting approval, not the
+  newest one created. During a rollback it showed the Revision being rolled
+  back from, with no approval hint. `-f` is unchanged.
+- **Fixed:** `ksync history` lists Revisions newest first, by start and then
+  creation; it printed them in alphabetical order. `APPROVED BY` shows `—`
+  for a Revision no approval covers, such as a rollback target back in
+  `AwaitingApproval`, which named the approver of its first rollout. `-o json`
+  is unchanged.
+- **Fixed:** a Revision deployed again, such as a rollback target, counts its
+  health timeout from the new rollout, not from its first one.
+
 ## 0.6.3
 
 _Null fields in built-in resources no longer count as drift._
