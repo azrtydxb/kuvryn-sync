@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,12 @@ type ChartSource struct {
 }
 
 var pullLocks sync.Map
+
+// pullTimeout bounds each request to a chart registry, so a registry that
+// accepts a connection and never answers cannot hold a reconcile worker, and
+// the chart's pull lock, forever. Helm's own HTTP repository getter already
+// times out after two minutes.
+var pullTimeout = 2 * time.Minute
 
 // Pull downloads a pinned chart archive into cacheDir for an Application in
 // namespace, reusing an earlier download of the same repository, name, and
@@ -72,7 +79,11 @@ func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 	settings.RepositoryCache = filepath.Join(dest, "index-cache")
 	settings.RegistryConfig = filepath.Join(dest, "registry.json")
 	settings.PluginsDirectory = filepath.Join(dest, "no-plugins")
-	options := []registry.ClientOption{registry.ClientOptCredentialsFile(settings.RegistryConfig), registry.ClientOptWriter(io.Discard)}
+	options := []registry.ClientOption{
+		registry.ClientOptCredentialsFile(settings.RegistryConfig),
+		registry.ClientOptWriter(io.Discard),
+		registry.ClientOptHTTPClient(&http.Client{Timeout: pullTimeout, Transport: registry.NewTransport(false)}),
+	}
 	if src.Username != "" {
 		options = append(options, registry.ClientOptBasicAuth(src.Username, src.Password))
 	}

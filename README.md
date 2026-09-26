@@ -42,10 +42,6 @@ Kuvryn Sync focuses on the product path that matters for day-two operations:
 
 ![The Kuvryn Sync console Applications page](docs/images/console-applications.png)
 
-> Status: alpha (`sync.kuvryn.io/v1alpha1`). The MVP is functional and covered by
-> controller, CLI, and product-path e2e tests, but the API may still
-> change before a stable release.
-
 ## Documentation
 
 The full documentation site is published with GitHub Pages:
@@ -100,6 +96,9 @@ spec:
     url: https://github.com/example/platform.git
     revision: main
   applicationServiceAccountName: payments-deployer
+  applicationPolicy:
+    allowAutomatic: true
+    allowPrune: true
   pollInterval: 60s
 ```
 
@@ -132,7 +131,7 @@ applications:
         limit: 20
 ```
 
-Discovered Applications run as the Repository's `spec.applicationServiceAccountName` (here `payments-deployer`); a `.ksync.yaml` cannot choose a different service account — grant that account what the Applications deploy, as described in the [security model](docs/security.md). When the `Repository` reconciles, Kuvryn Sync discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
+Discovered Applications run as the Repository's `spec.applicationServiceAccountName` (here `payments-deployer`); a `.ksync.yaml` cannot choose a different service account — grant that account what the Applications deploy, as described in the [security model](docs/security.md). A `.ksync.yaml` also cannot switch on automatic sync, pruning, `conflictPolicy: adopt` or `deletionPolicy: DeleteManagedResources` unless the Repository's `spec.applicationPolicy` allows it; here it allows automatic sync and pruning. When the `Repository` reconciles, Kuvryn Sync discovers the configured files, defaults each Application to that Repository, and creates or updates the Application CRs. Application names must be unique across all discovered files; removed discovered Applications are pruned.
 
 Then inspect state:
 
@@ -153,7 +152,7 @@ internal/               source, renderer, plan, apply, health, drift, graph,
                         diagnosis, ops packages
 config/                 CRDs, RBAC, manager manifests, samples
 docs/                   GitHub Pages documentation
-charts/kuvryn-sync/          alpha Helm chart
+charts/kuvryn-sync/     Helm chart
 test/e2e/               product-path Kubernetes e2e tests
 kuvryn-sync-full-spec.md   product and engineering specification
 ```

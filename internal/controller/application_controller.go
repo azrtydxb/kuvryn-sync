@@ -256,8 +256,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return result, r.updateApplicationStatus(ctx, application)
 	}
 
-	// Drift of a finished rollout is reported without re-evaluating health, so
-	// it keeps the health last observed.
+	// A finished rollout's health is evaluated again from its live state; the
+	// health last observed is kept when that evaluation fails.
 	previousHealth, previousState := application.Status.Health.State, application.Status.State
 	application.Status.ObservedGeneration = application.Generation
 	application.Status.DesiredRevision = resolved.Revision
@@ -458,6 +458,23 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			revision.Status.Approval = approval
 		}
 		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
+		// A finished rollout's workloads can stop being available while
+		// nothing changes in Git: report their live health rather than the
+		// health they had when the rollout finished.
+		if !fresh && rollout == rolloutComplete && !request.active() {
+			application.Status.Sync.State = corev1alpha1.SyncStateSynced
+			state, message, err := r.finishedRolloutHealth(ctx, tenant, application, rendered, liveResult, previousHealth)
+			if err != nil {
+				log.Error(err, "Could not evaluate the health of a finished rollout", "application", application.Name, "namespace", application.Namespace)
+				application.Status.Health.State, application.Status.State = previousHealth, previousState
+				return r.keepFinishedRollout(ctx, application, revision, previousPhase)
+			}
+			if state != corev1alpha1.HealthStateHealthy {
+				r.markFinishedRolloutUnhealthy(ctx, application, state, message, previousHealth)
+				log.Info("Application's finished rollout is not healthy", "application", application.Name, "namespace", application.Namespace, "health", state)
+				return r.keepFinishedRollout(ctx, application, revision, previousPhase)
+			}
+		}
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
@@ -470,17 +487,35 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// and the Revision keeps its finished phase so the next reconcile does
 	// not mistake it for a rollout in progress.
 	if !fresh && rollout == rolloutComplete && !application.Spec.Sync.SelfHeal {
-		revision.Status.Phase = finishedPhase(previousPhase)
 		application.Status.Sync.State = corev1alpha1.SyncStateDrifted
 		application.Status.Health.State, application.Status.State = previousHealth, previousState
-		if err := r.updateRevisionStatus(ctx, revision); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.updateApplicationStatus(ctx, application); err != nil {
-			return ctrl.Result{}, err
-		}
 		log.Info("Application drifted from its deployed Revision", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
-		return ctrl.Result{}, nil
+		if request.active() {
+			revision.Status.Phase = finishedPhase(previousPhase)
+			if err := r.updateRevisionStatus(ctx, revision); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+		}
+		// Drift is not repaired, but the health of what is live still is
+		// what the Application reports.
+		state, message, err := r.finishedRolloutHealth(ctx, tenant, application, rendered, liveResult, previousHealth)
+		switch {
+		case err != nil:
+			log.Error(err, "Could not evaluate the health of a drifted Application", "application", application.Name, "namespace", application.Namespace)
+		case state != corev1alpha1.HealthStateHealthy:
+			r.markFinishedRolloutUnhealthy(ctx, application, state, message, previousHealth)
+		default:
+			application.Status.Health.State, application.Status.State = state, state
+			r.markFinishedRolloutRecovered(ctx, application)
+			// Healthy and only drifted: the watches report what changes next.
+			revision.Status.Phase = finishedPhase(previousPhase)
+			if err := r.updateRevisionStatus(ctx, revision); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+		}
+		return r.keepFinishedRollout(ctx, application, revision, previousPhase)
 	}
 	if failure := conflictFailure(plan); failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
@@ -1512,8 +1547,9 @@ func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1
 
 // ReadyCondition is the Application condition that is True after the last
 // rollout completed Synced and Healthy, and False after a failure or an
-// automatic rollback. Drift without self-heal, suspension, dependency and
-// approval waits, and rollouts in progress leave it as it was.
+// automatic rollback, and False while a finished rollout's resources are not
+// Healthy. Suspension, dependency and approval waits, and rollouts in
+// progress leave it as it was.
 const ReadyCondition = "Ready"
 
 // setReady records the Ready condition. Its transition time moves only when

@@ -6,7 +6,7 @@ nav_order: 8
 # Operations guide
 
 Kuvryn Sync is installed from generated CRDs plus the controller manifests in
-`config/` or the alpha Helm chart in `charts/kuvryn-sync`.
+`config/` or the Helm chart in `charts/kuvryn-sync`.
 
 ## Web console
 
@@ -415,20 +415,20 @@ only the elected leader reconciles at any moment.
 
 ## Manager flags and environment
 
-| Flag                                         | Default   | Meaning                                                                                            |
-| -------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------- |
-| `--default-service-account`                  | empty     | Service account for Applications that set none; empty refuses them. Helm `defaultServiceAccount`.  |
-| `--drift-resync-interval`                    | `5m`      | Drift re-check for Applications with unwatched kinds; `0` disables it. Helm `driftResyncInterval`. |
-| `--webhook-receiver-bind-address`            | empty     | Push webhook receiver address, such as `:9292`; empty disables it. Helm `webhookReceiver.enabled`. |
-| `--leader-elect`                             | `false`   | Leader election; the chart enables it. Helm `leaderElection`.                                      |
-| `--metrics-bind-address`                     | `0`       | Metrics address, such as `:8443`; `0` disables metrics. The chart and raw manifests use `:8443`.   |
-| `--metrics-secure`                           | `true`    | Serve metrics over HTTPS with authentication and authorization.                                    |
-| `--health-probe-bind-address`                | `:8081`   | `/healthz` and `/readyz` address.                                                                  |
-| `--webhook-cert-path`, `--metrics-cert-path` | empty     | Directories holding the webhook and metrics certificates.                                          |
-| `--webhook-cert-name`, `--metrics-cert-name` | `tls.crt` | Certificate file name in those directories.                                                        |
-| `--webhook-cert-key`, `--metrics-cert-key`   | `tls.key` | Key file name in those directories.                                                                |
-| `--enable-http2`                             | `false`   | Enable HTTP/2 for the metrics and webhook servers.                                                 |
-| `--zap-log-level`, `--zap-devel`             |           | controller-runtime logging options.                                                                |
+| Flag                                         | Default   | Meaning                                                                                                                                                    |
+| -------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--default-service-account`                  | empty     | Service account for Applications that set none; empty refuses them. Helm `defaultServiceAccount`.                                                          |
+| `--drift-resync-interval`                    | `5m`      | Drift re-check for Applications with unwatched kinds, and health re-check for unhealthy ones; `0` disables the drift re-check. Helm `driftResyncInterval`. |
+| `--webhook-receiver-bind-address`            | empty     | Push webhook receiver address, such as `:9292`; empty disables it. Helm `webhookReceiver.enabled`.                                                         |
+| `--leader-elect`                             | `false`   | Leader election; the chart enables it. Helm `leaderElection`.                                                                                              |
+| `--metrics-bind-address`                     | `0`       | Metrics address, such as `:8443`; `0` disables metrics. The chart and raw manifests use `:8443`.                                                           |
+| `--metrics-secure`                           | `true`    | Serve metrics over HTTPS with authentication and authorization.                                                                                            |
+| `--health-probe-bind-address`                | `:8081`   | `/healthz` and `/readyz` address.                                                                                                                          |
+| `--webhook-cert-path`, `--metrics-cert-path` | empty     | Directories holding the webhook and metrics certificates.                                                                                                  |
+| `--webhook-cert-name`, `--metrics-cert-name` | `tls.crt` | Certificate file name in those directories.                                                                                                                |
+| `--webhook-cert-key`, `--metrics-cert-key`   | `tls.key` | Key file name in those directories.                                                                                                                        |
+| `--enable-http2`                             | `false`   | Enable HTTP/2 for the metrics and webhook servers.                                                                                                         |
+| `--zap-log-level`, `--zap-devel`             |           | controller-runtime logging options.                                                                                                                        |
 
 | Environment variable                                                 | Meaning                                                                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |

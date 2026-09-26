@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
@@ -117,7 +118,11 @@ func rollbackClient(t *testing.T, app *corev1alpha1.Application, revisions ...co
 	objects := make([]client.Object, 0, 1+len(revisions))
 	objects = append(objects, app)
 	for i := range revisions {
-		objects = append(objects, &revisions[i])
+		// The controller labels every Revision with its Application, and the
+		// CLI lists them by that label.
+		labelled := revisions[i].DeepCopy()
+		labelled.Labels = map[string]string{applier.ApplicationLabelKey: labelled.Spec.ApplicationRef.Name}
+		objects = append(objects, labelled)
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 }

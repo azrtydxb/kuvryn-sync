@@ -161,3 +161,29 @@ func TestPullFromOCIRegistry(t *testing.T) {
 		t.Fatalf("digest = %s, want %s", digest, sha(archive))
 	}
 }
+
+// Catches a registry that accepts the connection and never answers holding
+// the reconcile worker, and the chart's pull lock, forever.
+func TestPullFromAStalledOCIRegistryTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer server.Close()
+	defer close(release)
+	previous := pullTimeout
+	pullTimeout = 200 * time.Millisecond
+	defer func() { pullTimeout = previous }()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := Pull(t.TempDir(), "payments", ChartSource{Repository: "oci://" + strings.TrimPrefix(server.URL, "http://") + "/charts", Name: "app", Version: "0.1.0", PlainHTTP: true})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("pulled a chart from a registry that never answered")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("pull from a stalled registry did not time out")
+	}
+}

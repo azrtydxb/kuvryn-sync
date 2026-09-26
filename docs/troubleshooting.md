@@ -54,7 +54,10 @@ Check:
 - every configured `spec.applicationConfigPaths` entry is repository-relative,
   unique, stays inside the repository, and is named `.ksync.yaml`;
 - discovered Application names are unique across all configured `.ksync.yaml`
-  files.
+  files;
+- discovered Applications switch on only what `spec.applicationPolicy`
+  allows; the message names the field and the missing allowance, such as
+  `spec.applicationPolicy.allowAutomatic`.
 
 ## Application is Planning or AwaitingApproval
 

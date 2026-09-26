@@ -5,7 +5,7 @@ nav_order: 4
 
 # Install Kuvryn Sync
 
-Kuvryn Sync can be installed from raw Kubernetes manifests or from the alpha Helm
+Kuvryn Sync can be installed from raw Kubernetes manifests or from the Helm
 chart. Both paths install the same CRDs and controller.
 
 ## Requirements
@@ -79,7 +79,7 @@ kubectl apply -k config/default
 
 ## Helm chart
 
-The alpha chart lives in `charts/kuvryn-sync` and expects CRDs to be installed
+The chart lives in `charts/kuvryn-sync` and expects CRDs to be installed
 first. It deploys `ghcr.io/azrtydxb/kuvryn-sync:v<appVersion>` by default; set
 `image.tag` only to an image built from the same commit as the chart.
 
@@ -110,7 +110,7 @@ kubectl api-resources --api-group=sync.kuvryn.io
 | `replicaCount`            | `2`                                   | Manager replicas; only the leader reconciles.                                                                                                     |
 | `leaderElection`          | `true`                                | Passes `--leader-elect`.                                                                                                                          |
 | `defaultServiceAccount`   | `""`                                  | Service account used by Applications that set none; empty refuses them. See [Security model](security.md#rbac-and-service-account-impersonation). |
-| `driftResyncInterval`     | `5m`                                  | How often Applications with unwatched kinds are re-checked for drift; `0` disables it.                                                            |
+| `driftResyncInterval`     | `5m`                                  | How often Applications with unwatched kinds are re-checked for drift, and unhealthy ones for health; `0` disables the drift re-check.             |
 | `webhookReceiver.enabled` | `false`                               | Serves push webhooks on the Service `<release>-kuvryn-sync-receiver`. See [Push webhooks](operations.md#push-webhooks).                           |
 | `extraEnv`                | `[]`                                  | Extra manager environment variables, such as the `OTEL_*` tracing settings. See [Metrics and tracing](operations.md#metrics-and-tracing).         |
 | `resources`               | 50m/128Mi requests, 500m/512Mi limits | Manager container resources. Add `ephemeral-storage` to account for the source cache; see [Source cache](operations.md#source-cache).             |

@@ -219,7 +219,7 @@ func TestDiagnosePrintsChains(t *testing.T) {
 			},
 		},
 		&corev1alpha1.Revision{
-			ObjectMeta: metav1.ObjectMeta{Name: "payments-abc", Namespace: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "payments-abc", Namespace: "default", Labels: map[string]string{applier.ApplicationLabelKey: "payments"}},
 			Spec:       corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: "payments"}},
 			Status:     corev1alpha1.RevisionStatus{Failure: &corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: "One or more resources are degraded"}},
 		},

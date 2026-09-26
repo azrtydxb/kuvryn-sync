@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.7.0
+
+_Git write access no longer switches off approval for discovered
+Applications, and health is observed after a rollout finishes._
+
+- **Breaking:** a Repository now limits what Applications discovered from
+  `.ksync.yaml` may switch on, through the new `spec.applicationPolicy`:
+  `allowAutomatic`, `allowPrune`, `allowAdopt` and
+  `allowDeleteManagedResources`, all off by default. Anyone who could commit
+  to the branch could set `spec.sync.automatic` and deploy their own change
+  without approval, or set `deletionPolicy: DeleteManagedResources` and then
+  remove the Application from `.ksync.yaml` to delete its workloads. A
+  discovered Application that asks for more than its Repository allows fails
+  discovery: the Repository turns `Failed` with a message naming the field
+  and the allowance, and none of its discovered Applications is created,
+  changed or deleted until the file or the policy is fixed. Applications
+  already in the cluster keep the spec they had, so one that was already
+  automatic keeps syncing without approval until you set it to manual or
+  allow it. An Application removed from `.ksync.yaml` is now deleted with
+  `deletionPolicy: Orphan`, keeping its workloads, unless
+  `allowDeleteManagedResources` is set. Applications created directly are not
+  affected. See
+  [Upgrading to 0.7.0](docs/upgrade.md#upgrading-to-070) for finding the
+  discovered Applications and allowing what they use before upgrading.
+- **Fixed:** an Application stayed Healthy after its rollout for as long as
+  nothing changed in Git, even when its workloads stopped being available. A
+  Deployment that crash-looped for hours was reported Healthy. Kuvryn Sync now
+  keeps observing health after a rollout, also while drift is reported
+  without `selfHeal`: a resource that stops being Healthy, or was deleted,
+  turns the Application Degraded, with a diagnosis, a `HealthDegraded` Event
+  and `Ready=False`, or Progressing when no cause is evident. The Revision is
+  not changed and no notification is sent. The failure policy does not act
+  on an observed degradation, but with `selfHeal` a drift repair is a rollout
+  and can fail and roll back as one. Applications that depend on it wait
+  until it is Healthy again.
+- **Fixed:** discovery now drops every `sync.kuvryn.io/` annotation a
+  `.ksync.yaml` declares. An `approve-digest` annotation from Git made the
+  admission webhook refuse the new Application, which stopped discovery for
+  the whole Repository.
+- **Fixed:** chart pulls from OCI registries time out after two minutes. A
+  registry that accepted the connection and never answered held the reconcile
+  worker, and every later pull of that chart, forever.
+- **Fixed:** the yaml and helm renderers skip a broken symlink that points
+  inside the repository, as kustomize does, instead of failing the render. A
+  broken link pointing out of it is still refused.
+- **Changed:** `ksync plan`, `history`, `rollback` and `diagnose` ask the API
+  server for the Application's Revisions by label, instead of listing every
+  Revision in the namespace and filtering them.
+- **Docs:** removed the alpha and MVP status wording.
+
 ## 0.6.4
 
 _A manual rollback deploys without a separate approval, and the CLI shows
@@ -523,5 +573,5 @@ skip` is new.
 
 - Added product-path E2E coverage for Repository, Application, Revision, and applied workload reconciliation.
 - Made E2E setup idempotent and included E2E build-tag linting.
-- Reconciled stale Procoder planning signals after MVP closure.
+- Reconciled stale Procoder planning signals.
 - Fixed local Procoder CLI version mismatch so finish review can run `procoder review`.

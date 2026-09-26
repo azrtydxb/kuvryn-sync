@@ -18,8 +18,10 @@ package renderer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -101,6 +103,12 @@ func Contained(root, dir string) error {
 			return nil
 		}
 		inside, err := Within(root, path)
+		if errors.Is(err, fs.ErrNotExist) {
+			// The Git cache keeps a broken link that points inside the
+			// repository; nothing can be read through it, so it is skipped
+			// as kustomize skips it. One pointing out is still refused.
+			inside, err = brokenLinkWithin(root, path)
+		}
 		if err != nil {
 			return fmt.Errorf("resolve symlink %s: %w", Relative(root, path), err)
 		}
@@ -109,6 +117,24 @@ func Contained(root, dir string) error {
 		}
 		return nil
 	})
+}
+
+// brokenLinkWithin reports whether the target of the broken link at path,
+// read without resolving it, lies inside root. The Git cache refuses links
+// out of a checkout, so no directory on the way to the target leads out.
+func brokenLinkWithin(root, path string) (bool, error) {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return false, err
+	}
+	if filepath.IsAbs(target) {
+		return false, nil
+	}
+	rel, err := filepath.Rel(root, filepath.Join(filepath.Dir(path), target))
+	if err != nil {
+		return false, nil
+	}
+	return filepath.IsLocal(rel), nil
 }
 
 // Relative returns path relative to root, for messages that should not show

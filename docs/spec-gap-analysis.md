@@ -6,7 +6,7 @@ nav_exclude: true
 
 # Kuvryn Sync Spec Gap Analysis
 
-Status: the all-gap closure pass has no remaining pending spec/backlog gaps tracked in `.procoder`. Kuvryn Sync now has an integrated MVP product path through the Kubernetes controller, CLI, manifests, installer targets, CI workflows, and runtime observability: metrics, OTLP trace export, and root-cause diagnosis.
+Status: the all-gap closure pass has no remaining pending spec/backlog gaps tracked in `.procoder`. Kuvryn Sync now has an integrated product path through the Kubernetes controller, CLI, manifests, installer targets, CI workflows, and runtime observability: metrics, OTLP trace export, and root-cause diagnosis.
 
 ## Closed product paths
 

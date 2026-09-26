@@ -41,6 +41,15 @@ type RepositorySpec struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +optional
 	ApplicationServiceAccountName string `json:"applicationServiceAccountName,omitempty"`
+	// applicationPolicy limits what Applications discovered from .ksync.yaml
+	// may do without a person's approval. Everything it names is refused
+	// unless allowed here. A discovered Application that asks for more fails
+	// discovery, and no discovered Application is created or changed until
+	// the file or the policy is fixed. An Application removed from
+	// .ksync.yaml is deleted with deletionPolicy Orphan unless
+	// allowDeleteManagedResources is set.
+	// +optional
+	ApplicationPolicy ApplicationPolicy `json:"applicationPolicy,omitempty"`
 	// pollInterval controls source polling when no external wake-up signal exists.
 	// +optional
 	PollInterval *metav1.Duration `json:"pollInterval,omitempty"`
@@ -53,6 +62,29 @@ type RepositorySpec struct {
 	// as `# {"$imagepolicy": "<namespace>:<policy>"}`.
 	// +optional
 	ImageUpdate *ImageUpdateSpec `json:"imageUpdate,omitempty"`
+}
+
+// ApplicationPolicy is what the Repository owner lets Git switch on for
+// discovered Applications. Git write access alone must not turn off the
+// approval gate or delete workloads.
+type ApplicationPolicy struct {
+	// allowAutomatic lets discovered Applications set spec.sync.automatic, so
+	// their plans apply without approval.
+	// +optional
+	AllowAutomatic bool `json:"allowAutomatic,omitempty"`
+	// allowPrune lets discovered Applications set spec.sync.prune, so
+	// resources removed from Git are deleted.
+	// +optional
+	AllowPrune bool `json:"allowPrune,omitempty"`
+	// allowAdopt lets discovered Applications set spec.sync.conflictPolicy to
+	// adopt, taking over fields other managers hold.
+	// +optional
+	AllowAdopt bool `json:"allowAdopt,omitempty"`
+	// allowDeleteManagedResources lets discovered Applications set
+	// spec.deletionPolicy to DeleteManagedResources, so removing one from
+	// .ksync.yaml deletes its workloads.
+	// +optional
+	AllowDeleteManagedResources bool `json:"allowDeleteManagedResources,omitempty"`
 }
 
 // ImageUpdateSpec configures image write-back commits.

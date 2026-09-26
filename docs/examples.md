@@ -37,6 +37,16 @@ applications:
         conflictPolicy: fail
 ```
 
+Both Applications sync automatically and the first prunes, so the Repository
+that discovers this file must allow both:
+
+```yaml
+spec:
+  applicationPolicy:
+    allowAutomatic: true
+    allowPrune: true
+```
+
 The Repository controller defaults `spec.source.repositoryRef.name` to the
 Repository that discovered the file. Application names must be unique across all
 configured `.ksync.yaml` files.
@@ -56,6 +66,8 @@ spec:
   applicationConfigPaths:
     - teams/payments/.ksync.yaml
     - teams/search/.ksync.yaml
+  applicationPolicy:
+    allowAutomatic: true
 ```
 
 Each listed file must be named `.ksync.yaml`, stay inside the repository, and

@@ -43,6 +43,13 @@ func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Conte
 	if err != nil {
 		return err
 	}
+	type discovered struct {
+		app        corev1alpha1.Application
+		configPath string
+	}
+	// Check every file before writing anything, so a refused Application
+	// leaves all of them as they were rather than some updated.
+	var desired []discovered
 	seen := map[string]struct{}{}
 	for _, configPath := range paths {
 		apps, found, err := applicationsFromConfigFile(repository, resolved.CacheDir, configPath)
@@ -57,10 +64,13 @@ func (r *RepositoryReconciler) reconcileDiscoveredApplications(ctx context.Conte
 			if err != nil {
 				return err
 			}
-			if err := r.upsertDiscoveredApplication(ctx, repository, &app, configPath); err != nil {
-				return err
-			}
 			seen[app.Name] = struct{}{}
+			desired = append(desired, discovered{app: app, configPath: configPath})
+		}
+	}
+	for i := range desired {
+		if err := r.upsertDiscoveredApplication(ctx, repository, &desired[i].app, desired[i].configPath); err != nil {
+			return err
 		}
 	}
 	return r.pruneRemovedDiscoveredApplications(ctx, repository, seen)
@@ -98,17 +108,39 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		return app, fmt.Errorf("%s application %q names service account %q but Repository %q pins %q", configPath, app.Name, name, repository.Name, pinned)
 	}
 	app.Spec.ServiceAccountName = pinned
+	if err := checkApplicationPolicy(repository, configPath, &app); err != nil {
+		return app, err
+	}
 	// Approvals come from people through the admission webhook, and
-	// rollbacks from people or a failure policy, never from Git.
-	for _, key := range []string{
-		corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation,
-		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
-		corev1alpha1.RollbackTargetRevisionAnnotation, corev1alpha1.RollbackTargetHashAnnotation,
-		corev1alpha1.RollbackRequestedByAnnotation, corev1alpha1.RollbackRequestedAtAnnotation,
-	} {
-		delete(app.Annotations, key)
+	// rollbacks from people or a failure policy, never from Git; Kuvryn Sync
+	// sets its own annotations, so none of them is taken from Git.
+	for key := range app.Annotations {
+		if strings.HasPrefix(key, corev1alpha1.GroupVersion.Group+"/") {
+			delete(app.Annotations, key)
+		}
 	}
 	return app, nil
+}
+
+// checkApplicationPolicy refuses a discovered Application that switches on
+// something its Repository's applicationPolicy does not allow: Git write
+// access must not skip approval, delete workloads or take over objects.
+func checkApplicationPolicy(repository *corev1alpha1.Repository, configPath string, app *corev1alpha1.Application) error {
+	policy := repository.Spec.ApplicationPolicy
+	for _, rule := range []struct {
+		requested, allowed bool
+		field, allowance   string
+	}{
+		{app.Spec.Sync.Automatic, policy.AllowAutomatic, "spec.sync.automatic", "allowAutomatic"},
+		{app.Spec.Sync.Prune, policy.AllowPrune, "spec.sync.prune", "allowPrune"},
+		{app.Spec.Sync.ConflictPolicy == corev1alpha1.ConflictPolicyAdopt, policy.AllowAdopt, "spec.sync.conflictPolicy adopt", "allowAdopt"},
+		{app.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources, policy.AllowDeleteManagedResources, "spec.deletionPolicy DeleteManagedResources", "allowDeleteManagedResources"},
+	} {
+		if rule.requested && !rule.allowed {
+			return fmt.Errorf("%s application %q sets %s; set spec.applicationPolicy.%s on Repository %q to allow it", configPath, app.Name, rule.field, rule.allowance, repository.Name)
+		}
+	}
+	return nil
 }
 
 func configPaths(repository *corev1alpha1.Repository) ([]string, error) {
@@ -217,6 +249,18 @@ func (r *RepositoryReconciler) pruneRemovedDiscoveredApplications(ctx context.Co
 		app := &list.Items[i]
 		if _, ok := seen[app.Name]; ok {
 			continue
+		}
+		// Removing an Application from .ksync.yaml is a commit like any
+		// other, so it deletes the workloads only when the Repository
+		// allows discovered Applications to.
+		if app.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources && !repository.Spec.ApplicationPolicy.AllowDeleteManagedResources {
+			original := app.DeepCopy()
+			app.Spec.DeletionPolicy = corev1alpha1.DeletionPolicyOrphan
+			// A merge patch takes no resourceVersion, so a status write by the
+			// Application controller cannot fail it with a conflict.
+			if err := r.Patch(ctx, app, client.MergeFrom(original)); client.IgnoreNotFound(err) != nil {
+				return err
+			}
 		}
 		if err := r.Delete(ctx, app); client.IgnoreNotFound(err) != nil {
 			return err
