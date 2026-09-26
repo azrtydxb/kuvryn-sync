@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1
+
+_Revisions keep the time their rollout finished._
+
+- **Fixed:** confirming an already healthy Revision again, which every
+  "already synced" reconcile and every manager restart does, no longer moves
+  its `status.completedAt`. The console's "Last change" and `ksync history`
+  showed the last re-check instead of when the rollout finished.
+
 ## 0.6.0
 
 _The console's tables can be filtered, and tooltips explain what it
