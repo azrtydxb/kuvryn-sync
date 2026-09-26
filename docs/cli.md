@@ -50,14 +50,29 @@ ksync get payments -n default
 ksync status payments -n default
 ```
 
-List Application history:
+List Application history, newest first by when each Revision's rollout
+started, or by when it was created before it has:
 
 ```sh
 ksync history payments -n default
 ```
 
-Export the audit trail, oldest first, with approver, plan digest, start and
-completion times, and outcome. Failure messages are redacted:
+```text
+NAME                  PHASE       REVISION      APPROVED BY
+podinfo-b939e830aae1  RolledBack  a30f1c2e9b7d  system:admin
+podinfo-1a77a0f91d12  Failed      dd50c3a1f2e4  system:admin
+```
+
+`APPROVED BY` names who approved the Revision's current plan, and shows `—`
+when no approval covers it: the Revision has none, is `AwaitingApproval`,
+where any approval it still carries was for an earlier plan, or its desired
+state changed since it was approved. The plan digest of a deployed Revision
+moves on as Kuvryn Sync re-plans it against the live state, so the approval
+of the rollout it ran still counts.
+
+Export the audit trail, oldest first by creation, with every recorded
+approver, plan digest, start and completion times, and outcome. Failure
+messages are redacted:
 
 ```sh
 ksync history payments -n default -o json

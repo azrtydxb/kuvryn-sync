@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -45,17 +48,61 @@ func RenderRepositories(repos []corev1alpha1.Repository) string {
 	return renderTable([]string{"NAME", "TYPE", "STATE", "REVISION"}, rows)
 }
 
-// RenderHistory renders an Application's Revisions as the history table.
+// noApprover fills the APPROVED BY column of a Revision whose current plan
+// no approval covers.
+const noApprover = "—"
+
+// RenderHistory renders an Application's Revisions as the history table,
+// newest first.
 func RenderHistory(revisions []corev1alpha1.Revision) string {
-	rows := make([][]string, 0, len(revisions))
-	for _, rev := range revisions {
-		approvedBy := ""
-		if rev.Status.Approval != nil {
+	sorted := append([]corev1alpha1.Revision(nil), revisions...)
+	newestFirst(sorted)
+	rows := make([][]string, 0, len(sorted))
+	for i := range sorted {
+		rev := &sorted[i]
+		approvedBy := noApprover
+		if approvalCovers(rev) {
 			approvedBy = rev.Status.Approval.ApprovedBy
 		}
 		rows = append(rows, []string{rev.Name, string(rev.Status.Phase), rev.Spec.Source.Revision, approvedBy})
 	}
 	return renderTable([]string{"NAME", "PHASE", "REVISION", "APPROVED BY"}, rows)
+}
+
+// startOf is when a Revision's rollout started, or its creation before one
+// has.
+func startOf(rev *corev1alpha1.Revision) time.Time {
+	if rev.Status.StartedAt != nil {
+		return rev.Status.StartedAt.Time
+	}
+	return rev.CreationTimestamp.Time
+}
+
+// newestFirst sorts Revisions newest first by start, then by name, as the
+// console does: creation timestamps have one-second resolution.
+func newestFirst(revisions []corev1alpha1.Revision) {
+	slices.SortStableFunc(revisions, func(a, b corev1alpha1.Revision) int {
+		if c := startOf(&b).Compare(startOf(&a)); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.Name, a.Name)
+	})
+}
+
+// approvalCovers reports whether the approval recorded on a Revision covers
+// its current plan. The controller records an approval only when a rollout
+// acts on it, and re-plans against the live state that rollout produced, so
+// the plan digest of a deployed Revision moves on from the approved one: a
+// digest mismatch alone does not make an approval stale. One awaiting
+// approval is not covered: any approval it still carries was for an earlier
+// plan, such as its first rollout's before a rollback re-planned it. Nor is
+// one whose desired state changed since it was approved.
+func approvalCovers(rev *corev1alpha1.Revision) bool {
+	approval := rev.Status.Approval
+	if approval == nil || approval.ApprovedBy == "" || rev.Status.Phase == corev1alpha1.RevisionPhaseAwaitingApproval {
+		return false
+	}
+	return approval.DesiredStateHash == "" || approval.DesiredStateHash == rev.Spec.DesiredStateHash
 }
 
 // RenderRevision renders one Revision.
