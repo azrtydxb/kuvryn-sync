@@ -526,6 +526,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if ready, err := r.dependenciesReady(ctx, application); err != nil {
 		return ctrl.Result{}, err
 	} else if !ready {
+		// Like an approval wait, a dependency wait is not part of the
+		// rollout: its health timeout starts once it applies.
+		revision.Status.StartedAt = nil
 		if err := r.updateRevisionStatus(ctx, revision); err != nil {
 			return ctrl.Result{}, err
 		}

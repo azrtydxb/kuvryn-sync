@@ -76,6 +76,9 @@ var _ = Describe("Application dependencies", func() {
 		Expect(condition(workload).Reason).To(Equal("DependencyNotReady"))
 		Expect(condition(workload).Message).To(ContainSubstring("operator"))
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{}))).To(BeTrue(), "applied before its dependency was Healthy")
+		// Waiting for a dependency does not count against the health
+		// timeout of the rollout that follows.
+		Expect(listApplicationRevisions(ctx, "workload").Items[0].Status.StartedAt).To(BeNil())
 
 		operator := &corev1alpha1.Application{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "operator", Namespace: "default"}, operator)).To(Succeed())

@@ -2,22 +2,26 @@
 
 ## 0.7.1
 
-_Installations moved from client-side apply can change their fields, and each
+_Fields owned by the legacy `before-first-apply` manager can change, and each
 rollout attempt gets its own health timeout._
 
 - **Fixed:** a change to a field an object already had before Kuvryn Sync
   first applied it failed with a `ConflictFailure` naming the
-  `before-first-apply` manager, and the failure policy rolled it back. The API server
-  records that manager for fields set by client-side apply or Helm before any
-  server-side apply; no controller writes as it. Kuvryn Sync now takes those
-  fields over under `conflictPolicy: fail` too, only when every conflict the
-  API server reports is with that manager, and the plan lists them as
-  `adopt`.
+  `before-first-apply` manager, and the failure policy rolled it back. The API
+  server records that manager for fields an object had when it was first
+  server-side applied without `managedFields`, such as an object created before
+  Kubernetes 1.18 or one whose `managedFields` were stripped. Kuvryn Sync now
+  takes those fields over under `conflictPolicy: fail` too, only when every
+  conflict the API server reports is with that manager, and the plan lists
+  them as `adopt`. Fields kubectl or Helm own under their own names still need
+  `conflictPolicy: adopt`.
 - **Fixed:** a retried Revision, a held Revision deployed again, and a
   self-heal repair of a finished rollout counted `spec.health.timeout` from an
   earlier attempt. Anything still Progressing timed out at once, which used up
   `maxAttempts` or triggered the failure policy. Each attempt now starts its
-  own clock.
+  own clock, and a wait for dependencies no longer counts, as an approval wait
+  already did not. A Revision's `startedAt`, shown by `ksync history` and the
+  console, is now the start of its latest attempt.
 
 ## 0.7.0
 

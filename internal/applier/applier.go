@@ -20,9 +20,10 @@ const (
 	ApplicationNamespaceLabelKey = "sync.kuvryn.io/application-namespace"
 	RevisionAnnotationKey        = "sync.kuvryn.io/revision"
 	// LegacyFieldManager is the manager the API server records for the
-	// fields an object already had when it was first server-side applied,
-	// such as everything client-side apply or Helm set before Kuvryn Sync
-	// took over. No controller writes as it.
+	// fields an object already had when it was first server-side applied
+	// with no managedFields: an object from before Kubernetes 1.18, or one
+	// whose managedFields were stripped, as by a backup restore. Controllers
+	// write under their own names.
 	LegacyFieldManager = "before-first-apply"
 )
 
@@ -48,9 +49,9 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 		err := a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), options...)
 		if err != nil && policy == corev1alpha1.ConflictPolicyFail && onlyLegacyConflicts(err) {
 			// Fields the API server attributes to the legacy owner were set
-			// before any server-side apply, such as by client-side apply or
-			// Helm before Kuvryn Sync took over: take them over. The server
-			// named every conflict, so no other manager's field is taken.
+			// while the object had no managedFields: take them over. The
+			// server named every conflict of this request as legacy; only a
+			// write landing between the two requests could be taken with them.
 			err = a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), client.FieldOwner(FieldManager), client.ForceOwnership)
 		}
 		if err != nil {
@@ -72,7 +73,7 @@ func onlyLegacyConflicts(err error) bool {
 		return false
 	}
 	for _, cause := range causes {
-		if cause.Type != metav1.CauseTypeFieldManagerConflict || !strings.Contains(cause.Message, strconv.Quote(LegacyFieldManager)) {
+		if cause.Type != metav1.CauseTypeFieldManagerConflict || !strings.Contains(cause.Message, "conflict with "+strconv.Quote(LegacyFieldManager)+" using ") {
 			return false
 		}
 	}
