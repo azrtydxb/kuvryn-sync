@@ -52,6 +52,15 @@ const (
 	RollbackFromAnnotation = "sync.kuvryn.io/rollback-from"
 	// RollbackKindAnnotation is RollbackKindManual or RollbackKindAutomatic.
 	RollbackKindAnnotation = "sync.kuvryn.io/rollback-kind"
+	// RollbackRequestedByAnnotation is the authenticated user who requested
+	// the rollback. The admission webhook records it, with
+	// RollbackRequestedAtAnnotation, whenever the target or the kind changes,
+	// and restores both on every other change. On an Application with manual
+	// sync, a manual rollback's requester approves the target's plan.
+	RollbackRequestedByAnnotation = "sync.kuvryn.io/rollback-requested-by"
+	// RollbackRequestedAtAnnotation is when the rollback request was
+	// admitted, in RFC 3339.
+	RollbackRequestedAtAnnotation = "sync.kuvryn.io/rollback-requested-at"
 	// RollbackKindManual is a rollback a user requested.
 	RollbackKindManual = "manual"
 	// RollbackKindAutomatic is a rollback the failure policy started after a

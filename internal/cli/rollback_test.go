@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
@@ -211,5 +212,61 @@ func TestApproveRefusesARolledBackRevision(t *testing.T) {
 	err := approve(context.Background(), c, "default", "payments", "payments-b", &stdout)
 	if err == nil || err.Error() != "revision payments-b was replaced by a rollback; push a new commit, delete the Revision, or run ksync rollback --revision payments-b" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Catches `ksync rollback` on a manual-approval Application saying only that
+// it requested a rollback, which left people waiting for a deploy that
+// needed a separate `ksync sync`: the output says the request approves and
+// deploys the target, and under whose name.
+func TestRollbackSaysItApprovesAndDeploysTheTarget(t *testing.T) {
+	manual := func() *corev1alpha1.Application {
+		app := rollbackApp("b-sha", "b-sha")
+		app.Spec.Sync.Automatic = false
+		return app
+	}
+	revisions := []corev1alpha1.Revision{
+		rollbackRevision("payments-a", "a-sha", corev1alpha1.RevisionPhaseHealthy, 0),
+		rollbackRevision("payments-b", "b-sha", corev1alpha1.RevisionPhaseHealthy, 1),
+	}
+	// The admission webhook records the requester; the fake client has none.
+	stamping := func(c client.Client) client.Client {
+		return interceptor.NewClient(c.(client.WithWatch), interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				annotations := obj.GetAnnotations()
+				annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+				obj.SetAnnotations(annotations)
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	}
+
+	var stdout bytes.Buffer
+	if err := rollback(context.Background(), stamping(rollbackClient(t, manual(), revisions...)), "default", "payments", "", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	want := "rollback requested for payments to payments-a (a-sha)\n" +
+		"the request approves and deploys payments-a as alice@example.com; no ksync sync is needed\n" +
+		"holding b-sha once the rollback completes\n"
+	if stdout.String() != want {
+		t.Fatalf("manual sync output:\n%s\nwant:\n%s", stdout.String(), want)
+	}
+
+	stdout.Reset()
+	if err := rollback(context.Background(), rollbackClient(t, manual(), revisions...), "default", "payments", "", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "no requester was recorded") || !strings.Contains(stdout.String(), "awaits approval") {
+		t.Fatalf("without a recorded requester the output does not say the target awaits approval:\n%s", stdout.String())
+	}
+
+	automatic := manual()
+	automatic.Spec.Sync.Automatic = true
+	stdout.Reset()
+	if err := rollback(context.Background(), rollbackClient(t, automatic, revisions...), "default", "payments", "", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "the request deploys payments-a\n") || strings.Contains(stdout.String(), "approv") {
+		t.Fatalf("automatic sync output:\n%s", stdout.String())
 	}
 }

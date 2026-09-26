@@ -75,7 +75,50 @@ func clearRollbackRequest(application *corev1alpha1.Application) {
 	delete(annotations, corev1alpha1.RollbackRevisionAnnotation)
 	delete(annotations, corev1alpha1.RollbackFromAnnotation)
 	delete(annotations, corev1alpha1.RollbackKindAnnotation)
+	delete(annotations, corev1alpha1.RollbackRequestedByAnnotation)
+	delete(annotations, corev1alpha1.RollbackRequestedAtAnnotation)
 	application.SetAnnotations(annotations)
+}
+
+// rollbackApproval approves the plan of a manual rollback's target on an
+// Application with manual sync: requesting the rollback is the decision to
+// deploy it. The approval is recorded under the requester the admission
+// webhook stamped on the request, at the time it was admitted, and binds to
+// the digest of the plan this reconcile applies, so it is never stale. A
+// failure policy's rollback, a request without a recorded requester, and a
+// Revision that is not the target are not approved.
+//
+// Applying one group of a rollout changes the plan for the next, so while
+// the rollout is in progress the approval already recorded for this request
+// and desired state stands, as manualApproval keeps it.
+func rollbackApproval(application *corev1alpha1.Application, req rollbackRequest, revision *corev1alpha1.Revision, rollout rolloutState) *corev1alpha1.RevisionApproval {
+	if !req.active() || req.automatic() || revision.Spec.Source.Revision != req.target || heldBy(revision) != nil {
+		return nil
+	}
+	annotations := application.GetAnnotations()
+	requestedBy := annotations[corev1alpha1.RollbackRequestedByAnnotation]
+	requestedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.RollbackRequestedAtAnnotation])
+	if requestedBy == "" || err != nil || revision.Status.Plan.Digest == "" {
+		return nil
+	}
+	approval := &corev1alpha1.RevisionApproval{
+		ApprovedBy: requestedBy, ApprovedAt: metav1.NewTime(requestedAt),
+		PlanDigest: revision.Status.Plan.Digest, DesiredStateHash: revision.Spec.DesiredStateHash,
+	}
+	if recorded := revision.Status.Approval; recorded != nil && rollout == rolloutInProgress &&
+		recorded.ApprovedBy == approval.ApprovedBy && recorded.ApprovedAt.Equal(&approval.ApprovedAt) &&
+		recorded.DesiredStateHash != "" && recorded.DesiredStateHash == approval.DesiredStateHash {
+		return recorded
+	}
+	return approval
+}
+
+// sameApproval reports whether two approvals record the same decision.
+func sameApproval(a, b *corev1alpha1.RevisionApproval) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ApprovedBy == b.ApprovedBy && a.ApprovedAt.Equal(&b.ApprovedAt) && a.PlanDigest == b.PlanDigest && a.DesiredStateHash == b.DesiredStateHash
 }
 
 // recordRollbackIntent records a request's source and kind when the request

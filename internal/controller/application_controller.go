@@ -326,6 +326,12 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	fresh := rollout == rolloutNotStarted || (rollout == rolloutComplete && application.Status.DeployedRevision != resolved.Revision)
 	if fresh {
 		revision.Status.Hooks = nil
+		if rollout == rolloutComplete {
+			// A finished Revision deployed again, such as a rollback
+			// target, starts a new rollout: its health timeout counts
+			// from now, not from its first rollout.
+			revision.Status.StartedAt = nil
+		}
 	}
 
 	now := metav1.Now()
@@ -477,6 +483,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	approval, stale := manualApproval(application, revision, rollout)
+	if approval == nil && !application.Spec.Sync.Automatic {
+		if approval = rollbackApproval(application, request, revision, rollout); approval != nil {
+			stale = false
+			if !sameApproval(revision.Status.Approval, approval) {
+				r.event(application, corev1.EventTypeNormal, "RollbackApproved", fmt.Sprintf("Rollback to source revision %s approved by %s, who requested it", request.target, approval.ApprovedBy))
+			}
+		}
+	}
 	if !application.Spec.Sync.Automatic && approval == nil {
 		status.AwaitApproval(revision, application)
 		if previousPhase != corev1alpha1.RevisionPhaseAwaitingApproval {

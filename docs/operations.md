@@ -66,6 +66,11 @@ state stays the one approved; a changed desired state, or a later rollout of
 the same Revision (for example self-heal), needs a fresh approval. The applied Revision keeps the record in
 `status.approval`, and `ksync history -o json` exports it.
 
+A manual `ksync rollback` is its own approval of the rollback target; the
+webhook records its requester in `sync.kuvryn.io/rollback-requested-by` and
+`sync.kuvryn.io/rollback-requested-at` the same way. See
+[Rollback](concepts.md#rollback).
+
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated. With `ENABLE_WEBHOOKS=false` nothing verifies
 the approval annotations, anyone who can update an Application can forge

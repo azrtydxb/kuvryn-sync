@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -61,12 +62,51 @@ func SetupApplicationWebhookWithManager(mgr ctrl.Manager) error {
 // also re-approves the same Revision after its plan changed. It stamps the
 // authenticated requester, the time, and the Revision's current plan digest;
 // on every other change it restores those annotations, so they cannot be
-// forged or edited.
+// forged or edited. It records the requester of a rollback the same way.
 type ApplicationCustomDefaulter struct {
 	// Reader must not be cached: the recorded digest has to be the plan that
 	// is current now, not one a stale cache still holds.
 	Reader client.Reader
 	Now    func() time.Time
+}
+
+var rollbackRecord = []string{
+	corev1alpha1.RollbackRequestedByAnnotation,
+	corev1alpha1.RollbackRequestedAtAnnotation,
+}
+
+// rollbackKind is the kind a rollback request has: one that does not say is
+// manual, as the controller records it.
+func rollbackKind(annotations map[string]string) string {
+	if kind := annotations[corev1alpha1.RollbackKindAnnotation]; kind != "" {
+		return kind
+	}
+	return corev1alpha1.RollbackKindManual
+}
+
+// recordRollbackRequester records who requested a rollback, and when, whenever
+// its target or kind changes: that person decided to deploy the target, and
+// on an Application with manual sync their request approves its plan. On
+// every other change the record is restored, so it cannot be forged; the
+// controller recording a request's source or its default kind keeps it. It
+// is removed with the request, and never recorded for an unauthenticated
+// request.
+func (d *ApplicationCustomDefaulter) recordRollbackRequester(user authenticationv1.UserInfo, old, annotations map[string]string) {
+	target := strings.TrimSpace(annotations[corev1alpha1.RollbackRevisionAnnotation])
+	changed := target != strings.TrimSpace(old[corev1alpha1.RollbackRevisionAnnotation]) || rollbackKind(annotations) != rollbackKind(old)
+	for _, key := range rollbackRecord {
+		value, ok := old[key]
+		if ok && !changed {
+			annotations[key] = value
+		} else {
+			delete(annotations, key)
+		}
+	}
+	if target == "" || !changed || !authenticated(user) {
+		return
+	}
+	annotations[corev1alpha1.RollbackRequestedByAnnotation] = user.Username
+	annotations[corev1alpha1.RollbackRequestedAtAnnotation] = d.Now().UTC().Format(time.RFC3339)
 }
 
 var approvalRecord = []string{
@@ -91,6 +131,7 @@ func (d *ApplicationCustomDefaulter) Default(ctx context.Context, obj *corev1alp
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
+	d.recordRollbackRequester(req.UserInfo, old.GetAnnotations(), annotations)
 	// The request is consumed here and never stored, so a later
 	// read-modify-write cannot replay it as a fresh approval.
 	requested, hasRequest := annotations[corev1alpha1.ApproveDigestAnnotation]

@@ -144,6 +144,24 @@ Request rollback to a specific Revision object:
 ksync rollback payments -n default --revision payments-abc123
 ```
 
+On an Application with manual sync, the rollback is also the approval: the
+command says that it approves and deploys the target, and under whose
+Kubernetes identity, and no `ksync sync` is needed. Kuvryn Sync approves the
+target's plan as it re-plans it against the live state, so the approval
+binds to the plan it applies:
+
+```text
+rollback requested for podinfo to podinfo-b939e830aae1 (a30f1c2e9b7d)
+the request approves and deploys podinfo-b939e830aae1 as system:admin; no ksync sync is needed
+holding dd50c3a1f2e4 once the rollback completes
+```
+
+With automatic sync the second line is `the request deploys <revision>`. When
+no requester was recorded, as with webhooks disabled, the command says the
+target awaits approval and prints the `ksync sync` command for it. See
+[Rollback](concepts.md#rollback) for why the rollback approves rather than the
+CLI approving a digest.
+
 The command records the desired revision as the one rolled back from. Once the
 rollback completes, that revision is held: it is not deployed again, even with
 automatic sync, until a new commit arrives. Rolling back explicitly to a held
