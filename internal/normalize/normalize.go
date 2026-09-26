@@ -6,12 +6,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// Object removes expected server-populated fields before diffing, and fields
-// set to null: the API server drops them, so a manifest's null means the field
-// is absent, as it is live.
+// Object removes expected server-populated fields before diffing. For
+// built-in API types it also removes fields set to null: those types decode
+// into Go structs, so the API server stores null and absent alike as absent.
+// Custom resources keep their nulls, because a CRD field marked nullable
+// preserves an explicit null.
 func Object(obj unstructured.Unstructured) (unstructured.Unstructured, error) {
 	copy := obj.DeepCopy()
-	dropNulls(copy.Object)
+	if builtinGroup(copy.GroupVersionKind().Group) {
+		dropNulls(copy.Object)
+	}
 	unstructured.RemoveNestedField(copy.Object, "status")
 	metadata, ok, err := unstructured.NestedMap(copy.Object, "metadata")
 	if err != nil {
@@ -57,6 +61,22 @@ func Equal(a, b unstructured.Unstructured) (bool, error) {
 	}
 	return string(aj) == string(bj), nil
 }
+
+// builtinGroups are the API groups Kubernetes itself serves. Some CRDs use
+// *.k8s.io groups too (Gateway API, volume snapshots), so this is a list, not
+// a suffix rule.
+var builtinGroups = map[string]bool{
+	"": true, "apps": true, "batch": true, "autoscaling": true, "policy": true,
+	"admissionregistration.k8s.io": true, "apiextensions.k8s.io": true, "apiregistration.k8s.io": true,
+	"authentication.k8s.io": true, "authorization.k8s.io": true, "certificates.k8s.io": true,
+	"coordination.k8s.io": true, "discovery.k8s.io": true, "events.k8s.io": true,
+	"flowcontrol.apiserver.k8s.io": true, "internal.apiserver.k8s.io": true, "networking.k8s.io": true,
+	"node.k8s.io": true, "rbac.authorization.k8s.io": true, "resource.k8s.io": true,
+	"scheduling.k8s.io": true, "storage.k8s.io": true, "storagemigration.k8s.io": true,
+}
+
+// builtinGroup reports whether group is served by Kubernetes itself.
+func builtinGroup(group string) bool { return builtinGroups[group] }
 
 // dropNulls removes map entries whose value is null, at every depth, including
 // inside maps held in lists. List items that are themselves null are kept,
