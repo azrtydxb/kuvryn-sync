@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
 	"github.com/azrtydxb/kuvryn-sync/internal/version"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,7 +36,8 @@ Read:
   ksync history <application> [-o table|json]    List an Application's Revisions
   ksync revision <revision>                      Show one Revision
   ksync plan <application> [-f file] [-o text|json|yaml]
-                                                 Show the newest Revision's plan
+                                                 Show the plan of the Revision the
+                                                 Application wants deployed
   ksync diagnose <application>                   Explain why an Application is not Healthy
   ksync graph <application> [-o json|dot]        Print the live resource graph
   ksync drift <application>                      Show sync state (alias of get)
@@ -615,7 +618,7 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 	if err != nil {
 		return nil, err
 	}
-	return newestRevision(ctx, c, application, namespace)
+	return wantedRevision(ctx, c, application, namespace)
 }
 
 // newestRevision returns the most recently created Revision of application.
@@ -651,4 +654,79 @@ func newer(a, b metav1.ObjectMeta) bool {
 		return a.Name > b.Name
 	}
 	return false
+}
+
+// wantedRevision returns the Revision application currently wants deployed:
+// the one for its desired state, not the newest one created. It is, in turn,
+// a Revision of
+//
+//   - the source revision a pending rollback targets, before and after the
+//     controller picks the request up;
+//   - status.desiredRevision, the commit it plans, such as one awaiting
+//     approval;
+//   - status.deployedRevision, when every Revision of the desired commit is
+//     held by a completed rollback and the Application keeps running the
+//     rollback target.
+//
+// Among several Revisions of that commit, such as after a service account
+// change, it prefers one that is not held, then the newest. Without the
+// Application or a Revision of its commit, it returns the newest Revision.
+func wantedRevision(ctx context.Context, c client.Client, application, namespace string) (*corev1alpha1.Revision, error) {
+	app := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
+		if apierrors.IsNotFound(err) {
+			return newestRevision(ctx, c, application, namespace)
+		}
+		return nil, err
+	}
+	revisions, err := applicationRevisions(ctx, c, application, namespace)
+	if err != nil {
+		return nil, err
+	}
+	commit := strings.TrimSpace(app.Annotations[corev1alpha1.RollbackRevisionAnnotation])
+	if commit == "" {
+		commit = app.Status.DesiredRevision
+		if wanted := revisionOf(revisions, commit); wanted != nil && rolledBack(wanted) && app.Status.DeployedRevision != "" {
+			commit = app.Status.DeployedRevision
+		}
+	}
+	if wanted := revisionOf(revisions, commit); wanted != nil {
+		return wanted, nil
+	}
+	return newestRevision(ctx, c, application, namespace)
+}
+
+// revisionOf returns the Revision of commit among revisions, preferring one
+// no rollback holds, then the newest; nil when there is none.
+func revisionOf(revisions []corev1alpha1.Revision, commit string) *corev1alpha1.Revision {
+	var best *corev1alpha1.Revision
+	for i := range revisions {
+		rev := &revisions[i]
+		if commit == "" || rev.Spec.Source.Revision != commit {
+			continue
+		}
+		switch {
+		case best == nil:
+			best = rev
+		case rolledBack(best) != rolledBack(rev):
+			if rolledBack(best) {
+				best = rev
+			}
+		case newer(rev.ObjectMeta, best.ObjectMeta):
+			best = rev
+		}
+	}
+	return best
+}
+
+// applicationRevisions lists the Revisions whose spec.applicationRef names
+// application.
+func applicationRevisions(ctx context.Context, c client.Client, application, namespace string) ([]corev1alpha1.Revision, error) {
+	var list corev1alpha1.RevisionList
+	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(list.Items, func(rev corev1alpha1.Revision) bool {
+		return rev.Spec.ApplicationRef.Name != application
+	}), nil
 }

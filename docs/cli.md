@@ -71,11 +71,18 @@ ksync revision payments-abc123 -n default
 
 ## Plan output
 
-Print the newest Revision plan for an Application:
+Print the plan of the Revision an Application currently wants deployed:
 
 ```sh
 ksync plan payments -n default
 ```
+
+That is the Revision for its desired state, not the newest one created: the
+target of a pending rollback, from the moment it is requested; otherwise the
+Revision of `status.desiredRevision`, such as one awaiting approval; or, while
+a completed rollback holds the desired commit, the rollback target the
+Application keeps running. Among several Revisions of that commit it shows the
+newest one no rollback holds. Without such a Revision it shows the newest one.
 
 The text output names the Revision object, its commit and its phase. A plan
 awaiting approval ends with the exact command that approves it; it passes `-n`
