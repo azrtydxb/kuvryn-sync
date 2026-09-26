@@ -1,0 +1,49 @@
+/* Console additions to the design system's .az-tip. */
+
+/* A hidden bubble takes no space, so it neither widens a scrolling table
+   nor reaches the accessibility tree; aria-describedby still names it. */
+.az-tip:not(:hover):not(:focus-within):not(.az-tip--open) > .az-tip__bubble {
+  display: none;
+}
+
+.ks-tip .az-tip__bubble {
+  overflow-wrap: anywhere;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ks-tip--mono .az-tip__bubble {
+  max-width: 380px;
+  font-family: var(--az-font-mono);
+  font-size: var(--az-text-sm);
+}
+
+.ks-tip--start .az-tip__bubble,
+.ks-tip--start:hover .az-tip__bubble,
+.ks-tip--start:focus-within .az-tip__bubble {
+  left: 0;
+  transform: none;
+}
+
+.ks-tip--end .az-tip__bubble,
+.ks-tip--end:hover .az-tip__bubble,
+.ks-tip--end:focus-within .az-tip__bubble {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.ks-tip__target {
+  display: inline-flex;
+  min-width: 0;
+  border-radius: 4px;
+  cursor: help;
+}
+
+.ks-clip {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}

@@ -39,3 +39,32 @@ export function planSummary(p: {
 export function clock(d: Date): string {
   return d.toLocaleTimeString("en-GB", { hour12: false });
 }
+
+/**
+ * A time as an absolute local timestamp, "2026-09-26 14:03:12 GMT+4", for
+ * the tooltips on relative times.
+ */
+export function absolute(iso: string | undefined): string {
+  if (!iso || iso === DASH) return DASH;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return DASH;
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, "0");
+  const zone = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short" })
+    .formatToParts(d)
+    .find((part) => part.type === "timeZoneName")?.value;
+  return (
+    d.getFullYear() +
+    "-" +
+    p(d.getMonth() + 1) +
+    "-" +
+    p(d.getDate()) +
+    " " +
+    p(d.getHours()) +
+    ":" +
+    p(d.getMinutes()) +
+    ":" +
+    p(d.getSeconds()) +
+    (zone ? " " + zone : "")
+  );
+}
