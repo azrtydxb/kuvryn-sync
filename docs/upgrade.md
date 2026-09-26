@@ -22,6 +22,33 @@ helm template kuvryn-sync charts/kuvryn-sync >/tmp/kuvryn-sync-chart.yaml
 kubectl apply --dry-run=server -f /tmp/kuvryn-sync-chart.yaml -n kuvryn-sync-system
 ```
 
+## Upgrading to 0.7.0
+
+Repositories now limit what Applications discovered from `.ksync.yaml` may
+switch on, through the new `spec.applicationPolicy`. Everything defaults to
+off, so a discovered Application that sets `spec.sync.automatic`,
+`spec.sync.prune`, `spec.sync.conflictPolicy: adopt` or
+`spec.deletionPolicy: DeleteManagedResources` stops updating after the
+upgrade: its Repository turns `Failed` with a message naming the allowance,
+and the Application keeps running as it is, neither updated nor deleted.
+Applications you create yourself are not affected.
+
+Before upgrading, find the discovered Applications and what they use:
+
+```sh
+kubectl get applications.sync.kuvryn.io -A \
+  -l sync.kuvryn.io/repository \
+  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,REPO:.metadata.labels.sync\.kuvryn\.io/repository,AUTO:.spec.sync.automatic,PRUNE:.spec.sync.prune,CONFLICT:.spec.sync.conflictPolicy,DELETE:.spec.deletionPolicy
+```
+
+Then allow what each Repository should allow once the new CRDs are applied,
+for example:
+
+```sh
+kubectl patch repository platform -n default --type merge \
+  -p '{"spec":{"applicationPolicy":{"allowAutomatic":true,"allowPrune":true}}}'
+```
+
 ## Moving from Solder 0.3.x to Kuvryn Sync 0.4.0
 
 Kuvryn Sync is the new name of Solder, and 0.4.0 is the first release under

@@ -140,8 +140,9 @@ var _ = Describe("Repository Controller", func() {
 		resource := &corev1alpha1.Repository{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
 			Spec: corev1alpha1.RepositorySpec{
-				Type: corev1alpha1.RepositoryTypeGit,
-				Git:  &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+				Type:              corev1alpha1.RepositoryTypeGit,
+				Git:               &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+				ApplicationPolicy: corev1alpha1.ApplicationPolicy{AllowAutomatic: true, AllowPrune: true},
 			},
 		}
 		Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -317,6 +318,47 @@ var _ = Describe("Repository Controller", func() {
 		Entry("rejects a different account than the pinned one", "payments-deployer", "cluster-operator", "", `pins "payments-deployer"`),
 		Entry("rejects any account when nothing is pinned", "", "cluster-operator", "", "may not set serviceAccountName"),
 	)
+
+	It("leaves a discovered Application alone when Git asks for more than the application policy allows", func() {
+		workspace := GinkgoT().TempDir()
+		Expect(os.WriteFile(filepath.Join(workspace, ".ksync.yaml"), []byte(`applications:
+- metadata:
+    name: payments
+  spec:
+    sync:
+      automatic: true
+    source:
+      path: apps/payments-next
+      render:
+        type: yaml
+`), 0o600)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1alpha1.Repository{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+			Spec: corev1alpha1.RepositorySpec{
+				Type: corev1alpha1.RepositoryTypeGit,
+				Git:  &corev1alpha1.GitRepositorySpec{URL: "https://example.com/acme/platform.git", Revision: "main"},
+			},
+		})).To(Succeed())
+		existing := &corev1alpha1.Application{
+			ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default", Labels: map[string]string{repositoryApplicationLabel: resourceName}},
+			Spec:       corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{RepositoryRef: corev1alpha1.LocalObjectReference{Name: resourceName}, Path: "apps/payments", Render: corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML}}},
+		}
+		Expect(k8sClient.Create(ctx, existing)).To(Succeed())
+
+		resolver := &recordingSourceResolver{resolved: source.ResolvedSource{Revision: "8c51af2", CacheDir: workspace}}
+		controllerReconciler := &RepositoryReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), SourceResolver: resolver}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1alpha1.Repository{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+		Expect(updated.Status.State).To(Equal(corev1alpha1.RepositoryStateFailed))
+		Expect(updated.Status.Conditions[0].Message).To(ContainSubstring("spec.applicationPolicy.allowAutomatic"))
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "payments", Namespace: "default"}, app)).To(Succeed())
+		Expect(app.Spec.Sync.Automatic).To(BeFalse())
+		Expect(app.Spec.Source.Path).To(Equal("apps/payments"))
+	})
 
 	It("reports invalid .ksync.yaml files as validation failures", func() {
 		workspace := GinkgoT().TempDir()

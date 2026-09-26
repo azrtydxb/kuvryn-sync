@@ -196,6 +196,22 @@ Discovered Applications run as the Repository's
 3, or leave it empty to use the manager's `defaultServiceAccount`; a
 `.ksync.yaml` cannot choose a service account itself.
 
+The example above syncs automatically and prunes, so the Repository must allow
+both. Without this, discovery refuses the Application and the Repository turns
+`Failed` with a message naming the missing allowance:
+
+```yaml
+spec:
+  applicationPolicy:
+    allowAutomatic: true
+    allowPrune: true
+```
+
+`allowAdopt` and `allowDeleteManagedResources` do the same for
+`conflictPolicy: adopt` and `deletionPolicy: DeleteManagedResources`. Leave an
+allowance off to keep a person in the loop: with `allowAutomatic` off, every
+plan waits for `ksync sync`.
+
 `spec.source.repositoryRef.name` is optional in `.ksync.yaml`; when omitted,
 Kuvryn Sync defaults it to the Repository that discovered the file. A full
 `Application` object is also accepted when the file contains a single app. When

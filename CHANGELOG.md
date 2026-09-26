@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.0
+
+_Git write access no longer switches off approval for discovered
+Applications._
+
+- **Breaking:** a Repository now limits what Applications discovered from
+  `.ksync.yaml` may switch on, through the new `spec.applicationPolicy`:
+  `allowAutomatic`, `allowPrune`, `allowAdopt` and
+  `allowDeleteManagedResources`, all off by default. Anyone who could commit
+  to the branch could set `spec.sync.automatic` and deploy their own change
+  without approval, or set `deletionPolicy: DeleteManagedResources` and then
+  remove the Application from `.ksync.yaml` to delete its workloads. A
+  discovered Application that asks for more than its Repository allows fails
+  discovery; the Repository turns `Failed` with a message naming the field
+  and the allowance, and the Applications already in the cluster are neither
+  updated nor deleted. Applications created directly are not affected. See
+  [Upgrading to 0.7.0](docs/upgrade.md#upgrading-to-070) for finding the
+  discovered Applications and allowing what they use before upgrading.
+
 ## 0.6.4
 
 _A manual rollback deploys without a separate approval, and the CLI shows

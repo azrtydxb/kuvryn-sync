@@ -135,6 +135,27 @@ Applications in a namespace is therefore as powerful as the most privileged
 service account there: grant it only to people who could already act as those
 accounts.
 
+### Applications discovered from Git
+
+A Repository can create Applications from `.ksync.yaml` files, so anyone who
+can commit to its branch writes those Applications. The Repository owner
+decides how far that reaches:
+
+- `spec.applicationServiceAccountName` is the only service account a
+  discovered Application may run as.
+- `spec.applicationPolicy` lists what discovered Applications may switch on.
+  Everything defaults to off: `allowAutomatic` (apply plans without approval),
+  `allowPrune` (delete resources removed from Git), `allowAdopt` (take over
+  fields other managers hold) and `allowDeleteManagedResources` (delete the
+  workloads when the Application is removed from `.ksync.yaml`).
+- Approval, approver and rollback annotations are stripped: approvals come
+  from people, and rollbacks from people or a failure policy.
+
+With `allowAutomatic` off, a commit can change what is deployed but a person
+approves every plan. A `.ksync.yaml` that asks for more than the policy allows
+fails discovery, and the Applications already in the cluster are left as they
+are. `selfHeal` is not limited: it only restores the state last approved.
+
 A typical tenant grant binds the built-in `admin` ClusterRole in the
 destination namespace only:
 

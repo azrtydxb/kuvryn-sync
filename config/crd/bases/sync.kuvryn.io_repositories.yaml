@@ -61,6 +61,35 @@ spec:
                     type: string
                   type: array
                   x-kubernetes-list-type: atomic
+                applicationPolicy:
+                  description: |-
+                    applicationPolicy limits what Applications discovered from .ksync.yaml
+                    may do without a person's approval. Everything it names is refused
+                    unless allowed here; a discovered Application that asks for more fails
+                    discovery and the Applications already in the cluster stay as they are.
+                  properties:
+                    allowAdopt:
+                      description: |-
+                        allowAdopt lets discovered Applications set spec.sync.conflictPolicy to
+                        adopt, taking over fields other managers hold.
+                      type: boolean
+                    allowAutomatic:
+                      description: |-
+                        allowAutomatic lets discovered Applications set spec.sync.automatic, so
+                        their plans apply without approval.
+                      type: boolean
+                    allowDeleteManagedResources:
+                      description: |-
+                        allowDeleteManagedResources lets discovered Applications set
+                        spec.deletionPolicy to DeleteManagedResources, so removing one from
+                        .ksync.yaml deletes its workloads.
+                      type: boolean
+                    allowPrune:
+                      description: |-
+                        allowPrune lets discovered Applications set spec.sync.prune, so
+                        resources removed from Git are deleted.
+                      type: boolean
+                  type: object
                 applicationServiceAccountName:
                   description: |-
                     applicationServiceAccountName is the service account that Applications

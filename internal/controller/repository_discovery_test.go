@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -87,5 +88,60 @@ func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 	}
 	if normalized.Annotations["team"] != "payments" {
 		t.Errorf("discovery dropped an ordinary annotation: %v", normalized.Annotations)
+	}
+}
+
+// Catches Git switching off the approval gate: what a discovered Application
+// may do without a person's approval is the Repository owner's decision.
+func TestDiscoveredApplicationsStayWithinTheRepositoryApplicationPolicy(t *testing.T) {
+	automatic := func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = true }
+	prune := func(app *corev1alpha1.Application) { app.Spec.Sync.Prune = true }
+	adopt := func(app *corev1alpha1.Application) { app.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyAdopt }
+	deleteManaged := func(app *corev1alpha1.Application) {
+		app.Spec.DeletionPolicy = corev1alpha1.DeletionPolicyDeleteManagedResources
+	}
+	cases := []struct {
+		name      string
+		policy    corev1alpha1.ApplicationPolicy
+		set       func(*corev1alpha1.Application)
+		wantError string
+	}{
+		{name: "manual sync needs nothing", set: func(*corev1alpha1.Application) {}},
+		{name: "self-heal needs nothing", set: func(app *corev1alpha1.Application) { app.Spec.Sync.SelfHeal = true }},
+		{name: "fail and orphan need nothing", set: func(app *corev1alpha1.Application) {
+			app.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyFail
+			app.Spec.DeletionPolicy = corev1alpha1.DeletionPolicyOrphan
+		}},
+		{name: "automatic refused by default", set: automatic, wantError: "spec.applicationPolicy.allowAutomatic"},
+		{name: "prune refused by default", set: prune, wantError: "spec.applicationPolicy.allowPrune"},
+		{name: "adopt refused by default", set: adopt, wantError: "spec.applicationPolicy.allowAdopt"},
+		{name: "deleting managed resources refused by default", set: deleteManaged, wantError: "spec.applicationPolicy.allowDeleteManagedResources"},
+		{name: "automatic allowed", policy: corev1alpha1.ApplicationPolicy{AllowAutomatic: true}, set: automatic},
+		{name: "prune allowed", policy: corev1alpha1.ApplicationPolicy{AllowPrune: true}, set: prune},
+		{name: "adopt allowed", policy: corev1alpha1.ApplicationPolicy{AllowAdopt: true}, set: adopt},
+		{name: "deleting managed resources allowed", policy: corev1alpha1.ApplicationPolicy{AllowDeleteManagedResources: true}, set: deleteManaged},
+		{name: "one allowance does not grant another", policy: corev1alpha1.ApplicationPolicy{AllowPrune: true}, set: automatic, wantError: "allowAutomatic"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repository := &corev1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: "default"}}
+			repository.Spec.ApplicationPolicy = tc.policy
+			app := corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments"}}
+			app.Spec.Source.Render.Type = corev1alpha1.RenderTypeYAML
+			tc.set(&app)
+			_, err := normalizeDiscoveredApplication(repository, configFileName, 0, app, map[string]struct{}{})
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatalf("refused an allowed Application: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("got error %v, want one naming %q", err, tc.wantError)
+			}
+			if !strings.Contains(err.Error(), `"payments"`) || !strings.Contains(err.Error(), `"platform"`) {
+				t.Errorf("error does not name the Application and Repository: %v", err)
+			}
+		})
 	}
 }

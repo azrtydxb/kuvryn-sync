@@ -25,22 +25,25 @@ spec:
   applicationConfigPaths:
     - .ksync.yaml
   applicationServiceAccountName: payments-deployer
+  applicationPolicy:
+    allowAutomatic: true
   pollInterval: 60s
 ```
 
 ### Spec fields
 
-| Field                                | Description                                                                                                                   |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                    |
-| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.             |
-| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                                   |
-| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `sync.kuvryn.io/git-credentials: "true"`. |
-| `spec.applicationConfigPaths`        | Repository-relative `.ksync.yaml` paths. Defaults to root `.ksync.yaml`.                                                      |
-| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.                |
-| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                      |
-| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                           |
-| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`.     |
+| Field                                | Description                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `spec.type`                          | Source adapter. `v1alpha1` supports `git`.                                                                                                       |
+| `spec.git.url`                       | Git remote URL using `https`, `http`, `ssh` (including `git@host:path`), or `git`. Filesystem paths are rejected.                                |
+| `spec.git.revision`                  | Default branch, tag, or exact commit for Applications that omit a revision.                                                                      |
+| `spec.git.auth.secretRef.name`       | Secret in the Repository namespace for private Git credentials; it must be labelled `sync.kuvryn.io/git-credentials: "true"`.                    |
+| `spec.applicationConfigPaths`        | Repository-relative `.ksync.yaml` paths. Defaults to root `.ksync.yaml`.                                                                         |
+| `spec.applicationServiceAccountName` | Service account discovered Applications run as. When empty, they use the controller's default service account.                                   |
+| `spec.applicationPolicy`             | What discovered Applications may switch on: `allowAutomatic`, `allowPrune`, `allowAdopt`, `allowDeleteManagedResources`. All default to `false`. |
+| `spec.pollInterval`                  | Polling interval when no external wake-up signal exists.                                                                                         |
+| `spec.webhook.secretRef.name`        | Secret whose `token` authenticates GitHub/GitLab push webhooks for this Repository.                                                              |
+| `spec.imageUpdate`                   | Commit ImagePolicy selections back to Git: `secretRef` (push credentials), `branch`, `path`, `authorName`, `authorEmail`.                        |
 
 ### Status fields
 
@@ -93,6 +96,14 @@ For discovered Applications:
   sets none, discovered Applications may not set a service account and use the
   controller's default. This keeps Git write access from choosing which
   service account Kuvryn Sync acts as.
+- `spec.sync.automatic`, `spec.sync.prune`, `spec.sync.conflictPolicy: adopt`
+  and `spec.deletionPolicy: DeleteManagedResources` are refused unless the
+  Repository's `spec.applicationPolicy` sets `allowAutomatic`, `allowPrune`,
+  `allowAdopt` or `allowDeleteManagedResources`. This keeps Git write access
+  from skipping approval, deleting workloads or taking over objects. A refused
+  Application fails discovery with the Repository `Ready` condition saying
+  which field and allowance; Applications already in the cluster are neither
+  updated nor deleted until the file or the policy is fixed.
 - `applicationConfigPaths` entries must be repository-relative paths named
   `.ksync.yaml`, must be unique, and must not escape the repository.
 - Application names must be unique across all configured files.

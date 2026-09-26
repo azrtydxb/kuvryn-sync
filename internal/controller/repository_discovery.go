@@ -98,6 +98,9 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		return app, fmt.Errorf("%s application %q names service account %q but Repository %q pins %q", configPath, app.Name, name, repository.Name, pinned)
 	}
 	app.Spec.ServiceAccountName = pinned
+	if err := checkApplicationPolicy(repository, configPath, &app); err != nil {
+		return app, err
+	}
 	// Approvals come from people through the admission webhook, and
 	// rollbacks from people or a failure policy, never from Git.
 	for _, key := range []string{
@@ -109,6 +112,27 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		delete(app.Annotations, key)
 	}
 	return app, nil
+}
+
+// checkApplicationPolicy refuses a discovered Application that switches on
+// something its Repository's applicationPolicy does not allow: Git write
+// access must not skip approval, delete workloads or take over objects.
+func checkApplicationPolicy(repository *corev1alpha1.Repository, configPath string, app *corev1alpha1.Application) error {
+	policy := repository.Spec.ApplicationPolicy
+	for _, rule := range []struct {
+		requested, allowed bool
+		field, allowance   string
+	}{
+		{app.Spec.Sync.Automatic, policy.AllowAutomatic, "spec.sync.automatic", "allowAutomatic"},
+		{app.Spec.Sync.Prune, policy.AllowPrune, "spec.sync.prune", "allowPrune"},
+		{app.Spec.Sync.ConflictPolicy == corev1alpha1.ConflictPolicyAdopt, policy.AllowAdopt, "spec.sync.conflictPolicy adopt", "allowAdopt"},
+		{app.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources, policy.AllowDeleteManagedResources, "spec.deletionPolicy DeleteManagedResources", "allowDeleteManagedResources"},
+	} {
+		if rule.requested && !rule.allowed {
+			return fmt.Errorf("%s application %q sets %s; set spec.applicationPolicy.%s on Repository %q to allow it", configPath, app.Name, rule.field, rule.allowance, repository.Name)
+		}
+	}
+	return nil
 }
 
 func configPaths(repository *corev1alpha1.Repository) ([]string, error) {
