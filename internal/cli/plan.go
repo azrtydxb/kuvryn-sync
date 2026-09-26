@@ -117,8 +117,7 @@ func runInstall(args []string, stdout io.Writer) error {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: ksync install")
 	}
-	_, _ = fmt.Fprintln(stdout, "kubectl apply -f dist/install.yaml")
-	_, _ = fmt.Fprintln(stdout, "# or: kubectl apply -k config/default")
+	_, _ = fmt.Fprint(stdout, renderInstall(version.Version))
 	return nil
 }
 
