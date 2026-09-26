@@ -447,6 +447,16 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if rollout == rolloutInProgress {
 			return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 		}
+		// A rollback whose target is already live changes nothing, but
+		// completing it holds the replaced commit and records the target's
+		// desired state as deployed, so it needs approval like any other.
+		if request.active() && !application.Spec.Sync.Automatic {
+			approval, stale := r.rolloutApproval(application, revision, request, rollout)
+			if approval == nil {
+				return ctrl.Result{}, r.awaitApproval(ctx, application, revision, previousPhase, stale)
+			}
+			revision.Status.Approval = approval
+		}
 		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
@@ -483,47 +493,81 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
-	approval, stale := manualApproval(application, revision, rollout)
-	if approval == nil && !application.Spec.Sync.Automatic {
-		var targetChanged bool
-		approval, targetChanged = rollbackApproval(application, request, revision, rollout)
-		switch {
-		case approval != nil:
-			stale = false
-			if !sameApproval(revision.Status.Approval, approval) {
-				r.event(application, corev1.EventTypeNormal, "RollbackApproved", fmt.Sprintf("Rollback to Revision %s approved by %s, who requested it", revision.Name, approval.ApprovedBy))
-			}
-		case targetChanged:
-			// The requester chose another Revision, or another desired
-			// state of it, than the one planned now: their request does
-			// not approve it.
-			stale = true
-			r.event(application, corev1.EventTypeWarning, "RollbackTargetChanged", fmt.Sprintf("Rollback target changed since it was requested: Revision %s is not the Revision and desired state the requester chose; review it with ksync plan and approve it with ksync sync", revision.Name))
-		}
-	}
+	approval, stale := r.rolloutApproval(application, revision, request, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
-		status.AwaitApproval(revision, application)
-		if previousPhase != corev1alpha1.RevisionPhaseAwaitingApproval {
-			r.notify(ctx, application, revision, corev1alpha1.NotificationAwaitingApproval, "Application plan is awaiting approval")
-		}
-		if err := r.updateRevisionStatus(ctx, revision); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.updateApplicationStatus(ctx, application); err != nil {
-			return ctrl.Result{}, err
-		}
-		if stale {
-			r.event(application, corev1.EventTypeWarning, "ApprovalStale", "Application plan changed after approval; approve the new plan")
-		} else {
-			r.event(application, corev1.EventTypeNormal, "ApprovalRequired", "Application plan is awaiting approval")
-		}
-		log.Info("Planned Application", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.awaitApproval(ctx, application, revision, previousPhase, stale)
 	}
 	if !application.Spec.Sync.Automatic {
 		revision.Status.Approval = approval
 	}
 	return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
+}
+
+// rolloutApproval returns the approval that lets revision deploy on an
+// Application with manual sync, or nil, with stale reporting an approval
+// that no longer covers the plan. While a rollback is requested, the
+// Application's approval annotations count only when given at or after the
+// request, so an older approval cannot deploy the rollback past its chosen
+// Revision, requester and target-hash binding; a failure policy's rollback
+// still deploys on a later ksync sync. A manual request's own approval comes
+// from rollbackApproval.
+func (r *ApplicationReconciler) rolloutApproval(application *corev1alpha1.Application, revision *corev1alpha1.Revision, request rollbackRequest, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, stale bool) {
+	if !request.active() || approvedSinceRequest(application) {
+		approval, stale = manualApproval(application, revision, rollout)
+	}
+	if approval != nil || application.Spec.Sync.Automatic {
+		return approval, stale
+	}
+	approval, targetChanged := rollbackApproval(application, request, revision, rollout)
+	switch {
+	case approval != nil:
+		stale = false
+		if !sameApproval(revision.Status.Approval, approval) {
+			r.event(application, corev1.EventTypeNormal, "RollbackApproved", fmt.Sprintf("Rollback to Revision %s approved by %s, who requested it", revision.Name, approval.ApprovedBy))
+		}
+	case targetChanged:
+		// The requester chose another Revision, or another desired state
+		// of it, than the one planned now: their request does not approve
+		// it.
+		stale = true
+		r.event(application, corev1.EventTypeWarning, "RollbackTargetChanged", fmt.Sprintf("Rollback target changed since it was requested: Revision %s is not the Revision and desired state the requester chose; review it with ksync plan and approve it with ksync sync", revision.Name))
+	}
+	return approval, stale
+}
+
+// approvedSinceRequest reports whether the Application's approval was given
+// at or after its rollback request. A request without a recorded time, from
+// before Kuvryn Sync 0.6.4 or written with webhooks disabled, has nothing to
+// compare with and accepts the approval.
+func approvedSinceRequest(application *corev1alpha1.Application) bool {
+	annotations := application.GetAnnotations()
+	requestedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.RollbackRequestedAtAnnotation])
+	if err != nil {
+		return true
+	}
+	approvedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.ApprovedAtAnnotation])
+	return err == nil && !approvedAt.Before(requestedAt)
+}
+
+// awaitApproval records that revision waits for manual approval.
+func (r *ApplicationReconciler) awaitApproval(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, previousPhase corev1alpha1.RevisionPhase, stale bool) error {
+	status.AwaitApproval(revision, application)
+	if previousPhase != corev1alpha1.RevisionPhaseAwaitingApproval {
+		r.notify(ctx, application, revision, corev1alpha1.NotificationAwaitingApproval, "Application plan is awaiting approval")
+	}
+	if err := r.updateRevisionStatus(ctx, revision); err != nil {
+		return err
+	}
+	if err := r.updateApplicationStatus(ctx, application); err != nil {
+		return err
+	}
+	if stale {
+		r.event(application, corev1.EventTypeWarning, "ApprovalStale", "Application plan changed after approval; approve the new plan")
+	} else {
+		r.event(application, corev1.EventTypeNormal, "ApprovalRequired", "Application plan is awaiting approval")
+	}
+	logf.FromContext(ctx).Info("Planned Application", "application", application.Name, "namespace", application.Namespace, "revision", revision.Spec.Source.Revision, "revisionRecord", revision.Name)
+	return nil
 }
 
 // manualApproval returns the approval recorded for exactly this Revision and

@@ -200,15 +200,18 @@ target, the chosen Revision or the kind changes, and restores them on every
 other change.
 
 `rollback-target-hash` fingerprints the desired state the Revision's last
-completed, Healthy rollout deployed, or that was found already in sync
-(its `status.deployedDesiredStateHash`),
+completed, Healthy rollout deployed, or that Kuvryn Sync found already live
+while reconciling it outside a rollback, or in an approved rollback (its
+`status.deployedDesiredStateHash`),
 together with the Application's `spec.sync` (prune, conflict policy,
 self-heal) and `spec.strategy` at request time. It is not the Revision's
 latest render: `spec.desiredStateHash` follows every render, including drift
 checks that deploy nothing, so values changed after the Revision deployed
-could otherwise be approved. A Revision no completed rollout deployed,
-including one deployed before Kuvryn Sync 0.6.4 recorded that hash, gets no
-`rollback-target-hash`, and a rollback to it waits for `ksync sync`. The
+could otherwise be approved. A Revision with no recorded deployed state gets
+no `rollback-target-hash`, and a rollback to it waits for `ksync sync`: one
+no completed rollout deployed, or one deployed before Kuvryn Sync 0.6.4 that
+has not been reconciled as the live Revision since. A pending rollback never
+records it without approval. The
 field needs the Revision CRD from 0.6.4: re-apply the CRDs when upgrading
 (the Helm chart does not ship them). Until then the API server drops it, and
 every manual rollback waits for `ksync sync`, which `ksync rollback` reports
@@ -235,6 +238,17 @@ differently from what it deployed, for example after a Helm `valuesFrom`
 Secret changed; or when `spec.sync` or `spec.strategy` changed.
 Review the new plan with `ksync plan` and approve it with `ksync sync`; the
 rollback request stays until it completes or is abandoned.
+
+While a rollback is requested on an Application with manual sync, the only
+approvals that deploy it are the manual request's own, as above, and a
+`ksync sync` given at or after the request (`rollback-requested-at`). An
+approval recorded before the request, even of the same plan, does not count,
+so it cannot deploy the rollback past the chosen Revision, requester and
+`rollback-target-hash`. A request without a recorded time, from before 0.6.4
+or written with webhooks disabled, accepts any approval of the current plan.
+A rollback whose target is already live, which changes nothing, still needs
+one of these approvals: completing it holds the replaced commit and records
+the target's desired state as deployed.
 
 Kuvryn Sync approves a rollback target this way only for a manual rollback
 with a recorded requester and chosen Revision. A rollback a failure policy
