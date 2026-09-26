@@ -299,3 +299,29 @@ func TestListItemsAreMatchedByKeyNotOwnedWholesale(t *testing.T) {
 		t.Fatalf("image change = %#v", fields)
 	}
 }
+
+// TestNullDesiredFieldsAreNotChanges fails if a field a manifest sets to null
+// counts as a change against a live object that omits it. The API server drops
+// nulls, and Helm charts render them often (podinfo renders
+// resources.limits: null), so the Application reported Drifted forever.
+func TestNullDesiredFieldsAreNotChanges(t *testing.T) {
+	desired := unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]any{"name": "podinfo", "namespace": "demo"},
+		"spec": map[string]any{"template": map[string]any{"spec": map[string]any{"containers": []any{
+			map[string]any{"name": "podinfo", "image": "podinfo:6.14.0", "resources": map[string]any{"limits": nil, "requests": map[string]any{"cpu": "1m"}}},
+		}}}},
+	}}
+	live := desired.DeepCopy()
+	unstructured.RemoveNestedField(live.Object, "spec", "template", "spec", "containers")
+	_ = unstructured.SetNestedSlice(live.Object, []any{
+		map[string]any{"name": "podinfo", "image": "podinfo:6.14.0", "resources": map[string]any{"requests": map[string]any{"cpu": "1m"}}},
+	}, "spec", "template", "spec", "containers")
+	plan, err := Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{*live})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.Unchanged != 1 || plan.Summary.Update != 0 {
+		t.Fatalf("summary = %#v, changes = %#v; a null desired field is not a change", plan.Summary, plan.Changes)
+	}
+}

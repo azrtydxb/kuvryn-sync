@@ -6,9 +6,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// Object removes expected server-populated fields before diffing.
+// Object removes expected server-populated fields before diffing, and fields
+// set to null: the API server drops them, so a manifest's null means the field
+// is absent, as it is live.
 func Object(obj unstructured.Unstructured) (unstructured.Unstructured, error) {
 	copy := obj.DeepCopy()
+	dropNulls(copy.Object)
 	unstructured.RemoveNestedField(copy.Object, "status")
 	metadata, ok, err := unstructured.NestedMap(copy.Object, "metadata")
 	if err != nil {
@@ -53,4 +56,24 @@ func Equal(a, b unstructured.Unstructured) (bool, error) {
 		return false, err
 	}
 	return string(aj) == string(bj), nil
+}
+
+// dropNulls removes map entries whose value is null, at every depth, including
+// inside maps held in lists. List items that are themselves null are kept,
+// since removing them would shift the indexes of the others.
+func dropNulls(v any) {
+	switch typed := v.(type) {
+	case map[string]any:
+		for k, item := range typed {
+			if item == nil {
+				delete(typed, k)
+				continue
+			}
+			dropNulls(item)
+		}
+	case []any:
+		for _, item := range typed {
+			dropNulls(item)
+		}
+	}
 }
