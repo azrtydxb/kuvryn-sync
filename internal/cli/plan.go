@@ -231,14 +231,7 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		_, _ = fmt.Fprintln(stdout, out)
 		return nil
 	}
-	_, _ = fmt.Fprintln(stdout, "NAME\tPHASE\tREVISION\tAPPROVED BY")
-	for _, rev := range revisions {
-		approvedBy := ""
-		if rev.Status.Approval != nil {
-			approvedBy = rev.Status.Approval.ApprovedBy
-		}
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.Source.Revision, approvedBy)
-	}
+	_, _ = fmt.Fprint(stdout, RenderHistory(revisions))
 	return nil
 }
 
@@ -258,7 +251,7 @@ func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: fs.Arg(0)}, rev); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "NAME\tPHASE\tAPPLICATION\tREVISION\n%s\t%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.ApplicationRef.Name, rev.Spec.Source.Revision)
+	_, _ = fmt.Fprint(stdout, RenderRevision(*rev))
 	return nil
 }
 
