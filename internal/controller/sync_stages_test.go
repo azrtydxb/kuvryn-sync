@@ -267,6 +267,64 @@ var _ = Describe("Sync hooks and waves", func() {
 		Expect(latestRevision().Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
 	})
 
+	// Catches a retry inheriting its failed attempt's start: on kw a Revision
+	// retried 26 minutes after its first attempt timed out the moment it
+	// began observing, which used up maxAttempts and blocked the commit.
+	It("gives a retried rollout its own health timeout", func() {
+		attempts := int32(3)
+		updateApplication(func(app *corev1alpha1.Application) {
+			app.Spec.Sync.SelfHeal = false
+			app.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts
+			app.Spec.Health.Timeout = &metav1.Duration{Duration: 10 * time.Minute}
+		})
+		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")
+		r := newApplicationReconciler([]unstructured.Unstructured{hook, configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		setWidgetConditions(map[string]any{"type": "Stalled", "status": "True", "message": "database locked"})
+		reconcileOnce(r)
+		failed := latestRevision()
+		Expect(failed.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseFailed))
+
+		// The first attempt started an hour ago; skip the retry backoff.
+		longAgo := metav1.NewTime(time.Now().Add(-time.Hour))
+		failed.Status.StartedAt, failed.Status.CompletedAt = &longAgo, &longAgo
+		Expect(k8sClient.Status().Update(ctx, &failed)).To(Succeed())
+		setWidgetConditions(map[string]any{"type": "Reconciling", "status": "True", "message": "migrating"})
+		reconcileOnce(r)
+		retried := latestRevision()
+		Expect(retried.Status.Phase).NotTo(Equal(corev1alpha1.RevisionPhaseFailed), "the retry timed out on its first attempt's clock")
+		Expect(retried.Status.StartedAt).NotTo(BeNil())
+		Expect(retried.Status.StartedAt.Time).To(BeTemporally(">", time.Now().Add(-time.Minute)))
+	})
+
+	// Catches a self-heal repair inheriting its finished rollout's start:
+	// anything still Progressing after the repair timed out at once and
+	// triggered the failure policy.
+	It("gives a self-heal repair its own health timeout", func() {
+		updateApplication(func(app *corev1alpha1.Application) {
+			app.Spec.Health.Timeout = &metav1.Duration{Duration: 10 * time.Minute}
+		})
+		r := newApplicationReconciler([]unstructured.Unstructured{customObject("Widget", "migrate", "v1"), configMapObject("", "desired")}, nil)
+		reconcileOnce(r)
+		setWidgetConditions(map[string]any{"type": "Ready", "status": "True"})
+		reconcileOnce(r)
+		done := latestRevision()
+		Expect(done.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+
+		longAgo := metav1.NewTime(time.Now().Add(-time.Hour))
+		done.Status.StartedAt = &longAgo
+		Expect(k8sClient.Status().Update(ctx, &done)).To(Succeed())
+		drifted := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, configKey, drifted)).To(Succeed())
+		drifted.Data = map[string]string{"value": "changed by hand"}
+		Expect(k8sClient.Update(ctx, drifted)).To(Succeed())
+		setWidgetConditions(map[string]any{"type": "Reconciling", "status": "True", "message": "restarting"})
+		reconcileOnce(r)
+		repaired := latestRevision()
+		Expect(repaired.Status.Phase).NotTo(Equal(corev1alpha1.RevisionPhaseFailed), "the repair timed out on the finished rollout's clock")
+		Expect(repaired.Status.StartedAt.Time).To(BeTemporally(">", time.Now().Add(-time.Minute)))
+	})
+
 	It("finishes a manual multi-group rollout on a single approval", func() {
 		updateApplication(func(app *corev1alpha1.Application) { app.Spec.Sync.Automatic = false })
 		hook := annotate(customObject("Widget", "migrate", "v1"), "sync.kuvryn.io/hook", "pre-sync")

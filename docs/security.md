@@ -102,6 +102,16 @@ is `fail`, which prevents Kuvryn Sync from taking fields owned by another manage
 lists every field and its previous manager, and manual approval, when
 enabled, applies to the takeover like any other change.
 
+Fields held only by `before-first-apply` are taken over under either policy.
+The API server records that manager for the fields an object already had when
+it was first server-side applied without any `managedFields`: an object
+created before Kubernetes 1.18, or one whose `managedFields` were stripped,
+such as by a backup restore. Without this, none of those fields could ever
+change. The plan lists them with policy `adopt`, and apply takes them over only
+when every conflict the API server reports is with that manager. Fields that
+kubectl or Helm set on a newer cluster belong to `kubectl-client-side-apply` or
+`helm`; moving those to Kuvryn Sync still needs `conflictPolicy: adopt`.
+
 ## RBAC and service account impersonation
 
 Kuvryn Sync reads, applies, and prunes an Application's resources as a service
