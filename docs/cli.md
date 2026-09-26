@@ -22,6 +22,14 @@ ksync apps -n default
 ksync applications --namespace default
 ```
 
+The read commands print a table whose columns are aligned with spaces:
+
+```text
+NAME       SYNC              HEALTH   DESIRED       DEPLOYED      SERVICEACCOUNT
+podinfo    AwaitingApproval  Unknown  a30f1c2e9b7d                podinfo-deployer
+guestbook  Synced            Healthy  b939e830aae1  b939e830aae1  guestbook-deployer
+```
+
 List Repositories:
 
 ```sh
@@ -69,6 +77,24 @@ Print the newest Revision plan for an Application:
 ksync plan payments -n default
 ```
 
+The text output names the Revision object, its commit and its phase. A plan
+awaiting approval ends with the exact command that approves it; it passes `-n`
+when you gave one or the namespace is not `default`:
+
+```text
+Application: podinfo
+Revision:    podinfo-b939e830aae1
+Commit:      b939e830aae1c0ffee
+Phase:       AwaitingApproval
+
+0 changed
+2 created
+0 deleted
+0 unchanged
+
+Approve with: ksync sync podinfo -n ksync-demo --revision podinfo-b939e830aae1
+```
+
 Render a plan from a saved Revision object:
 
 ```sh
@@ -82,6 +108,9 @@ Structured output is available:
 ksync plan payments -n default -o json
 ksync plan payments -n default -o yaml
 ```
+
+Structured output has `application`, `revision` (the commit), `revisionName`,
+`phase` and `plan`.
 
 Plan output is bounded and redacted. Secret values and sensitive fields must not
 appear in CLI output.
@@ -231,5 +260,30 @@ Prints the version.
 ksync install
 ```
 
-This prints the raw `kubectl` installation commands. It does not mutate a
-cluster by itself.
+This prints the commands that install the release the binary was built from:
+`kubectl apply` of the release's `install.yaml`, or the Helm chart from a
+checkout of the release tag, with a note on pulling the image when the GHCR
+package is private. It does not change the cluster. For `v0.6.2`:
+
+```text
+Install Kuvryn Sync v0.6.2. cert-manager must be running first.
+
+With the release manifests:
+
+  kubectl apply -f https://github.com/azrtydxb/kuvryn-sync/releases/download/v0.6.2/install.yaml
+
+Or with the Helm chart, from a checkout of the release tag:
+
+  git clone --depth 1 --branch v0.6.2 https://github.com/azrtydxb/kuvryn-sync.git
+  cd kuvryn-sync
+  kubectl apply -f config/crd/bases
+  helm upgrade --install kuvryn-sync charts/kuvryn-sync \
+    --namespace kuvryn-sync-system --create-namespace
+
+The image ghcr.io/azrtydxb/kuvryn-sync:v0.6.2 may be private: create a pull Secret and set
+image.pullSecrets with Helm, or patch the Deployment with the raw manifests.
+See https://github.com/azrtydxb/kuvryn-sync/blob/v0.6.2/docs/install.md
+```
+
+A development build, whose version is `dev` or `sha-<commit>`, has no release
+to install; it says so and points to [Install](install.md).

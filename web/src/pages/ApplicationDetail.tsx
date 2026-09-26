@@ -554,6 +554,15 @@ function HistoryTab({ rows }: { rows: RevisionRow[] | undefined }) {
 function ResourcesTab({ rows }: { rows: ResourceRow[] | undefined }) {
   const { filters, set, clear } = useFilters(RESOURCE_FILTERS);
   if (!rows) return null;
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon="layers"
+        title="No managed resources"
+        description="This Application has not applied any resources yet."
+      />
+    );
+  }
   const shown = filterResources(rows, filters);
   return (
     <>
@@ -586,7 +595,7 @@ function ResourcesTab({ rows }: { rows: ResourceRow[] | undefined }) {
           onChange={(on) => set({ attention: on ? "1" : "" })}
         />
       </FilterBar>
-      {shown.length === 0 && rows.length > 0 ? (
+      {shown.length === 0 ? (
         <NoMatch what="resources" onClear={clear} />
       ) : (
         <div className="az-table-wrap">

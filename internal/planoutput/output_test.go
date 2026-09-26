@@ -26,7 +26,7 @@ func TestWriteTextRedactsSecretsAndMarksDeletes(t *testing.T) {
 			t.Fatalf("output leaked %q: %s", forbidden, text)
 		}
 	}
-	for _, required := range []string{"Application: payments", "Revision:    abc123", "REDACTED", "! DELETE ConfigMap/payments/legacy", "1 deleted"} {
+	for _, required := range []string{"Application: payments", "Commit:      abc123", "REDACTED", "! DELETE ConfigMap/payments/legacy", "1 deleted"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("output missing %q: %s", required, text)
 		}

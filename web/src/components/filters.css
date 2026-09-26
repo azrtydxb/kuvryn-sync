@@ -29,17 +29,29 @@
   color: var(--az-text-2);
 }
 
+/*
+ * Every control in the bar has one height, so the bar's bottom-aligned
+ * fields also line up their labels: a small input or select is otherwise
+ * about 2px taller than a segmented control.
+ */
+.ks-filters .az-input--sm,
+.ks-filters .az-seg {
+  height: var(--az-space-8);
+}
+
 /* Level with the inputs beside it. */
 .ks-filters__switch {
   align-self: flex-end;
   align-items: center;
-  min-height: 36px;
+  min-height: var(--az-space-8);
 }
 
+/* As tall as the controls, so the count is centred beside them. */
 .ks-filters__end {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: var(--az-space-8);
   margin-left: auto;
 }
 

@@ -3,6 +3,7 @@ import type { RepoRow } from "../api/types";
 import {
   FilterBar,
   NoMatch,
+  NothingYet,
   SearchFilter,
   SegmentFilter,
   useFilters,
@@ -37,7 +38,7 @@ export default function Repositories() {
         lead="Git sources resolved to an observed revision. Credentials are Secret references; values are never shown."
       />
       <PollState poll={poll} />
-      {poll.data && (
+      {poll.data && all.length > 0 && (
         <FilterBar
           label="Filter repositories"
           shown={rows.length}
@@ -61,6 +62,13 @@ export default function Repositories() {
             onChange={(state) => set({ state })}
           />
         </FilterBar>
+      )}
+      {poll.data && all.length === 0 && (
+        <NothingYet
+          icon="git-branch"
+          what="repositories"
+          description="Repositories are the Git sources Applications render from, each resolved to a commit."
+        />
       )}
       {poll.data && rows.length === 0 && all.length > 0 && (
         <NoMatch what="repositories" onClear={clear} />

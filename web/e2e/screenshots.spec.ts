@@ -33,6 +33,18 @@ const shots: [string, string, ((page: Page) => Promise<void>)?][] = [
     },
   ],
   ["console-no-match", "/revisions?q=no-such-revision"],
+  [
+    "console-empty",
+    "/imagepolicies",
+    async (page) => {
+      // "finance" exists in hack/console-dev but holds no Kuvryn Sync objects.
+      await page.evaluate(() =>
+        localStorage.setItem("ksync.namespace", "finance"),
+      );
+      await page.reload();
+      await page.getByRole("heading", { name: /^No image policies/ }).waitFor();
+    },
+  ],
 ];
 
 for (const [name, path, act] of shots) {

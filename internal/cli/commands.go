@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"text/tabwriter"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -12,24 +14,53 @@ import (
 	"github.com/azrtydxb/kuvryn-sync/internal/redact"
 )
 
+// renderTable renders a header and rows as columns aligned with spaces, so
+// they line up in a terminal.
+func renderTable(header []string, rows [][]string) string {
+	var b bytes.Buffer
+	w := tabwriter.NewWriter(&b, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, strings.Join(header, "\t"))
+	for _, row := range rows {
+		_, _ = fmt.Fprintln(w, strings.Join(row, "\t"))
+	}
+	_ = w.Flush()
+	return b.String()
+}
+
 // RenderApplications renders core Application read output from CRD objects.
 func RenderApplications(apps []corev1alpha1.Application) string {
-	var b bytes.Buffer
-	_, _ = fmt.Fprintln(&b, "NAME\tSYNC\tHEALTH\tDESIRED\tDEPLOYED\tSERVICEACCOUNT")
+	rows := make([][]string, 0, len(apps))
 	for _, app := range apps {
-		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", app.Name, app.Status.Sync.State, app.Status.Health.State, app.Status.DesiredRevision, app.Status.DeployedRevision, app.Status.ServiceAccountName)
+		rows = append(rows, []string{app.Name, string(app.Status.Sync.State), string(app.Status.Health.State), app.Status.DesiredRevision, app.Status.DeployedRevision, app.Status.ServiceAccountName})
 	}
-	return b.String()
+	return renderTable([]string{"NAME", "SYNC", "HEALTH", "DESIRED", "DEPLOYED", "SERVICEACCOUNT"}, rows)
 }
 
 // RenderRepositories renders core Repository read output from CRD objects.
 func RenderRepositories(repos []corev1alpha1.Repository) string {
-	var b bytes.Buffer
-	_, _ = fmt.Fprintln(&b, "NAME\tTYPE\tSTATE\tREVISION")
+	rows := make([][]string, 0, len(repos))
 	for _, repo := range repos {
-		_, _ = fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", repo.Name, repo.Spec.Type, repo.Status.State, repo.Status.ObservedRevision)
+		rows = append(rows, []string{repo.Name, string(repo.Spec.Type), string(repo.Status.State), repo.Status.ObservedRevision})
 	}
-	return b.String()
+	return renderTable([]string{"NAME", "TYPE", "STATE", "REVISION"}, rows)
+}
+
+// RenderHistory renders an Application's Revisions as the history table.
+func RenderHistory(revisions []corev1alpha1.Revision) string {
+	rows := make([][]string, 0, len(revisions))
+	for _, rev := range revisions {
+		approvedBy := ""
+		if rev.Status.Approval != nil {
+			approvedBy = rev.Status.Approval.ApprovedBy
+		}
+		rows = append(rows, []string{rev.Name, string(rev.Status.Phase), rev.Spec.Source.Revision, approvedBy})
+	}
+	return renderTable([]string{"NAME", "PHASE", "REVISION", "APPROVED BY"}, rows)
+}
+
+// RenderRevision renders one Revision.
+func RenderRevision(rev corev1alpha1.Revision) string {
+	return renderTable([]string{"NAME", "PHASE", "APPLICATION", "REVISION"}, [][]string{{rev.Name, string(rev.Status.Phase), rev.Spec.ApplicationRef.Name, rev.Spec.Source.Revision}})
 }
 
 // HistoryEntry is the audit export of one Revision.

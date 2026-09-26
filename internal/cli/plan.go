@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
@@ -117,8 +118,7 @@ func runInstall(args []string, stdout io.Writer) error {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: ksync install")
 	}
-	_, _ = fmt.Fprintln(stdout, "kubectl apply -f dist/install.yaml")
-	_, _ = fmt.Fprintln(stdout, "# or: kubectl apply -k config/default")
+	_, _ = fmt.Fprint(stdout, renderInstall(version.Version))
 	return nil
 }
 
@@ -231,14 +231,7 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		_, _ = fmt.Fprintln(stdout, out)
 		return nil
 	}
-	_, _ = fmt.Fprintln(stdout, "NAME\tPHASE\tREVISION\tAPPROVED BY")
-	for _, rev := range revisions {
-		approvedBy := ""
-		if rev.Status.Approval != nil {
-			approvedBy = rev.Status.Approval.ApprovedBy
-		}
-		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.Source.Revision, approvedBy)
-	}
+	_, _ = fmt.Fprint(stdout, RenderHistory(revisions))
 	return nil
 }
 
@@ -258,7 +251,7 @@ func runRevision(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err := c.Get(ctx, client.ObjectKey{Namespace: *namespace, Name: fs.Arg(0)}, rev); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "NAME\tPHASE\tAPPLICATION\tREVISION\n%s\t%s\t%s\t%s\n", rev.Name, rev.Status.Phase, rev.Spec.ApplicationRef.Name, rev.Spec.Source.Revision)
+	_, _ = fmt.Fprint(stdout, RenderRevision(*rev))
 	return nil
 }
 
@@ -504,17 +497,60 @@ func runPlan(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err != nil {
 		return err
 	}
-	doc := planoutput.Document{Application: application, Revision: rev.Spec.Source.Revision, Plan: rev.Status.Plan}
-	return planoutput.Write(stdout, doc, *format)
+	doc := planoutput.Document{
+		Application:  application,
+		Revision:     rev.Spec.Source.Revision,
+		RevisionName: rev.Name,
+		Phase:        rev.Status.Phase,
+		Plan:         rev.Status.Plan,
+	}
+	if err := planoutput.Write(stdout, doc, *format); err != nil {
+		return err
+	}
+	text := *format == "" || strings.EqualFold(*format, "text") || strings.EqualFold(*format, "table")
+	if text && rev.Name != "" && rev.Status.Phase == corev1alpha1.RevisionPhaseAwaitingApproval {
+		ns, given := *namespace, flagSet(fs, "n", "namespace")
+		if !given && rev.Namespace != "" {
+			ns = rev.Namespace
+		}
+		_, _ = fmt.Fprintf(stdout, "\nApprove with: %s\n", approveCommand(application, ns, given, rev.Name))
+	}
+	return nil
 }
+
+// approveCommand is the ksync sync command that approves revision. It names
+// the namespace unless it is the default one the CLI assumes without -n.
+func approveCommand(application, namespace string, namespaceGiven bool, revision string) string {
+	command := "ksync sync " + application
+	if namespaceGiven || namespace != defaultNamespace {
+		command += " -n " + namespace
+	}
+	return command + " --revision " + revision
+}
+
+// flagSet reports whether any of the named flags was given.
+func flagSet(fs *flag.FlagSet, names ...string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		for _, name := range names {
+			if f.Name == name {
+				given = true
+			}
+		}
+	})
+	return given
+}
+
+// defaultNamespace is the namespace commands use without -n.
+const defaultNamespace = "default"
 
 // newFlagSet returns the flags of the named command, starting with its
 // -n/--namespace flag.
 func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *string) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	namespace := fs.String("n", "default", "namespace")
-	fs.StringVar(namespace, "namespace", "default", "namespace")
+	namespace := fs.String("n", defaultNamespace, "namespace")
+	fs.StringVar(namespace, "namespace", defaultNamespace, "namespace")
 	return fs, namespace
 }
 
