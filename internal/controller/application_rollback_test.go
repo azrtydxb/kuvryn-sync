@@ -166,6 +166,18 @@ var _ = Describe("Rollbacks", func() {
 			Expect(held.Reason).To(Equal(reason))
 		}
 	}
+	// requestAsWebhook requests a manual rollback to target as `ksync
+	// rollback` does, with the record the admission webhook adds; this suite
+	// runs without it.
+	requestAsWebhook := func(target corev1alpha1.Revision, from, by string, at time.Time) {
+		app := application()
+		setRollbackRequest(app, rollbackRequest{target: target.Spec.Source.Revision, from: from, kind: corev1alpha1.RollbackKindManual})
+		app.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation] = target.Name
+		app.Annotations[corev1alpha1.RollbackRequestedByAnnotation] = by
+		app.Annotations[corev1alpha1.RollbackRequestedAtAnnotation] = at.Format(time.RFC3339)
+		app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] = target.Spec.DesiredStateHash
+		Expect(k8sClient.Update(ctx, app)).To(Succeed())
+	}
 	requestRollback := func(target, from string) {
 		app := application()
 		setRollbackRequest(app, rollbackRequest{target: target, from: from, kind: corev1alpha1.RollbackKindManual})
@@ -266,14 +278,8 @@ var _ = Describe("Rollbacks", func() {
 		reconcileOnce()
 		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
 
-		// The admission webhook records who requested the rollback; this
-		// suite runs without it.
 		requestedAt := time.Now().UTC().Truncate(time.Second)
-		requested := application()
-		setRollbackRequest(requested, rollbackRequest{target: "a-sha", from: "b-sha", kind: corev1alpha1.RollbackKindManual})
-		requested.Annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
-		requested.Annotations[corev1alpha1.RollbackRequestedAtAnnotation] = requestedAt.Format(time.RFC3339)
-		Expect(k8sClient.Update(ctx, requested)).To(Succeed())
+		requestAsWebhook(revisionsOf("a-sha")[0], "b-sha", "alice@example.com", requestedAt)
 		reconcileOnce()
 
 		Expect(deployed()).To(Equal("a-sha"), "the rollback target waited for a separate approval")
@@ -288,6 +294,63 @@ var _ = Describe("Rollbacks", func() {
 		expectHolding("a-sha", "b-sha")
 		expectHeld("b-sha", "ManualRollback")
 	})
+
+	// Catches a manual rollback approving configuration nobody chose: the
+	// controller built the rollback's Revision from the Application's spec
+	// as it is now, so a render, path or values change merged after the
+	// requester picked a known-good Revision was deployed under their name.
+	for _, change := range []struct {
+		name  string
+		apply func()
+	}{
+		{"spec.source.render changes", func() {
+			changed := application()
+			changed.Spec.Source.Render.Type = corev1alpha1.RenderTypeKustomize
+			Expect(k8sClient.Update(ctx, changed)).To(Succeed())
+		}},
+		{"a Helm value changes the target's desired state", func() {
+			// A valuesFrom Secret changes what the same Revision renders.
+			r.Renderers = func(corev1alpha1.RenderType) (renderer.Renderer, error) {
+				return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
+					commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
+					if commit == "a-sha" {
+						commit = "a-sha with new values"
+					}
+					return []unstructured.Unstructured{configMapObject("", commit)}, nil
+				}), nil
+			}
+		}},
+	} {
+		It("does not approve a manual rollback when "+change.name+" while it is pending", func() {
+			recorder := record.NewFakeRecorder(200)
+			r.Recorder = recorder
+			reconcileOnce()
+			source = "b-sha"
+			reconcileOnce()
+			manual := application()
+			manual.Spec.Sync.Automatic = false
+			Expect(k8sClient.Update(ctx, manual)).To(Succeed())
+			reconcileOnce()
+
+			chosen := revisionsOf("a-sha")[0]
+			requestAsWebhook(chosen, "b-sha", "alice@example.com", time.Now().UTC())
+			change.apply()
+			reconcileOnce()
+
+			Expect(deployed()).To(Equal("b-sha"), "a rollback target nobody chose was deployed")
+			Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateAwaitingApproval))
+			for _, rev := range revisionsOf("a-sha") {
+				Expect(rev.Status.Phase).NotTo(Equal(corev1alpha1.RevisionPhaseRolledBack), rev.Name)
+				if rev.Status.Phase == corev1alpha1.RevisionPhaseAwaitingApproval && rev.Status.Approval != nil {
+					Expect(rev.Status.Approval.ApprovedBy).NotTo(Equal("alice@example.com"), "the requester approved a target that changed")
+				}
+			}
+			events := drainEvents(recorder)
+			Expect(events).To(ContainElement(HavePrefix("Warning ApprovalStale")))
+			Expect(events).To(ContainElement(And(HavePrefix("Warning RollbackTargetChanged"), ContainSubstring("ksync sync"))))
+			Expect(events).NotTo(ContainElement(HavePrefix("Normal RollbackApproved")))
+		})
+	}
 
 	// Catches a failure policy's rollback on a manual-approval Application
 	// deploying without approval: only a person's request approves.
@@ -733,7 +796,9 @@ func TestApplicationRevisionsRequireTheApplicationRef(t *testing.T) {
 
 // Catches a rollback approving what nobody requested: a failure policy's
 // rollback, a request without the requester the webhook records, another
-// Revision than the target, or a held one.
+// Revision than the one the requester chose, one whose desired state
+// changed since, or a held one; and a rollout in progress keeping an
+// approval for a desired state that changed.
 func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 	at := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC)
 	app := func(kind string, annotations map[string]string) *corev1alpha1.Application {
@@ -745,8 +810,10 @@ func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 		return a
 	}
 	requester := map[string]string{
-		corev1alpha1.RollbackRequestedByAnnotation: "alice@example.com",
-		corev1alpha1.RollbackRequestedAtAnnotation: at.Format(time.RFC3339),
+		corev1alpha1.RollbackTargetRevisionAnnotation: "payments-a",
+		corev1alpha1.RollbackRequestedByAnnotation:    "alice@example.com",
+		corev1alpha1.RollbackRequestedAtAnnotation:    at.Format(time.RFC3339),
+		corev1alpha1.RollbackTargetHashAnnotation:     "hash",
 	}
 	target := func() *corev1alpha1.Revision {
 		rev := &corev1alpha1.Revision{ObjectMeta: metav1.ObjectMeta{Name: "payments-a"}}
@@ -755,40 +822,58 @@ func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 	}
 
 	manual := app(corev1alpha1.RollbackKindManual, requester)
-	approval := rollbackApproval(manual, rollbackRequestOf(manual), target(), rolloutComplete)
-	if approval == nil || approval.ApprovedBy != "alice@example.com" || !approval.ApprovedAt.Time.Equal(at) || approval.PlanDigest != "digest-now" || approval.DesiredStateHash != "hash" {
-		t.Fatalf("approval = %+v; want alice's, for the current plan", approval)
+	approval, changed := rollbackApproval(manual, rollbackRequestOf(manual), target(), rolloutComplete)
+	if approval == nil || changed || approval.ApprovedBy != "alice@example.com" || !approval.ApprovedAt.Time.Equal(at) || approval.PlanDigest != "digest-now" || approval.DesiredStateHash != "hash" {
+		t.Fatalf("approval = %+v, changed = %v; want alice's, for the current plan", approval, changed)
 	}
 
 	automatic := app(corev1alpha1.RollbackKindAutomatic, requester)
-	other := target()
-	other.Spec.Source.Revision = "b-sha"
 	held := target()
 	held.Status.Conditions = []metav1.Condition{{Type: corev1alpha1.RolledBackCondition, Status: metav1.ConditionTrue, Reason: manualRollbackReason}}
 	unplanned := target()
 	unplanned.Status.Plan.Digest = ""
 	anonymous := app(corev1alpha1.RollbackKindManual, nil)
+	unbound := app(corev1alpha1.RollbackKindManual, map[string]string{
+		corev1alpha1.RollbackRequestedByAnnotation: "alice@example.com",
+		corev1alpha1.RollbackRequestedAtAnnotation: at.Format(time.RFC3339),
+	})
 	for name, tc := range map[string]struct {
 		app *corev1alpha1.Application
 		rev *corev1alpha1.Revision
 	}{
 		"automatic":          {automatic, target()},
 		"no requester":       {anonymous, target()},
-		"another Revision":   {manual, other},
+		"no chosen Revision": {unbound, target()},
 		"a held Revision":    {manual, held},
 		"no plan yet":        {manual, unplanned},
 		"no rollback at all": {&corev1alpha1.Application{}, target()},
 	} {
-		if approval := rollbackApproval(tc.app, rollbackRequestOf(tc.app), tc.rev, rolloutNotStarted); approval != nil {
-			t.Errorf("%s: approved %+v", name, approval)
+		if approval, changed := rollbackApproval(tc.app, rollbackRequestOf(tc.app), tc.rev, rolloutNotStarted); approval != nil || changed {
+			t.Errorf("%s: approved %+v, changed %v", name, approval, changed)
+		}
+	}
+
+	// The spec changed since the request: the controller built another
+	// Revision of the same commit, or the chosen one renders differently.
+	rebuilt := target()
+	rebuilt.Name = "payments-a2"
+	rendersDifferently := target()
+	rendersDifferently.Spec.DesiredStateHash = "hash-after-values-change"
+	for name, rev := range map[string]*corev1alpha1.Revision{"another Revision": rebuilt, "another desired state": rendersDifferently} {
+		if approval, changed := rollbackApproval(manual, rollbackRequestOf(manual), rev, rolloutNotStarted); approval != nil || !changed {
+			t.Errorf("%s: approved %+v, changed %v; want no approval and the target reported changed", name, approval, changed)
 		}
 	}
 
 	// A rollout in progress keeps the approval it acted on, although
-	// applying a group changed the plan.
+	// applying a group changed the plan, but never for a new desired state.
 	inProgress := target()
 	inProgress.Status.Approval = &corev1alpha1.RevisionApproval{ApprovedBy: "alice@example.com", ApprovedAt: metav1.NewTime(at), PlanDigest: "digest-first", DesiredStateHash: "hash"}
-	if approval := rollbackApproval(manual, rollbackRequestOf(manual), inProgress, rolloutInProgress); approval == nil || approval.PlanDigest != "digest-first" {
+	if approval, _ := rollbackApproval(manual, rollbackRequestOf(manual), inProgress, rolloutInProgress); approval == nil || approval.PlanDigest != "digest-first" {
 		t.Fatalf("approval = %+v; want the one the rollout acted on", approval)
+	}
+	inProgress.Spec.DesiredStateHash = "hash-after-values-change"
+	if approval, changed := rollbackApproval(manual, rollbackRequestOf(manual), inProgress, rolloutInProgress); approval != nil || !changed {
+		t.Fatalf("a rollout in progress approved a new desired state: %+v, changed %v", approval, changed)
 	}
 }

@@ -68,6 +68,7 @@ import (
 	yamlrenderer "github.com/azrtydxb/kuvryn-sync/internal/renderer/yaml"
 	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 	"github.com/azrtydxb/kuvryn-sync/internal/retry"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 	"github.com/azrtydxb/kuvryn-sync/internal/rollback"
 	"github.com/azrtydxb/kuvryn-sync/internal/source"
 	gitcache "github.com/azrtydxb/kuvryn-sync/internal/source/git"
@@ -484,11 +485,20 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	approval, stale := manualApproval(application, revision, rollout)
 	if approval == nil && !application.Spec.Sync.Automatic {
-		if approval = rollbackApproval(application, request, revision, rollout); approval != nil {
+		var targetChanged bool
+		approval, targetChanged = rollbackApproval(application, request, revision, rollout)
+		switch {
+		case approval != nil:
 			stale = false
 			if !sameApproval(revision.Status.Approval, approval) {
-				r.event(application, corev1.EventTypeNormal, "RollbackApproved", fmt.Sprintf("Rollback to source revision %s approved by %s, who requested it", request.target, approval.ApprovedBy))
+				r.event(application, corev1.EventTypeNormal, "RollbackApproved", fmt.Sprintf("Rollback to Revision %s approved by %s, who requested it", revision.Name, approval.ApprovedBy))
 			}
+		case targetChanged:
+			// The requester chose another Revision, or another desired
+			// state of it, than the one planned now: their request does
+			// not approve it.
+			stale = true
+			r.event(application, corev1.EventTypeWarning, "RollbackTargetChanged", fmt.Sprintf("Rollback target changed since it was requested: Revision %s is not the Revision and desired state the requester chose; review it with ksync plan and approve it with ksync sync", revision.Name))
 		}
 	}
 	if !application.Spec.Sync.Automatic && approval == nil {
@@ -931,31 +941,10 @@ func desiredStateHash(objects []unstructured.Unstructured) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// revisionIdentity includes the service account because who applies is part
-// of a deployment attempt: switching to an account with the right permissions
-// must start a fresh Revision instead of reusing one blocked by retry limits.
+// revisionIdentity names the Revision of application for a source revision;
+// see revisionid.For.
 func revisionIdentity(application *corev1alpha1.Application, revision, serviceAccount string) (string, string, error) {
-	raw, err := json.Marshal(struct {
-		Application    string                            `json:"application"`
-		Repository     corev1alpha1.LocalObjectReference `json:"repository"`
-		Revision       string                            `json:"revision"`
-		Path           string                            `json:"path"`
-		Render         corev1alpha1.RenderSpec           `json:"render"`
-		ServiceAccount string                            `json:"serviceAccount"`
-	}{
-		Application:    application.Name,
-		Repository:     application.Spec.Source.RepositoryRef,
-		Revision:       revision,
-		Path:           application.Spec.Source.Path,
-		Render:         application.Spec.Source.Render,
-		ServiceAccount: serviceAccount,
-	})
-	if err != nil {
-		return "", "", err
-	}
-	sum := sha256.Sum256(raw)
-	hash := hex.EncodeToString(sum[:])
-	return fmt.Sprintf("%s-%s", application.Name, hash[:12]), hash, nil
+	return revisionid.For(application, revision, serviceAccount)
 }
 
 // markConflictPolicy records on each conflict how apply will treat it, so an

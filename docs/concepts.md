@@ -187,34 +187,55 @@ runs normal reconciliation against the target, with the same validation,
 planning, apply, health, and event behavior as a forward sync.
 
 On an Application with manual sync (`spec.sync.automatic: false`), a manual
-rollback is its own approval: asking to roll back is the decision to deploy
-the target, so no separate `ksync sync` is needed. The admission webhook
-records who asked, from the authenticated request, in
-`sync.kuvryn.io/rollback-requested-by` and `sync.kuvryn.io/rollback-requested-at`;
-it records them again whenever the target or the kind changes, and restores
-them on every other change, so they cannot be forged. Kuvryn Sync re-plans
-the target against the live state and records the approval on the target
-Revision's `status.approval` under that user and time, bound to the digest of
-the plan it applies in the same reconcile, with a `RollbackApproved` Event.
-The approval therefore always matches the applied plan and never goes stale
-between planning and applying. Once the target's rollout starts, the approval
-covers the rest of it, as a manual approval does.
+rollback is its own approval of the Revision you chose: asking to roll back to
+it is the decision to deploy it, so no separate `ksync sync` is needed.
+`ksync rollback` names that Revision object in
+`sync.kuvryn.io/rollback-target-revision`. The admission webhook refuses a
+Revision that does not exist, belongs to another Application or is of another
+commit, and records, from the authenticated request, who asked
+(`sync.kuvryn.io/rollback-requested-by`), when
+(`sync.kuvryn.io/rollback-requested-at`) and the Revision's desired-state hash
+at that moment (`sync.kuvryn.io/rollback-target-hash`). It records them again
+whenever the target, the chosen Revision or the kind changes, and restores
+them on every other change.
 
-Kuvryn Sync approves the target this way only for a manual rollback, only when
-a requester is recorded, and only for the target's own Revision. A rollback a
-failure policy starts on an Application with manual sync waits for
-approval, as before; with webhooks disabled (`ENABLE_WEBHOOKS=false`) no
-requester is recorded, so a rollback waits for approval too. Automatic
-Applications need no approval, so for them nothing changes.
+The approval is bound to that Revision and to its desired state at request
+time. Kuvryn Sync re-plans the target against the live state and approves it
+only if the Revision it builds is the one you chose, with the same desired
+state. It then records the approval on the Revision's `status.approval` under
+your user and request time, for the digest of the plan it applies in that
+reconcile, with a `RollbackApproved` Event. Once the rollout starts, the
+approval covers the rest of it, as a manual approval does, but only while the
+desired state stays the one you chose.
+
+If the target changed after you asked, the request does not approve it, and
+the Revision waits in `AwaitingApproval` with an `ApprovalStale` Event and a
+`RollbackTargetChanged` Warning Event. That happens when the Application's
+`spec.source.path`, `spec.source.render` or service account changed, so Kuvryn
+Sync builds another Revision of the commit, or when the chosen Revision
+renders differently, for example after a Helm `valuesFrom` Secret changed.
+Review the new plan with `ksync plan` and approve it with `ksync sync`; the
+rollback request stays until it completes or is abandoned.
+
+Kuvryn Sync approves a rollback target this way only for a manual rollback
+with a recorded requester and chosen Revision. A rollback a failure policy
+starts on an Application with manual sync waits for approval, and so does a
+request set by hand without `rollback-target-revision`. Automatic Applications
+need no approval, so for them nothing changes.
+
+With webhooks disabled (`ENABLE_WEBHOOKS=false`), nothing verifies these
+annotations: anyone who can update the Application can write
+`rollback-requested-by`, `rollback-target-hash` and the rest by hand, and
+Kuvryn Sync trusts them and deploys the target under the name written there,
+as it trusts forged approval annotations; see
+[Manual approval](operations.md#manual-approval).
 
 Kuvryn Sync takes the approval from the rollback rather than having
-`ksync rollback` wait for the new plan and approve its digest: the
-controller computes the target's plan and applies it in the same reconcile,
-so the recorded digest is exactly the applied plan, while a digest the CLI
-approved could go stale, for example after a failed attempt is retried, and
-would leave the rollback waiting again. A rollback therefore deploys the
-target without showing you its new plan first; the plan it applied stays on
-the Revision, and `ksync history` names who approved it.
+`ksync rollback` wait for the new plan and approve its digest: a digest the
+CLI approved could go stale after a failed attempt is retried and leave the
+rollback waiting again. A rollback therefore deploys the chosen Revision
+without showing you its new plan against the live state first; the plan it
+applied stays on the Revision, and `ksync history` names who approved it.
 
 When the rollback completes, it holds. Every Revision of the source revision
 rolled back from, in any phase, is marked `Failed` with a `RolledBack`

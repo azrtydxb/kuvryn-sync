@@ -6,15 +6,21 @@ _A manual rollback deploys without a separate approval, and the CLI shows
 what the Application wants._
 
 - **Changed:** on an Application with manual sync, `ksync rollback` approves
-  and deploys its target; no `ksync sync` is needed. The rollback target was
-  re-planned against the live state, its new plan digest matched no approval,
-  and it sat in `AwaitingApproval`. The admission webhook now records who
-  requested a rollback in `sync.kuvryn.io/rollback-requested-by` and
-  `rollback-requested-at`, and Kuvryn Sync records that user's approval on the
-  target Revision, bound to the digest of the plan it applies, with a
-  `RollbackApproved` Event. The command's output says so. A failure policy's
-  rollback on an Application with manual sync still waits for approval, and
-  automatic Applications are unchanged.
+  and deploys the Revision it names; no `ksync sync` is needed. The rollback
+  target was re-planned against the live state, its new plan digest matched no
+  approval, and it sat in `AwaitingApproval`. `ksync rollback` now records the
+  chosen Revision in `sync.kuvryn.io/rollback-target-revision`, which the
+  admission webhook checks belongs to the Application and the commit. The
+  webhook records the requester in `rollback-requested-by` and
+  `rollback-requested-at`, and the Revision's desired-state hash in
+  `rollback-target-hash`. Kuvryn Sync approves the target under that user,
+  with a `RollbackApproved` Event, only while it is the chosen Revision with
+  that desired state. If a spec or Helm values change made it another one, the
+  target waits for `ksync sync` with `ApprovalStale` and `RollbackTargetChanged`
+  Events, and the command's output says so when it can tell. A failure
+  policy's rollback on an Application with manual sync still waits for
+  approval, and automatic Applications are unchanged.
+
 - **Changed:** `ksync graph` prints a text tree by default, like `ksync
 diagnose`'s chains: each managed resource, what it leads to with the edge
   type, and missing, unreadable and optional references marked. `-o json`,

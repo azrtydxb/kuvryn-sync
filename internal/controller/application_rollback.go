@@ -75,42 +75,61 @@ func clearRollbackRequest(application *corev1alpha1.Application) {
 	delete(annotations, corev1alpha1.RollbackRevisionAnnotation)
 	delete(annotations, corev1alpha1.RollbackFromAnnotation)
 	delete(annotations, corev1alpha1.RollbackKindAnnotation)
+	delete(annotations, corev1alpha1.RollbackTargetRevisionAnnotation)
 	delete(annotations, corev1alpha1.RollbackRequestedByAnnotation)
 	delete(annotations, corev1alpha1.RollbackRequestedAtAnnotation)
+	delete(annotations, corev1alpha1.RollbackTargetHashAnnotation)
 	application.SetAnnotations(annotations)
 }
 
 // rollbackApproval approves the plan of a manual rollback's target on an
 // Application with manual sync: requesting the rollback is the decision to
-// deploy it. The approval is recorded under the requester the admission
-// webhook stamped on the request, at the time it was admitted, and binds to
-// the digest of the plan this reconcile applies, so it is never stale. A
-// failure policy's rollback, a request without a recorded requester, and a
-// Revision that is not the target are not approved.
+// deploy the Revision the requester chose. The admission webhook records on
+// the request who made it, when, which Revision they chose and that
+// Revision's desired-state hash at the time. The approval is recorded under
+// that requester and time, for the digest of the plan this reconcile
+// applies, and only while revision is the chosen Revision with the desired
+// state it had then. A failure policy's rollback, a request without a
+// recorded requester or chosen Revision, and a held Revision are not
+// approved.
+//
+// changed reports a person's request whose target is no longer what they
+// chose: the spec changed since, so the controller built another Revision
+// of the commit, or the chosen one now renders another desired state, such
+// as after a Helm values change. It must be approved with ksync sync.
 //
 // Applying one group of a rollout changes the plan for the next, so while
 // the rollout is in progress the approval already recorded for this request
-// and desired state stands, as manualApproval keeps it.
-func rollbackApproval(application *corev1alpha1.Application, req rollbackRequest, revision *corev1alpha1.Revision, rollout rolloutState) *corev1alpha1.RevisionApproval {
+// stands, as manualApproval keeps it; the desired state must still be the
+// chosen one.
+func rollbackApproval(application *corev1alpha1.Application, req rollbackRequest, revision *corev1alpha1.Revision, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, changed bool) {
 	if !req.active() || req.automatic() || revision.Spec.Source.Revision != req.target || heldBy(revision) != nil {
-		return nil
+		return nil, false
 	}
 	annotations := application.GetAnnotations()
+	chosen := annotations[corev1alpha1.RollbackTargetRevisionAnnotation]
+	chosenHash := annotations[corev1alpha1.RollbackTargetHashAnnotation]
 	requestedBy := annotations[corev1alpha1.RollbackRequestedByAnnotation]
 	requestedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.RollbackRequestedAtAnnotation])
-	if requestedBy == "" || err != nil || revision.Status.Plan.Digest == "" {
-		return nil
+	if chosen == "" || chosenHash == "" || requestedBy == "" || err != nil {
+		return nil, false
 	}
-	approval := &corev1alpha1.RevisionApproval{
+	if revision.Name != chosen || revision.Spec.DesiredStateHash != chosenHash {
+		return nil, true
+	}
+	if revision.Status.Plan.Digest == "" {
+		return nil, false
+	}
+	approval = &corev1alpha1.RevisionApproval{
 		ApprovedBy: requestedBy, ApprovedAt: metav1.NewTime(requestedAt),
 		PlanDigest: revision.Status.Plan.Digest, DesiredStateHash: revision.Spec.DesiredStateHash,
 	}
 	if recorded := revision.Status.Approval; recorded != nil && rollout == rolloutInProgress &&
 		recorded.ApprovedBy == approval.ApprovedBy && recorded.ApprovedAt.Equal(&approval.ApprovedAt) &&
-		recorded.DesiredStateHash != "" && recorded.DesiredStateHash == approval.DesiredStateHash {
-		return recorded
+		recorded.DesiredStateHash == approval.DesiredStateHash {
+		return recorded, false
 	}
-	return approval
+	return approval, false
 }
 
 // sameApproval reports whether two approvals record the same decision.

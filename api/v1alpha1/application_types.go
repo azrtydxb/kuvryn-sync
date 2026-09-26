@@ -52,15 +52,27 @@ const (
 	RollbackFromAnnotation = "sync.kuvryn.io/rollback-from"
 	// RollbackKindAnnotation is RollbackKindManual or RollbackKindAutomatic.
 	RollbackKindAnnotation = "sync.kuvryn.io/rollback-kind"
+	// RollbackTargetRevisionAnnotation names the Revision object the
+	// requester chose to roll back to. `ksync rollback` sets it; the
+	// admission webhook refuses a Revision that does not exist, belongs to
+	// another Application, or is of another source revision than
+	// RollbackRevisionAnnotation.
+	RollbackTargetRevisionAnnotation = "sync.kuvryn.io/rollback-target-revision"
 	// RollbackRequestedByAnnotation is the authenticated user who requested
 	// the rollback. The admission webhook records it, with
-	// RollbackRequestedAtAnnotation, whenever the target or the kind changes,
-	// and restores both on every other change. On an Application with manual
-	// sync, a manual rollback's requester approves the target's plan.
+	// RollbackRequestedAtAnnotation and RollbackTargetHashAnnotation, whenever
+	// the target, the target Revision or the kind changes, and restores them
+	// on every other change. On an Application with manual sync, a manual
+	// rollback's requester approves the plan of the target Revision they
+	// chose, while its desired state is the one they chose.
 	RollbackRequestedByAnnotation = "sync.kuvryn.io/rollback-requested-by"
 	// RollbackRequestedAtAnnotation is when the rollback request was
 	// admitted, in RFC 3339.
 	RollbackRequestedAtAnnotation = "sync.kuvryn.io/rollback-requested-at"
+	// RollbackTargetHashAnnotation is the desired-state hash the target
+	// Revision had when the rollback was requested, recorded by the admission
+	// webhook.
+	RollbackTargetHashAnnotation = "sync.kuvryn.io/rollback-target-hash"
 	// RollbackKindManual is a rollback a user requested.
 	RollbackKindManual = "manual"
 	// RollbackKindAutomatic is a rollback the failure policy started after a

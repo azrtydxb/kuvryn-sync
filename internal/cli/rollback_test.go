@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 var rollbackEpoch = time.Unix(1000, 0)
@@ -217,56 +218,87 @@ func TestApproveRefusesARolledBackRevision(t *testing.T) {
 
 // Catches `ksync rollback` on a manual-approval Application saying only that
 // it requested a rollback, which left people waiting for a deploy that
-// needed a separate `ksync sync`: the output says the request approves and
-// deploys the target, and under whose name.
-func TestRollbackSaysItApprovesAndDeploysTheTarget(t *testing.T) {
+// needed a separate `ksync sync`, and claiming to deploy the Revision it
+// asked for when the controller would build another one from a changed
+// spec. The request names the Revision chosen, and the output says it
+// approves and deploys that Revision only when the controller will.
+func TestRollbackSaysWhatItApprovesAndDeploys(t *testing.T) {
 	manual := func() *corev1alpha1.Application {
 		app := rollbackApp("b-sha", "b-sha")
 		app.Spec.Sync.Automatic = false
+		app.Spec.Source.Path = "apps/payments"
+		app.Status.ServiceAccountName = "payments-deployer"
 		return app
 	}
-	revisions := []corev1alpha1.Revision{
-		rollbackRevision("payments-a", "a-sha", corev1alpha1.RevisionPhaseHealthy, 0),
-		rollbackRevision("payments-b", "b-sha", corev1alpha1.RevisionPhaseHealthy, 1),
+	// Revisions named as the controller names them for the spec now.
+	built := func(app *corev1alpha1.Application, commit string, phase corev1alpha1.RevisionPhase, minute int) corev1alpha1.Revision {
+		name, _, err := revisionid.For(app, commit, app.Status.ServiceAccountName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev := rollbackRevision(name, commit, phase, minute)
+		rev.Spec.DesiredStateHash = "hash-" + commit
+		return rev
 	}
-	// The admission webhook records the requester; the fake client has none.
+	revisions := func(app *corev1alpha1.Application) []corev1alpha1.Revision {
+		return []corev1alpha1.Revision{built(app, "a-sha", corev1alpha1.RevisionPhaseHealthy, 0), built(app, "b-sha", corev1alpha1.RevisionPhaseHealthy, 1)}
+	}
+	// The admission webhook records the requester and the chosen
+	// Revision's desired state; the fake client has no webhook.
 	stamping := func(c client.Client) client.Client {
 		return interceptor.NewClient(c.(client.WithWatch), interceptor.Funcs{
 			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 				annotations := obj.GetAnnotations()
 				annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+				annotations[corev1alpha1.RollbackTargetHashAnnotation] = "hash-a-sha"
 				obj.SetAnnotations(annotations)
 				return c.Update(ctx, obj, opts...)
 			},
 		})
 	}
-
-	var stdout bytes.Buffer
-	if err := rollback(context.Background(), stamping(rollbackClient(t, manual(), revisions...)), "default", "payments", "", &stdout); err != nil {
-		t.Fatal(err)
+	run := func(c client.Client) string {
+		t.Helper()
+		var stdout bytes.Buffer
+		if err := rollback(context.Background(), c, "default", "payments", "", &stdout); err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String()
 	}
-	want := "rollback requested for payments to payments-a (a-sha)\n" +
-		"the request approves and deploys payments-a as alice@example.com; no ksync sync is needed\n" +
+
+	app := manual()
+	chosen := revisions(app)[0].Name
+	c := stamping(rollbackClient(t, app, revisions(app)...))
+	want := "rollback requested for payments to " + chosen + " (a-sha)\n" +
+		"the request approves and deploys " + chosen + " as alice@example.com while it renders what it did; no ksync sync is needed\n" +
 		"holding b-sha once the rollback completes\n"
-	if stdout.String() != want {
-		t.Fatalf("manual sync output:\n%s\nwant:\n%s", stdout.String(), want)
+	if got := run(c); got != want {
+		t.Fatalf("manual sync output:\n%s\nwant:\n%s", got, want)
 	}
-
-	stdout.Reset()
-	if err := rollback(context.Background(), rollbackClient(t, manual(), revisions...), "default", "payments", "", &stdout); err != nil {
+	requested := &corev1alpha1.Application{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, requested); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "no requester was recorded") || !strings.Contains(stdout.String(), "awaits approval") {
-		t.Fatalf("without a recorded requester the output does not say the target awaits approval:\n%s", stdout.String())
+	if got := requested.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation]; got != chosen {
+		t.Fatalf("rollback-target-revision = %q, want the chosen %s", got, chosen)
+	}
+
+	// The spec changed since the Revisions were built: the rollback plans
+	// another Revision of the commit, which the request does not approve.
+	changed := manual()
+	old := revisions(changed)
+	changed.Spec.Source.Render.Type = corev1alpha1.RenderTypeKustomize
+	got := run(stamping(rollbackClient(t, changed, old...)))
+	if strings.Contains(got, "approves and deploys") || !strings.Contains(got, "spec changed since "+old[0].Name+" was built") || !strings.Contains(got, "ksync sync") {
+		t.Fatalf("a changed spec claims to deploy the chosen Revision:\n%s", got)
+	}
+
+	if got := run(rollbackClient(t, manual(), revisions(manual())...)); !strings.Contains(got, "no requester was recorded") || !strings.Contains(got, "awaits approval") {
+		t.Fatalf("without a recorded requester the output does not say the target awaits approval:\n%s", got)
 	}
 
 	automatic := manual()
 	automatic.Spec.Sync.Automatic = true
-	stdout.Reset()
-	if err := rollback(context.Background(), rollbackClient(t, automatic, revisions...), "default", "payments", "", &stdout); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout.String(), "the request deploys payments-a\n") || strings.Contains(stdout.String(), "approv") {
-		t.Fatalf("automatic sync output:\n%s", stdout.String())
+	if got := run(rollbackClient(t, automatic, revisions(automatic)...)); !strings.Contains(got, "the request deploys "+chosen+"\n") || strings.Contains(got, "approv") {
+		t.Fatalf("automatic sync output:\n%s", got)
 	}
 }

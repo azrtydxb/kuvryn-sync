@@ -13,6 +13,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 	"github.com/azrtydxb/kuvryn-sync/internal/version"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -380,6 +381,7 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackRevisionAnnotation, rev.Spec.Source.Revision)
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackFromAnnotation, from)
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackKindAnnotation, corev1alpha1.RollbackKindManual)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackTargetRevisionAnnotation, rev.Name)
 	if err := c.Update(ctx, app); err != nil {
 		return err
 	}
@@ -387,13 +389,21 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 		_, _ = fmt.Fprintf(stdout, "revision %s was replaced by an earlier rollback; rolling back to it lifts that hold\n", rev.Name)
 	}
 	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
-	// On an Application with manual sync, the request approves the target's
-	// plan under the requester the admission webhook recorded on it.
-	switch requester := app.Annotations[corev1alpha1.RollbackRequestedByAnnotation]; {
+	// On an Application with manual sync, the request approves the chosen
+	// Revision's plan under the requester the admission webhook recorded,
+	// but only if the controller builds that Revision from the spec now.
+	requester := app.Annotations[corev1alpha1.RollbackRequestedByAnnotation]
+	switch {
+	case !rebuildsAs(app, rev):
+		how := "it deploys that Revision"
+		if !app.Spec.Sync.Automatic {
+			how = "that Revision awaits approval: review it with ksync plan " + app.Name + " and approve it with ksync sync"
+		}
+		_, _ = fmt.Fprintf(stdout, "the Application's spec changed since %s was built, so the rollback plans a new Revision of %s from the current spec, and %s\n", rev.Name, rev.Spec.Source.Revision, how)
 	case app.Spec.Sync.Automatic:
 		_, _ = fmt.Fprintf(stdout, "the request deploys %s\n", rev.Name)
-	case requester != "":
-		_, _ = fmt.Fprintf(stdout, "the request approves and deploys %s as %s; no ksync sync is needed\n", rev.Name, requester)
+	case requester != "" && app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] != "":
+		_, _ = fmt.Fprintf(stdout, "the request approves and deploys %s as %s while it renders what it did; no ksync sync is needed\n", rev.Name, requester)
 	default:
 		_, _ = fmt.Fprintf(stdout, "no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s\n", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
 	}
@@ -401,6 +411,22 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 		_, _ = fmt.Fprintf(stdout, "holding %s once the rollback completes\n", from)
 	}
 	return nil
+}
+
+// rebuildsAs reports whether the controller, rolling back to rev's source
+// revision, builds rev itself from app's spec as it is now, rather than a new
+// Revision because the path, render settings or service account changed. An
+// Application whose service account is not known yet is assumed unchanged.
+func rebuildsAs(app *corev1alpha1.Application, rev *corev1alpha1.Revision) bool {
+	serviceAccount := app.Spec.ServiceAccountName
+	if serviceAccount == "" {
+		serviceAccount = app.Status.ServiceAccountName
+	}
+	if serviceAccount == "" {
+		return true
+	}
+	name, _, err := revisionid.For(app, rev.Spec.Source.Revision, serviceAccount)
+	return err != nil || name == rev.Name
 }
 
 // rolledBack reports a Revision a completed rollback replaced.

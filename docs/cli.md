@@ -166,23 +166,29 @@ Request rollback to a specific Revision object:
 ksync rollback payments -n default --revision payments-abc123
 ```
 
-On an Application with manual sync, the rollback is also the approval: the
-command says that it approves and deploys the target, and under whose
-Kubernetes identity, and no `ksync sync` is needed. Kuvryn Sync approves the
-target's plan as it re-plans it against the live state, so the approval
-binds to the plan it applies:
+The command names the Revision object it rolls back to in
+`sync.kuvryn.io/rollback-target-revision`. On an Application with manual sync,
+the rollback is also the approval of that Revision, while it renders the
+desired state it had when you asked: the command says that it approves and
+deploys it, under whose Kubernetes identity, and that no `ksync sync` is
+needed:
 
 ```text
 rollback requested for podinfo to podinfo-b939e830aae1 (a30f1c2e9b7d)
-the request approves and deploys podinfo-b939e830aae1 as system:admin; no ksync sync is needed
+the request approves and deploys podinfo-b939e830aae1 as system:admin while it renders what it did; no ksync sync is needed
 holding dd50c3a1f2e4 once the rollback completes
 ```
 
-With automatic sync the second line is `the request deploys <revision>`. When
-no requester was recorded, as with webhooks disabled, the command says the
-target awaits approval and prints the `ksync sync` command for it. See
-[Rollback](concepts.md#rollback) for why the rollback approves rather than the
-CLI approving a digest.
+If the Application's path, render settings or service account changed since
+that Revision was built, the rollback plans a new Revision of the commit from
+the current spec. The command says so instead, and that the new Revision
+awaits approval with `ksync plan` and `ksync sync`; with automatic sync, it
+says that Revision deploys. If the chosen Revision renders differently when
+Kuvryn Sync re-plans it, for example after a Helm `valuesFrom` change, it also
+waits for `ksync sync`, with a `RollbackTargetChanged` Event. With automatic
+sync the second line is `the request deploys <revision>`. When no requester
+was recorded, the command says the target awaits approval and prints the
+`ksync sync` command for it. See [Rollback](concepts.md#rollback).
 
 The command records the desired revision as the one rolled back from. Once the
 rollback completes, that revision is held: it is not deployed again, even with
