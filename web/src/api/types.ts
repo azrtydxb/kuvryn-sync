@@ -27,7 +27,10 @@ export interface AppRow {
   commit: string;
   sync: string;
   health: string;
+  /** The newest condition transition; kept for compatibility. */
   lastReconcile: string;
+  /** The latest condition transition or newest Revision start or completion. */
+  lastChange: string;
 }
 
 export interface SourceView {

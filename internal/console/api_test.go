@@ -2,12 +2,14 @@ package console
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -349,8 +351,8 @@ func TestConsoleAPITimesOut(t *testing.T) {
 }
 
 func TestViewsShowUnknownForMissingStatus(t *testing.T) {
-	row := appRow(&corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "new", Namespace: "a"}})
-	if row.Sync != "Unknown" || row.Health != "Unknown" || row.Commit != "—" || row.LastReconcile != "—" || row.Repository != "—" || row.Destination != "a" {
+	row := appRow(&corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "new", Namespace: "a"}}, nil)
+	if row.Sync != "Unknown" || row.Health != "Unknown" || row.Commit != "—" || row.LastReconcile != "—" || row.LastChange != "—" || row.Repository != "—" || row.Destination != "a" {
 		t.Fatalf("new Application row = %+v", row)
 	}
 	d := appDetail(&corev1alpha1.Application{}, nil, true)
@@ -416,5 +418,101 @@ func TestInvalidNamesAreBadRequests(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"error":"invalid name"`) {
 			t.Errorf("%s = %d %s, want 400", path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// TestLastChangeFollowsTheNewestRevision fails if an Application's last
+// change is only its newest condition transition: Ready stays True across
+// deploys, so a deploy an hour after Ready last flipped must still show.
+func TestLastChangeFollowsTheNewestRevision(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.New(env.Config, client.Options{Scheme: testScheme()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	ready := metav1.NewTime(now.Add(-9 * time.Hour))
+	started := metav1.NewTime(now.Add(-8 * time.Hour))
+	completed := metav1.NewTime(now.Add(-8*time.Hour + 2*time.Minute))
+	older := metav1.NewTime(now.Add(-30 * time.Hour))
+
+	app := &corev1alpha1.Application{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "clock"},
+		Spec: corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{
+			RepositoryRef: corev1alpha1.LocalObjectReference{Name: "clock-repo"},
+			Path:          "apps/clock",
+			Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+		}},
+	}
+	if err := c.Create(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Delete(ctx, app) })
+	app.Status.Sync.State = corev1alpha1.SyncStateSynced
+	app.Status.Health.State = corev1alpha1.HealthStateHealthy
+	app.Status.Conditions = []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Reconciled", LastTransitionTime: ready}}
+	if err := c.Status().Update(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	for name, times := range map[string][2]metav1.Time{
+		"clock-old": {older, older},
+		"clock-new": {started, completed},
+	} {
+		rev := &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: name, Labels: map[string]string{"sync.kuvryn.io/application": "clock"}},
+			Spec: corev1alpha1.RevisionSpec{
+				ApplicationRef: corev1alpha1.LocalObjectReference{Name: "clock"},
+				Source: corev1alpha1.RevisionSource{
+					RepositoryRef: corev1alpha1.LocalObjectReference{Name: "clock-repo"},
+					Revision:      "fedcba9876543210",
+					Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+				},
+			},
+		}
+		if err := c.Create(ctx, rev); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Delete(ctx, rev) })
+		rev.Status.Phase = corev1alpha1.RevisionPhaseHealthy
+		rev.Status.StartedAt, rev.Status.CompletedAt = &times[0], &times[1]
+		if err := c.Status().Update(ctx, rev); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := completed.UTC().Format(time.RFC3339)
+	srv := newAPIServer(t, env)
+	for _, path := range []string{"/api/applications?namespace=a", "/api/applications/a/clock"} {
+		body := get(t, srv, path).Body.String()
+		var rows []AppRow
+		if strings.HasPrefix(body, "[") {
+			if err := json.Unmarshal([]byte(body), &rows); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			var d AppDetail
+			if err := json.Unmarshal([]byte(body), &d); err != nil {
+				t.Fatal(err)
+			}
+			rows = []AppRow{d.AppRow}
+		}
+		i := slices.IndexFunc(rows, func(r AppRow) bool { return r.Name == "clock" })
+		if i < 0 {
+			t.Fatalf("%s lacks clock: %s", path, body)
+		}
+		if rows[i].LastChange != want {
+			t.Errorf("%s lastChange = %q, want the newest Revision's completion %q", path, rows[i].LastChange, want)
+		}
+		if old := ready.UTC().Format(time.RFC3339); rows[i].LastReconcile != old {
+			t.Errorf("%s lastReconcile = %q, want the condition transition %q", path, rows[i].LastReconcile, old)
+		}
+	}
+	// Web's only Revision has no start or completion: its creation counts.
+	rows := []AppRow{}
+	if err := json.Unmarshal(get(t, srv, "/api/applications?namespace=a").Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(rows, func(r AppRow) bool { return r.Name == "web" }); i < 0 || rows[i].LastChange == dash {
+		t.Errorf("web without conditions but with a Revision has no last change: %+v", rows)
 	}
 }

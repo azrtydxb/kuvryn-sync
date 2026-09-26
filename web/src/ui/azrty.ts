@@ -22,7 +22,9 @@ import { Input as InputJSX } from "../azrty/components/forms/Input.jsx";
 import { Select as SelectJSX } from "../azrty/components/forms/Select.jsx";
 import { Tabs as TabsJSX } from "../azrty/components/navigation/Tabs.jsx";
 import { Topbar as TopbarJSX } from "../azrty/components/navigation/Topbar.jsx";
+import { Tooltip as TooltipJSX } from "../azrty/components/notify/Tooltip.jsx";
 import { PropertyList as PropertyListJSX } from "../azrty/components/panels/Drawer.jsx";
+import { SegmentedControl as SegmentedControlJSX } from "../azrty/components/selection/SegmentedControl.jsx";
 
 interface Styled {
   className?: string;
@@ -167,3 +169,36 @@ export interface PropertyListProps extends Styled {
   items: { label: string; value: ReactNode; mono?: boolean }[];
 }
 export const PropertyList = PropertyListJSX as unknown as FC<PropertyListProps>;
+
+export interface TooltipProps extends Styled {
+  /** The bubble's content; it has role="tooltip". */
+  content: ReactNode;
+  side?: "top" | "bottom";
+  kbd?: string;
+  /** Shows the bubble without hover or focus. */
+  open?: boolean;
+  children?: ReactNode;
+}
+/**
+ * CSS-only: the bubble shows on hover and while focus is inside. It sets no
+ * aria-describedby; components/Tip.tsx adds it and a focusable trigger.
+ */
+export const Tooltip = TooltipJSX as unknown as FC<TooltipProps>;
+
+export interface SegmentedOption {
+  value: string;
+  label: string;
+  icon?: string;
+}
+export interface SegmentedControlProps extends Styled {
+  options: (string | SegmentedOption)[];
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  mono?: boolean;
+  block?: boolean;
+  /** Names the radiogroup. */
+  "aria-label"?: string;
+}
+export const SegmentedControl =
+  SegmentedControlJSX as unknown as FC<SegmentedControlProps>;

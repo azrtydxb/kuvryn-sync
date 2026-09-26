@@ -1,15 +1,25 @@
 import { usePoll } from "../api/client";
 import type { ImagePolicyRow } from "../api/types";
-import { ago, shortDigest } from "../format";
+import {
+  FilterBar,
+  NoMatch,
+  SearchFilter,
+  useFilters,
+} from "../components/Filters";
+import { Ago, Clip, Digest } from "../components/Tip";
+import { filterPolicies, isFiltered, POLICY_FILTERS } from "../filters";
 import { useShell, withNamespace } from "../layout/context";
 import { PageHead, PollState } from "./common";
 
 /** The Image policies page from "Kuvryn Sync Console.dc.html". */
 export default function ImagePolicies() {
   const { namespace } = useShell();
+  const { filters, set, clear } = useFilters(POLICY_FILTERS);
   const poll = usePoll<ImagePolicyRow[]>(
     withNamespace("/api/imagepolicies", namespace),
   );
+  const all = poll.data ?? [];
+  const rows = filterPolicies(all, filters);
   return (
     <>
       <PageHead
@@ -19,6 +29,24 @@ export default function ImagePolicies() {
       />
       <PollState poll={poll} />
       {poll.data && (
+        <FilterBar
+          label="Filter image policies"
+          shown={rows.length}
+          total={all.length}
+          filtered={isFiltered(filters)}
+          onClear={clear}
+        >
+          <SearchFilter
+            label="Search image policies"
+            value={filters.q}
+            onChange={(q) => set({ q }, { replace: true })}
+          />
+        </FilterBar>
+      )}
+      {poll.data && rows.length === 0 && all.length > 0 && (
+        <NoMatch what="image policies" onClear={clear} />
+      )}
+      {poll.data && rows.length > 0 && (
         <div className="az-table-wrap">
           <table className="az-table">
             <thead>
@@ -31,16 +59,22 @@ export default function ImagePolicies() {
               </tr>
             </thead>
             <tbody>
-              {poll.data.map((p) => (
+              {rows.map((p) => (
                 <tr key={p.namespace + "/" + p.name}>
                   <td className="az-table__primary">{p.name}</td>
-                  <td className="az-table__mono">{p.image}</td>
+                  <td className="az-table__mono">
+                    <Clip text={p.image} />
+                  </td>
                   <td className="az-table__mono">{p.rule}</td>
                   <td className="az-table__mono">
                     {p.latest}
-                    <small>{shortDigest(p.digest)}</small>
+                    <small>
+                      <Digest digest={p.digest} />
+                    </small>
                   </td>
-                  <td className="ks-right">{ago(p.lastScan)}</td>
+                  <td className="ks-right">
+                    <Ago iso={p.lastScan} />
+                  </td>
                 </tr>
               ))}
             </tbody>

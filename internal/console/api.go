@@ -122,11 +122,47 @@ func (s *Server) applications(ctx context.Context, r *http.Request, reader clien
 	if err := listIn(ctx, r, reader, &list); err != nil {
 		return nil, err
 	}
+	// One list of Revisions for every row. A viewer without list on
+	// Revisions gets rows that fall back to their condition transitions; any
+	// other failure is a read failure, not a reason to show stale times.
+	var revs corev1alpha1.RevisionList
+	newest := map[string]*corev1alpha1.Revision{}
+	switch err := listIn(ctx, r, reader, &revs); {
+	case err == nil:
+		newest = newestByApplication(revs.Items)
+	case apierrors.IsForbidden(err), errors.Is(err, errNeedNamespace):
+	default:
+		return nil, err
+	}
 	out := make([]AppRow, 0, len(list.Items))
 	for i := range list.Items {
-		out = append(out, appRow(&list.Items[i]))
+		app := &list.Items[i]
+		out = append(out, appRow(app, newest[app.Namespace+"/"+app.Name]))
 	}
 	return out, nil
+}
+
+// belongsTo reports whether rev is one of the named Application's: labelled
+// with its name, or naming it in spec.applicationRef.
+func belongsTo(rev *corev1alpha1.Revision, app string) bool {
+	return rev.Labels[applier.ApplicationLabelKey] == app || rev.Spec.ApplicationRef.Name == app
+}
+
+// newestByApplication maps namespace/name to each Application's newest
+// Revision, by the same rule as revisionsOf.
+func newestByApplication(revs []corev1alpha1.Revision) map[string]*corev1alpha1.Revision {
+	newestFirst(revs)
+	out := map[string]*corev1alpha1.Revision{}
+	for i := range revs {
+		rev := &revs[i]
+		for _, app := range []string{rev.Labels[applier.ApplicationLabelKey], rev.Spec.ApplicationRef.Name} {
+			key := rev.Namespace + "/" + app
+			if _, seen := out[key]; app != "" && !seen {
+				out[key] = rev
+			}
+		}
+	}
+	return out
 }
 
 // getApplication reads the Application the path names. A namespace or name
@@ -150,9 +186,9 @@ func revisionsOf(ctx context.Context, reader client.Reader, app *corev1alpha1.Ap
 		return nil, err
 	}
 	out := []corev1alpha1.Revision{}
-	for _, rev := range list.Items {
-		if rev.Labels[applier.ApplicationLabelKey] == app.Name || rev.Spec.ApplicationRef.Name == app.Name {
-			out = append(out, rev)
+	for i := range list.Items {
+		if belongsTo(&list.Items[i], app.Name) {
+			out = append(out, list.Items[i])
 		}
 	}
 	newestFirst(out)

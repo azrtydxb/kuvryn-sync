@@ -22,7 +22,10 @@ const (
 	stateOutdated = "OutOfSync"
 )
 
-// AppRow is one Application in the list.
+// AppRow is one Application in the list. LastChange is the latest of its
+// condition transitions and its newest Revision's start and completion, and
+// is what the console shows; LastReconcile, the newest condition transition
+// alone, is kept for API compatibility.
 type AppRow struct {
 	Name          string `json:"name"`
 	Namespace     string `json:"namespace"`
@@ -34,6 +37,7 @@ type AppRow struct {
 	Sync          string `json:"sync"`
 	Health        string `json:"health"`
 	LastReconcile string `json:"lastReconcile"`
+	LastChange    string `json:"lastChange"`
 }
 
 // SourceView is an Application's source.
@@ -215,11 +219,13 @@ func timeOrDash(t *metav1.Time) string {
 // text redacts a message for display.
 func text(s string) string { return orDash(redact.String(s)) }
 
-func appRow(app *corev1alpha1.Application) AppRow {
-	var last *metav1.Time
+// appRow is app's list row. newest is its newest Revision, or nil when it
+// has none or the user may not list Revisions.
+func appRow(app *corev1alpha1.Application, newest *corev1alpha1.Revision) AppRow {
+	var transition *metav1.Time
 	for i := range app.Status.Conditions {
-		if t := &app.Status.Conditions[i].LastTransitionTime; last == nil || last.Before(t) {
-			last = t
+		if t := &app.Status.Conditions[i].LastTransitionTime; transition == nil || transition.Before(t) {
+			transition = t
 		}
 	}
 	return AppRow{
@@ -232,13 +238,32 @@ func appRow(app *corev1alpha1.Application) AppRow {
 		Commit:        orDash(app.Status.DeployedRevision),
 		Sync:          orUnknown(string(app.Status.Sync.State)),
 		Health:        orUnknown(string(app.Status.Health.State)),
-		LastReconcile: timeOrDash(last),
+		LastReconcile: timeOrDash(transition),
+		LastChange:    timeOrDash(lastChange(transition, newest)),
 	}
+}
+
+// lastChange is the latest of an Application's newest condition transition
+// and its newest Revision's start and completion. Ready stays True across
+// deploys, so the transition alone goes stale.
+func lastChange(transition *metav1.Time, newest *corev1alpha1.Revision) *metav1.Time {
+	last := transition
+	later := func(t *metav1.Time) {
+		if t != nil && !t.IsZero() && (last == nil || last.Before(t)) {
+			last = t
+		}
+	}
+	if newest != nil {
+		started := metav1.NewTime(startOf(newest))
+		later(&started)
+		later(newest.Status.CompletedAt)
+	}
+	return last
 }
 
 func appDetail(app *corev1alpha1.Application, newest *corev1alpha1.Revision, planVisible bool) AppDetail {
 	d := AppDetail{
-		AppRow:           appRow(app),
+		AppRow:           appRow(app, newest),
 		State:            orUnknown(string(app.Status.State)),
 		DesiredRevision:  orDash(app.Status.DesiredRevision),
 		DeployedRevision: orDash(app.Status.DeployedRevision),

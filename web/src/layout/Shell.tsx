@@ -3,8 +3,10 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getJSON, usePoll } from "../api/client";
 import type { AppRow, Me } from "../api/types";
 import { PRODUCT } from "../brand";
+import { Tip } from "../components/Tip";
 import { clock, DASH } from "../format";
 import { useTheme } from "../theme";
+import { LIVE_TIP, READ_ONLY_TIP } from "../tips";
 import {
   Badge,
   Button,
@@ -81,6 +83,8 @@ export default function Shell() {
     (a) => a.health === "Degraded",
   ).length;
 
+  const themeLabel =
+    theme === "dark" ? "Use the light theme" : "Use the dark theme";
   const active = NAV.find((n) => pathname.startsWith(n.path)) ?? NAV[0];
   const cluster = me?.cluster ?? DASH;
   const crumbs = [cluster, active.label].concat(
@@ -160,9 +164,13 @@ export default function Shell() {
             </div>
             {me?.username && (
               <form method="post" action="/logout" className="ks-shell__user">
-                <span className="ks-shell__username" title={me.username}>
-                  {me.username}
-                </span>
+                <Tip
+                  text={me.username}
+                  align="start"
+                  className="ks-shell__usertip"
+                >
+                  <span className="ks-shell__username">{me.username}</span>
+                </Tip>
                 <Button type="submit" variant="ghost" size="sm" icon="log-out">
                   Sign out
                 </Button>
@@ -171,21 +179,30 @@ export default function Shell() {
           </div>
         </aside>
         <div className="ks-shell__body">
-          <Topbar crumbs={crumbs} live>
+          {/* LIVE is drawn here rather than by Topbar, to carry a tooltip. */}
+          <Topbar crumbs={crumbs} live={false}>
+            <Tip text={LIVE_TIP} side="bottom">
+              <span className="az-live">
+                <span className="az-dot az-dot--pulse" />
+                LIVE
+              </span>
+            </Tip>
             <span className="ks-shell__refreshed">
               {refreshedAt ? "Refreshed " + clock(refreshedAt) : "Loading"}
             </span>
-            <Badge tone="pillar" icon="eye">
-              Read-only
-            </Badge>
-            <IconButton
-              icon={theme === "dark" ? "sun" : "moon"}
-              label={
-                theme === "dark" ? "Use the light theme" : "Use the dark theme"
-              }
-              size={15}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            />
+            <Tip text={READ_ONLY_TIP} side="bottom" align="end">
+              <Badge tone="pillar" icon="eye">
+                Read-only
+              </Badge>
+            </Tip>
+            <Tip text={themeLabel} side="bottom" align="end" asChild>
+              <IconButton
+                icon={theme === "dark" ? "sun" : "moon"}
+                label={themeLabel}
+                size={15}
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              />
+            </Tip>
           </Topbar>
           <main className="ks-shell__main">
             <div className="ks-shell__content">{me ? <Outlet /> : null}</div>
