@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 // authenticated reports whether an admission request carries a real identity.
@@ -127,7 +128,7 @@ func (d *ApplicationCustomDefaulter) recordRollbackRequester(ctx context.Context
 		if revision.Spec.Source.Revision != target {
 			return apierrors.NewBadRequest(fmt.Sprintf("cannot roll back to Revision %q: it is of source revision %q, not %q", chosen, revision.Spec.Source.Revision, target))
 		}
-		hash = revision.Spec.DesiredStateHash
+		hash = revisionid.RollbackBinding(revision, obj)
 	}
 	if target == "" || !authenticated(user) {
 		return nil

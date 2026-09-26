@@ -44,6 +44,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/renderer"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 	"github.com/azrtydxb/kuvryn-sync/internal/source"
 )
 
@@ -175,7 +176,7 @@ var _ = Describe("Rollbacks", func() {
 		app.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation] = target.Name
 		app.Annotations[corev1alpha1.RollbackRequestedByAnnotation] = by
 		app.Annotations[corev1alpha1.RollbackRequestedAtAnnotation] = at.Format(time.RFC3339)
-		app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] = target.Spec.DesiredStateHash
+		app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] = revisionid.RollbackBinding(&target, app)
 		Expect(k8sClient.Update(ctx, app)).To(Succeed())
 	}
 	requestRollback := func(target, from string) {
@@ -351,6 +352,55 @@ var _ = Describe("Rollbacks", func() {
 			Expect(events).NotTo(ContainElement(HavePrefix("Normal RollbackApproved")))
 		})
 	}
+
+	// Catches a rollback approving values nobody deployed: the webhook
+	// recorded the target's latest render, and a drift check had re-rendered
+	// it with values someone set after it was deployed, so the rollback
+	// deployed those values under the requester's name.
+	It("does not approve a rollback to a Revision re-rendered with other values since it deployed", func() {
+		recorder := record.NewFakeRecorder(200)
+		r.Recorder = recorder
+		noSelfHeal := application()
+		noSelfHeal.Spec.Sync.SelfHeal = false
+		Expect(k8sClient.Update(ctx, noSelfHeal)).To(Succeed())
+		reconcileOnce()
+		reconcileOnce()
+		Expect(deployed()).To(Equal("a-sha"))
+		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced))
+		Expect(revisionsOf("a-sha")[0].Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy))
+		deployedHash := revisionsOf("a-sha")[0].Spec.DesiredStateHash
+
+		// Someone who may edit a valuesFrom Secret but not approve changes
+		// what a-sha renders; without selfHeal it only shows as drift.
+		evil := func(corev1alpha1.RenderType) (renderer.Renderer, error) {
+			return renderFunc(func(input renderer.Input) ([]unstructured.Unstructured, error) {
+				commit := strings.TrimPrefix(input.Workspace, "/tmp/kuvryn-sync-workspace-")
+				if commit == "a-sha" {
+					commit = "a-sha with evil values"
+				}
+				return []unstructured.Unstructured{configMapObject("", commit)}, nil
+			}), nil
+		}
+		r.Renderers = evil
+		reconcileOnce()
+		Expect(application().Status.Sync.State).To(Equal(corev1alpha1.SyncStateDrifted))
+		Expect(deployed()).To(Equal("a-sha"))
+		Expect(revisionsOf("a-sha")[0].Spec.DesiredStateHash).NotTo(Equal(deployedHash), "the drift check did not re-render the Revision")
+
+		source = "b-sha"
+		reconcileOnce()
+		Expect(deployed()).To(Equal("b-sha"))
+		manual := application()
+		manual.Spec.Sync.Automatic = false
+		Expect(k8sClient.Update(ctx, manual)).To(Succeed())
+		reconcileOnce()
+
+		requestAsWebhook(revisionsOf("a-sha")[0], "b-sha", "alice@example.com", time.Now().UTC())
+		reconcileOnce()
+
+		Expect(deployed()).To(Equal("b-sha"), "values nobody deployed were rolled out under the requester's name")
+		Expect(drainEvents(recorder)).NotTo(ContainElement(HavePrefix("Normal RollbackApproved")))
+	})
 
 	// Catches a failure policy's rollback on a manual-approval Application
 	// deploying without approval: only a person's request approves.
@@ -813,7 +863,7 @@ func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 		corev1alpha1.RollbackTargetRevisionAnnotation: "payments-a",
 		corev1alpha1.RollbackRequestedByAnnotation:    "alice@example.com",
 		corev1alpha1.RollbackRequestedAtAnnotation:    at.Format(time.RFC3339),
-		corev1alpha1.RollbackTargetHashAnnotation:     "hash",
+		corev1alpha1.RollbackTargetHashAnnotation:     revisionid.Binding("hash", &corev1alpha1.Application{}),
 	}
 	target := func() *corev1alpha1.Revision {
 		rev := &corev1alpha1.Revision{ObjectMeta: metav1.ObjectMeta{Name: "payments-a"}}
@@ -862,6 +912,23 @@ func TestRollbackApprovalNeedsAPersonsRequestForTheTarget(t *testing.T) {
 	for name, rev := range map[string]*corev1alpha1.Revision{"another Revision": rebuilt, "another desired state": rendersDifferently} {
 		if approval, changed := rollbackApproval(manual, rollbackRequestOf(manual), rev, rolloutNotStarted); approval != nil || !changed {
 			t.Errorf("%s: approved %+v, changed %v; want no approval and the target reported changed", name, approval, changed)
+		}
+	}
+
+	// The sync policy or rollout strategy changed since the request: the
+	// requester did not choose to apply the target that way.
+	for name, change := range map[string]func(*corev1alpha1.Application){
+		"prune":          func(a *corev1alpha1.Application) { a.Spec.Sync.Prune = true },
+		"conflictPolicy": func(a *corev1alpha1.Application) { a.Spec.Sync.ConflictPolicy = corev1alpha1.ConflictPolicyAdopt },
+		"selfHeal":       func(a *corev1alpha1.Application) { a.Spec.Sync.SelfHeal = true },
+		"strategy": func(a *corev1alpha1.Application) {
+			a.Spec.Strategy.FailurePolicy.Action = corev1alpha1.FailureActionRollback
+		},
+	} {
+		policy := app(corev1alpha1.RollbackKindManual, requester)
+		change(policy)
+		if approval, changed := rollbackApproval(policy, rollbackRequestOf(policy), target(), rolloutNotStarted); approval != nil || !changed {
+			t.Errorf("%s changed: approved %+v, changed %v; want no approval and the target reported changed", name, approval, changed)
 		}
 	}
 

@@ -30,6 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 // rollbackSourceRetry is how often a rollback whose target cannot be fetched
@@ -115,7 +116,7 @@ func rollbackApproval(application *corev1alpha1.Application, req rollbackRequest
 	if chosen == "" || chosenHash == "" || requestedBy == "" || err != nil {
 		return nil, false
 	}
-	if revision.Name != chosen || revision.Spec.DesiredStateHash != chosenHash {
+	if revision.Name != chosen || revisionid.Binding(revision.Spec.DesiredStateHash, application) != chosenHash {
 		return nil, true
 	}
 	if revision.Status.Plan.Digest == "" {

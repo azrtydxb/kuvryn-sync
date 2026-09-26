@@ -389,9 +389,19 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 		_, _ = fmt.Fprintf(stdout, "revision %s was replaced by an earlier rollback; rolling back to it lifts that hold\n", rev.Name)
 	}
 	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
-	// On an Application with manual sync, the request approves the chosen
-	// Revision's plan under the requester the admission webhook recorded,
-	// but only if the controller builds that Revision from the spec now.
+	_, _ = fmt.Fprintln(stdout, rollbackOutcome(app, rev, namespace))
+	if from != rev.Spec.Source.Revision {
+		_, _ = fmt.Fprintf(stdout, "holding %s once the rollback completes\n", from)
+	}
+	return nil
+}
+
+// rollbackOutcome says what a recorded rollback request to rev does. On an
+// Application with manual sync, the request approves the chosen Revision's
+// plan under the requester the admission webhook recorded, but only if the
+// controller builds that Revision from the spec now and the webhook bound
+// the request to a desired state that Revision deployed.
+func rollbackOutcome(app *corev1alpha1.Application, rev *corev1alpha1.Revision, namespace string) string {
 	requester := app.Annotations[corev1alpha1.RollbackRequestedByAnnotation]
 	switch {
 	case !rebuildsAs(app, rev):
@@ -399,18 +409,16 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 		if !app.Spec.Sync.Automatic {
 			how = "that Revision awaits approval: review it with ksync plan " + app.Name + " and approve it with ksync sync"
 		}
-		_, _ = fmt.Fprintf(stdout, "the Application's spec changed since %s was built, so the rollback plans a new Revision of %s from the current spec, and %s\n", rev.Name, rev.Spec.Source.Revision, how)
+		return fmt.Sprintf("the Application's spec changed since %s was built, so the rollback plans a new Revision of %s from the current spec, and %s", rev.Name, rev.Spec.Source.Revision, how)
 	case app.Spec.Sync.Automatic:
-		_, _ = fmt.Fprintf(stdout, "the request deploys %s\n", rev.Name)
+		return "the request deploys " + rev.Name
 	case requester != "" && app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] != "":
-		_, _ = fmt.Fprintf(stdout, "the request approves and deploys %s as %s while it renders what it did; no ksync sync is needed\n", rev.Name, requester)
+		return fmt.Sprintf("the request approves and deploys %s as %s while it renders what it deployed; no ksync sync is needed", rev.Name, requester)
+	case requester != "":
+		return fmt.Sprintf("%s never deployed in a completed rollout, so the request does not approve it; it awaits approval once planned: %s", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
 	default:
-		_, _ = fmt.Fprintf(stdout, "no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s\n", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
+		return fmt.Sprintf("no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
 	}
-	if from != rev.Spec.Source.Revision {
-		_, _ = fmt.Fprintf(stdout, "holding %s once the rollback completes\n", from)
-	}
-	return nil
 }
 
 // rebuildsAs reports whether the controller, rolling back to rev's source

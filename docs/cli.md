@@ -169,13 +169,14 @@ ksync rollback payments -n default --revision payments-abc123
 The command names the Revision object it rolls back to in
 `sync.kuvryn.io/rollback-target-revision`. On an Application with manual sync,
 the rollback is also the approval of that Revision, while it renders the
-desired state it had when you asked: the command says that it approves and
+desired state its last completed rollout deployed and the sync policy and
+strategy are the ones you asked under: the command says that it approves and
 deploys it, under whose Kubernetes identity, and that no `ksync sync` is
 needed:
 
 ```text
 rollback requested for podinfo to podinfo-b939e830aae1 (a30f1c2e9b7d)
-the request approves and deploys podinfo-b939e830aae1 as system:admin while it renders what it did; no ksync sync is needed
+the request approves and deploys podinfo-b939e830aae1 as system:admin while it renders what it deployed; no ksync sync is needed
 holding dd50c3a1f2e4 once the rollback completes
 ```
 
@@ -183,9 +184,12 @@ If the Application's path, render settings or service account changed since
 that Revision was built, the rollback plans a new Revision of the commit from
 the current spec. The command says so instead, and that the new Revision
 awaits approval with `ksync plan` and `ksync sync`; with automatic sync, it
-says that Revision deploys. If the chosen Revision renders differently when
-Kuvryn Sync re-plans it, for example after a Helm `valuesFrom` change, it also
-waits for `ksync sync`, with a `RollbackTargetChanged` Event. With automatic
+says that Revision deploys. If the chosen Revision renders differently from what it
+deployed when Kuvryn Sync re-plans it, for example after a Helm `valuesFrom`
+change, or `spec.sync` or `spec.strategy` changed after the request, it also
+waits for `ksync sync`, with a `RollbackTargetChanged` Event. A Revision that
+never deployed in a completed rollout is not approved by a rollback; the
+command says so and prints the `ksync sync` command. With automatic
 sync the second line is `the request deploys <revision>`. When no requester
 was recorded, the command says the target awaits approval and prints the
 `ksync sync` command for it. See [Rollback](concepts.md#rollback).

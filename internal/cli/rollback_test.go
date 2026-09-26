@@ -269,7 +269,7 @@ func TestRollbackSaysWhatItApprovesAndDeploys(t *testing.T) {
 	chosen := revisions(app)[0].Name
 	c := stamping(rollbackClient(t, app, revisions(app)...))
 	want := "rollback requested for payments to " + chosen + " (a-sha)\n" +
-		"the request approves and deploys " + chosen + " as alice@example.com while it renders what it did; no ksync sync is needed\n" +
+		"the request approves and deploys " + chosen + " as alice@example.com while it renders what it deployed; no ksync sync is needed\n" +
 		"holding b-sha once the rollback completes\n"
 	if got := run(c); got != want {
 		t.Fatalf("manual sync output:\n%s\nwant:\n%s", got, want)
@@ -290,6 +290,19 @@ func TestRollbackSaysWhatItApprovesAndDeploys(t *testing.T) {
 	got := run(stamping(rollbackClient(t, changed, old...)))
 	if strings.Contains(got, "approves and deploys") || !strings.Contains(got, "spec changed since "+old[0].Name+" was built") || !strings.Contains(got, "ksync sync") {
 		t.Fatalf("a changed spec claims to deploy the chosen Revision:\n%s", got)
+	}
+
+	// A requester but no desired state: the chosen Revision never deployed.
+	undeployed := interceptor.NewClient(rollbackClient(t, manual(), revisions(manual())...).(client.WithWatch), interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			annotations := obj.GetAnnotations()
+			annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+			obj.SetAnnotations(annotations)
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+	if got := run(undeployed); strings.Contains(got, "approves and deploys") || strings.Contains(got, "webhooks") || !strings.Contains(got, "never deployed") || !strings.Contains(got, "ksync sync") {
+		t.Fatalf("a Revision that never deployed:\n%s", got)
 	}
 
 	if got := run(rollbackClient(t, manual(), revisions(manual())...)); !strings.Contains(got, "no requester was recorded") || !strings.Contains(got, "awaits approval") {

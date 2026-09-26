@@ -1725,6 +1725,13 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
+                deployedDesiredStateHash:
+                  description: |-
+                    deployedDesiredStateHash is the desired-state hash this Revision's last
+                    completed, Healthy rollout deployed. spec.desiredStateHash follows every
+                    render, including drift checks that deploy nothing; a manual rollback
+                    to this Revision approves only this desired state.
+                  type: string
                 failure:
                   description:
                     failure records the most recent deterministic failure

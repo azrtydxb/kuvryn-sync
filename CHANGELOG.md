@@ -12,12 +12,16 @@ what the Application wants._
   chosen Revision in `sync.kuvryn.io/rollback-target-revision`, which the
   admission webhook checks belongs to the Application and the commit. The
   webhook records the requester in `rollback-requested-by` and
-  `rollback-requested-at`, and the Revision's desired-state hash in
-  `rollback-target-hash`. Kuvryn Sync approves the target under that user,
-  with a `RollbackApproved` Event, only while it is the chosen Revision with
-  that desired state. If a spec or Helm values change made it another one, the
-  target waits for `ksync sync` with `ApprovalStale` and `RollbackTargetChanged`
-  Events, and the command's output says so when it can tell. A failure
+  `rollback-requested-at`, and in `rollback-target-hash` a fingerprint of the
+  desired state the Revision's last completed rollout deployed, recorded in
+  the new `status.deployedDesiredStateHash`, with the Application's
+  `spec.sync` and `spec.strategy`. Kuvryn Sync approves the target under that
+  user, with a `RollbackApproved` Event, only while it is the chosen Revision
+  rendering that desired state under that sync policy and strategy. If a
+  spec, Helm values or sync policy change made it another one, or the
+  Revision never deployed, the target waits for `ksync sync` with
+  `ApprovalStale` and `RollbackTargetChanged` Events, and the command's output
+  says so when it can tell. A failure
   policy's rollback on an Application with manual sync still waits for
   approval, and automatic Applications are unchanged. With webhooks disabled
   these annotations are not verified, as with approvals; at startup the
@@ -36,6 +40,10 @@ diagnose`'s chains: each managed resource, what it leads to with the edge
   for a Revision no approval covers, such as a rollback target back in
   `AwaitingApproval`, which named the approver of its first rollout. `-o json`
   is unchanged.
+- **Fixed:** Repository discovery drops every rollback request annotation
+  from a `.ksync.yaml` Application, including the target Revision and the
+  requester's record; one carrying `rollback-target-revision` was refused by
+  the admission webhook and never created.
 - **Fixed:** a Revision deployed again, such as a rollback target, counts its
   health timeout from the new rollout, not from its first one.
 

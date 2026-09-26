@@ -1310,6 +1310,9 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 		completedAt = *revision.Status.CompletedAt
 	}
 	status.CompleteHealthy(revision, application, completedAt)
+	// Live state now matches this render, so it is what the Revision
+	// deployed; a manual rollback to it approves only this desired state.
+	revision.Status.DeployedDesiredStateHash = revision.Spec.DesiredStateHash
 	application.Status.Diagnosis = nil
 	setRolloutComplete(revision, true)
 	if request := rollbackRequestOf(application); request.active() {
