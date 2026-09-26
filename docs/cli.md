@@ -233,13 +233,36 @@ claims, volumes and ServiceAccounts they refer to:
 
 ```sh
 ksync graph payments -n default
+ksync graph payments -n default -o json
 ksync graph payments -n default -o dot | dot -Tsvg > payments.svg
 ```
 
-`-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
-Graphviz DOT. A node marked `missing` is referenced but does not exist; one
-marked `unreadable` could not be checked, and `unread` (a comment in DOT)
-lists the lists that failed, such as `could not list Pods: forbidden`. See
+By default it prints a text tree, in the style of `ksync diagnose`'s chains:
+each managed resource, then what it leads to, each line naming the edge
+type:
+
+```text
+payments: 1 managed resource, 4 objects, 1 missing
+Deployment/payments/api
+├─ Owns ReplicaSet/payments/api-7d9f
+│  ├─ Owns Pod/payments/api-7d9f-x2k
+│  │  └─ Uses Secret/payments/db  (missing)
+│  └─ Uses Secret/payments/db  (missing)
+└─ Uses Secret/payments/db  (missing)
+```
+
+An object reached again is marked `shown above` instead of being expanded
+twice, and a managed resource another one leads to is marked `managed`,
+since it has its own tree; references that are optional are marked
+`optional`. Objects no managed resource leads to are listed after the tree,
+under `Not linked to a managed resource`, and failed reads under `Could not
+read`.
+
+`-o json` prints sorted `nodes` and `edges`, as before the text tree became
+the default; `-o dot` prints Graphviz DOT. A node marked `missing` is
+referenced but does not exist; one marked `unreadable` could not be checked,
+and `unread` (a comment in DOT) lists the lists that failed, such as `could
+not list Pods: forbidden`. See
 [Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
 the edges.
 

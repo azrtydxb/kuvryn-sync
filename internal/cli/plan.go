@@ -39,7 +39,7 @@ Read:
                                                  Show the plan of the Revision the
                                                  Application wants deployed
   ksync diagnose <application>                   Explain why an Application is not Healthy
-  ksync graph <application> [-o json|dot]        Print the live resource graph
+  ksync graph <application> [-o text|json|dot]   Print the live resource graph
   ksync drift <application>                      Show sync state (alias of get)
 
 Change:

@@ -27,7 +27,7 @@ Core commands use Kubernetes CRDs directly:
 - `ksync history <application>` lists retained deployment attempts.
 - `ksync diagnose <application>` prints the latest deterministic failure and
   the causal chains in `status.diagnosis`.
-- `ksync graph <application>` prints the live resource graph as JSON or DOT.
+- `ksync graph <application>` prints the live resource graph as a text tree, JSON or DOT.
 - `ksync rollback <application>` requests rollback to the newest known-good
   Revision other than the desired and deployed ones, and holds the revision
   rolled back from.
