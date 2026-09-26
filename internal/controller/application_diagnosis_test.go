@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -207,6 +208,80 @@ var _ = Describe("Application diagnosis", func() {
 			g.Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
 			g.Expect(updated.Status.Diagnosis).To(BeEmpty())
 		}, 20*time.Second, 500*time.Millisecond).Should(Succeed())
+	})
+
+	// Catches an Application reported Healthy for as long as nothing changes
+	// in Git while its workload crash-loops after a healthy rollout.
+	It("reports a workload that stops being available after a healthy rollout", func() {
+		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secret, Namespace: "payments"}})).To(Succeed())
+		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
+		app.Spec.Sync.Automatic = true
+		Expect(k8sClient.Create(ctx, app)).To(Succeed())
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{desired}, nil)
+		recorder := record.NewFakeRecorder(100)
+		reconciler.Recorder = recorder
+
+		By("completing a healthy rollout")
+		reconcileOnce(reconciler)
+		setDeploymentStatus(1, appsv1.DeploymentCondition{Type: appsv1.DeploymentProgressing, Status: corev1.ConditionTrue, Reason: "NewReplicaSetAvailable"})
+		Eventually(func() corev1alpha1.HealthState {
+			return reconcileOnce(reconciler).Status.Health.State
+		}, 20*time.Second, 500*time.Millisecond).Should(Equal(corev1alpha1.HealthStateHealthy))
+		drainEvents(recorder)
+
+		By("crash-looping the Pod that was running")
+		deployment := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "api", Namespace: "payments"}, deployment)).To(Succeed())
+		replicaSet := &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-7d9f", Namespace: "payments", Labels: map[string]string{"app": "api"}},
+			Spec:       appsv1.ReplicaSetSpec{Replicas: ptr.To[int32](1), Selector: deployment.Spec.Selector, Template: deployment.Spec.Template},
+		}
+		Expect(controllerutilSetOwner(deployment, replicaSet)).To(Succeed())
+		Expect(k8sClient.Create(ctx, replicaSet)).To(Succeed())
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-7d9f-x2k", Namespace: "payments", Labels: map[string]string{"app": "api"}},
+			Spec:       deployment.Spec.Template.Spec,
+		}
+		Expect(controllerutilSetOwner(replicaSet, pod)).To(Succeed())
+		Expect(k8sClient.Create(ctx, pod)).To(Succeed())
+		setPodStatus(corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{
+			Name: "api", Image: "nginx", RestartCount: 45,
+			State:                corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff", Message: "back-off 5m0s restarting failed container"}},
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled", ExitCode: 137}},
+		}}})
+		setDeploymentStatus(0,
+			appsv1.DeploymentCondition{Type: appsv1.DeploymentProgressing, Status: corev1.ConditionTrue, Reason: "NewReplicaSetAvailable"},
+			appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionFalse, Reason: "MinimumReplicasUnavailable"})
+
+		updated := reconcileOnce(reconciler)
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateDegraded))
+		Expect(updated.Status.State).To(Equal(corev1alpha1.HealthStateDegraded))
+		Expect(updated.Status.Sync.State).To(Equal(corev1alpha1.SyncStateSynced), "nothing differs from Git")
+		Expect(updated.Status.Diagnosis).To(HaveLen(1))
+		Expect(updated.Status.Diagnosis[0].Reason).To(Equal("CrashLoopBackOff"))
+		Expect(updated.Status.Diagnosis[0].Message).To(ContainSubstring("OOMKilled"))
+		ready := apimeta.FindStatusCondition(updated.Status.Conditions, "Ready")
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+		Expect(ready.Reason).To(Equal("Degraded"))
+		revisions := listApplicationRevisions(ctx, appName).Items
+		Expect(revisions).To(HaveLen(1))
+		Expect(revisions[0].Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy), "the finished rollout stays finished")
+		Expect(drainEvents(recorder)).To(ContainElement(HavePrefix("Warning HealthDegraded")))
+
+		By("staying Degraded without repeating the Event")
+		updated = reconcileOnce(reconciler)
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateDegraded))
+		Expect(drainEvents(recorder)).NotTo(ContainElement(HavePrefix("Warning HealthDegraded")))
+
+		By("recovering once the workload is available again")
+		setPodStatus(corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{
+			Name: "api", Image: "nginx", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		}}})
+		setDeploymentStatus(1, appsv1.DeploymentCondition{Type: appsv1.DeploymentProgressing, Status: corev1.ConditionTrue, Reason: "NewReplicaSetAvailable"})
+		updated = reconcileOnce(reconciler)
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
+		Expect(updated.Status.Diagnosis).To(BeEmpty())
 	})
 })
 

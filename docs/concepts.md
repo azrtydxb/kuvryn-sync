@@ -88,6 +88,15 @@ A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
 expressions. A rollout waits only for Progressing resources, until
 `spec.health.timeout`.
 
+Health keeps being observed after a rollout finishes. When a workload stops
+being available while nothing changes in Git, such as a Pod that crash-loops or
+is OOMKilled, the Application turns Degraded with a
+[diagnosis](#resource-graph-and-diagnosis) and a `HealthDegraded` Event. It
+turns Progressing instead while a resource is only on its way, such as a
+Deployment scaling up, and no cause is evident. It stays Synced, the Revision
+keeps its finished phase, and the failure policy does not act: it covers
+rollouts only. The Application turns Healthy again once every resource is.
+
 ## Resource graph and diagnosis
 
 When a managed resource is not Healthy, Kuvryn Sync builds a graph of the live

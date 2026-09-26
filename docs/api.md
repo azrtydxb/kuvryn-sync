@@ -449,6 +449,7 @@ Kuvryn Sync records Kubernetes Events on its own objects. Messages are redacted.
 | Application | `DeploymentStarted`                         | Normal  | A rollout began applying.                                                                                                       |
 | Application | `DeploymentHealthy`                         | Normal  | Every managed resource is Healthy.                                                                                              |
 | Application | `Diagnosed`                                 | Warning | The root causes in `status.diagnosis` changed, or the Application became Degraded.                                              |
+| Application | `HealthDegraded`                            | Warning | A finished rollout's resource stopped being Healthy while nothing changed in Git.                                               |
 | Application | `RollbackStarted`, `RollbackCompleted`      | both    | A failure triggered rollback, and a manual or automatic rollback finished.                                                      |
 | Application | `RollbackAbandoned`                         | Warning | A rollback's target failed for a reason retrying cannot fix, or used up its `maxAttempts`, so the request was removed.          |
 | Application | `RollbackHoldLifted`                        | Normal  | An explicit rollback to a held Revision lifted its hold.                                                                        |

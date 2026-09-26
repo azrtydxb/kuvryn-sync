@@ -458,6 +458,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			revision.Status.Approval = approval
 		}
 		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
+		// A finished rollout's workloads can stop being available while
+		// nothing changes in Git: report their live health rather than the
+		// health they had when the rollout finished.
+		if rollout == rolloutComplete && !request.active() {
+			if result, unhealthy, err := r.reportSteadyStateHealth(ctx, tenant, application, revision, previousPhase, rendered, previousHealth); unhealthy || err != nil {
+				return result, err
+			}
+		}
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
 		if err := r.completeSuccessfulDeployment(ctx, application, revision, "Application already synced", transition); err != nil {
 			return ctrl.Result{}, err
