@@ -1,0 +1,60 @@
+{
+  "nodes": [
+    {
+      "id": "apps/v1/Deployment/payments/api",
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "namespace": "payments",
+      "name": "api"
+    },
+    {
+      "id": "apps/v1/ReplicaSet/payments/api-1",
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "namespace": "payments",
+      "name": "api-1"
+    },
+    {
+      "id": "v1/Pod/payments/api-1-a",
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "namespace": "payments",
+      "name": "api-1-a"
+    },
+    {
+      "id": "v1/Secret/payments/db",
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "namespace": "payments",
+      "name": "db",
+      "missing": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "apps/v1/Deployment/payments/api",
+      "to": "apps/v1/ReplicaSet/payments/api-1",
+      "type": "Owns"
+    },
+    {
+      "from": "apps/v1/Deployment/payments/api",
+      "to": "v1/Secret/payments/db",
+      "type": "Uses"
+    },
+    {
+      "from": "apps/v1/ReplicaSet/payments/api-1",
+      "to": "v1/Pod/payments/api-1-a",
+      "type": "Owns"
+    },
+    {
+      "from": "apps/v1/ReplicaSet/payments/api-1",
+      "to": "v1/Secret/payments/db",
+      "type": "Uses"
+    },
+    {
+      "from": "v1/Pod/payments/api-1-a",
+      "to": "v1/Secret/payments/db",
+      "type": "Uses"
+    }
+  ]
+}

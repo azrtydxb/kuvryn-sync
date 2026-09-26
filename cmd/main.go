@@ -278,9 +278,13 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "Application")
 			os.Exit(1)
 		}
+		if err := mgr.Add(&controller.RollbackRequestAudit{Reader: mgr.GetAPIReader()}); err != nil {
+			setupLog.Error(err, "Failed to add the rollback request audit")
+			os.Exit(1)
+		}
 	} else {
-		setupLog.Info("Admission webhooks are disabled; manual approval records are not verified and can be forged " +
-			"by anyone who can update an Application")
+		setupLog.Info("Admission webhooks are disabled; manual approval and rollback request records are not verified " +
+			"and can be forged by anyone who can update an Application")
 	}
 	if err := (&controller.ImagePolicyReconciler{
 		Client:   mgr.GetClient(),

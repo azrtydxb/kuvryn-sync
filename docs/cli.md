@@ -50,14 +50,29 @@ ksync get payments -n default
 ksync status payments -n default
 ```
 
-List Application history:
+List Application history, newest first by when each Revision's rollout
+started, or by when it was created before it has:
 
 ```sh
 ksync history payments -n default
 ```
 
-Export the audit trail, oldest first, with approver, plan digest, start and
-completion times, and outcome. Failure messages are redacted:
+```text
+NAME                  PHASE       REVISION      APPROVED BY
+podinfo-b939e830aae1  RolledBack  a30f1c2e9b7d  system:admin
+podinfo-1a77a0f91d12  Failed      dd50c3a1f2e4  system:admin
+```
+
+`APPROVED BY` names who approved the Revision's current plan, and shows `—`
+when no approval covers it: the Revision has none, is `AwaitingApproval`,
+where any approval it still carries was for an earlier plan, or its desired
+state changed since it was approved. The plan digest of a deployed Revision
+moves on as Kuvryn Sync re-plans it against the live state, so the approval
+of the rollout it ran still counts.
+
+Export the audit trail, oldest first by creation, with every recorded
+approver, plan digest, start and completion times, and outcome. Failure
+messages are redacted:
 
 ```sh
 ksync history payments -n default -o json
@@ -71,11 +86,21 @@ ksync revision payments-abc123 -n default
 
 ## Plan output
 
-Print the newest Revision plan for an Application:
+Print the plan of the Revision an Application currently wants deployed:
 
 ```sh
 ksync plan payments -n default
 ```
+
+That is the Revision for its desired state, not the newest one created: the
+target of a pending rollback, from the moment it is requested, which is the
+Revision of the rollback's commit awaiting approval if there is one, else the
+Revision the rollback chose (`sync.kuvryn.io/rollback-target-revision`);
+otherwise the
+Revision of `status.desiredRevision`, such as one awaiting approval; or, while
+a completed rollback holds the desired commit, the rollback target the
+Application keeps running. Among several Revisions of that commit it shows the
+newest one no rollback holds. Without such a Revision it shows the newest one.
 
 The text output names the Revision object, its commit and its phase. A plan
 awaiting approval ends with the exact command that approves it; it passes `-n`
@@ -144,6 +169,38 @@ Request rollback to a specific Revision object:
 ksync rollback payments -n default --revision payments-abc123
 ```
 
+The command names the Revision object it rolls back to in
+`sync.kuvryn.io/rollback-target-revision`. On an Application with manual sync,
+the rollback is also the approval of that Revision, while it renders the
+desired state its last completed rollout deployed and the sync policy and
+strategy are the ones you asked under: the command says that it approves and
+deploys it, under whose Kubernetes identity, and that no `ksync sync` is
+needed:
+
+```text
+rollback requested for podinfo to podinfo-b939e830aae1 (a30f1c2e9b7d)
+the request approves and deploys podinfo-b939e830aae1 as system:admin while it renders what it deployed; no ksync sync is needed
+holding dd50c3a1f2e4 once the rollback completes
+```
+
+If the Application's path, render settings or service account changed since
+that Revision was built, the rollback plans a new Revision of the commit from
+the current spec. The command says so instead, names the new Revision, and
+prints the `ksync plan` and `ksync sync --revision` commands that review and
+approve it, with `-n` outside the `default` namespace; with automatic sync, it
+says that Revision deploys. Running `ksync rollback` again while a request is
+pending keeps that request's record; if `spec.sync` or `spec.strategy`
+changed since, the command says the request no longer approves the target and
+prints the `ksync sync` command. If the chosen Revision renders differently from what it
+deployed when Kuvryn Sync re-plans it, for example after a Helm `valuesFrom`
+change, or `spec.sync` or `spec.strategy` changed after the request, it also
+waits for `ksync sync`, with a `RollbackTargetChanged` Event. A Revision that
+never deployed in a completed rollout is not approved by a rollback; the
+command says so and prints the `ksync sync` command. With automatic
+sync the second line is `the request deploys <revision>`. When no requester
+was recorded, the command says the target awaits approval and prints the
+`ksync sync` command for it. See [Rollback](concepts.md#rollback).
+
 The command records the desired revision as the one rolled back from. Once the
 rollback completes, that revision is held: it is not deployed again, even with
 automatic sync, until a new commit arrives. Rolling back explicitly to a held
@@ -193,13 +250,36 @@ claims, volumes and ServiceAccounts they refer to:
 
 ```sh
 ksync graph payments -n default
+ksync graph payments -n default -o json
 ksync graph payments -n default -o dot | dot -Tsvg > payments.svg
 ```
 
-`-o json` (the default) prints sorted `nodes` and `edges`; `-o dot` prints
-Graphviz DOT. A node marked `missing` is referenced but does not exist; one
-marked `unreadable` could not be checked, and `unread` (a comment in DOT)
-lists the lists that failed, such as `could not list Pods: forbidden`. See
+By default it prints a text tree, in the style of `ksync diagnose`'s chains:
+each managed resource, then what it leads to, each line naming the edge
+type:
+
+```text
+payments: 1 managed resource, 4 objects, 1 missing
+Deployment/payments/api
+├─ Owns ReplicaSet/payments/api-7d9f
+│  ├─ Owns Pod/payments/api-7d9f-x2k
+│  │  └─ Uses Secret/payments/db  (missing)
+│  └─ Uses Secret/payments/db  (missing)
+└─ Uses Secret/payments/db  (missing)
+```
+
+An object reached again is marked `shown above` instead of being expanded
+twice, and a managed resource another one leads to is marked `managed`,
+since it has its own tree; references that are optional are marked
+`optional`. Objects no managed resource leads to are listed after the tree,
+under `Not linked to a managed resource`, and failed reads under `Could not
+read`.
+
+`-o json` prints sorted `nodes` and `edges`, as before the text tree became
+the default; `-o dot` prints Graphviz DOT. A node marked `missing` is
+referenced but does not exist; one marked `unreadable` could not be checked,
+and `unread` (a comment in DOT) lists the lists that failed, such as `could
+not list Pods: forbidden`. See
 [Resource graph and diagnosis](concepts.md#resource-graph-and-diagnosis) for
 the edges.
 

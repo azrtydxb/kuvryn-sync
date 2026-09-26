@@ -75,6 +75,12 @@ type RevisionStatus struct {
 	// through manual approval.
 	// +optional
 	Approval *RevisionApproval `json:"approval,omitempty"`
+	// deployedDesiredStateHash is the desired-state hash this Revision's last
+	// completed, Healthy rollout deployed. spec.desiredStateHash follows every
+	// render, including drift checks that deploy nothing; a manual rollback
+	// to this Revision approves only this desired state.
+	// +optional
+	DeployedDesiredStateHash string `json:"deployedDesiredStateHash,omitempty"`
 	// chartDigest is the sha256 of the Helm chart archive pulled from a chart
 	// repository for this Revision.
 	// +optional

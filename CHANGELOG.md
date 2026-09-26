@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.6.4
+
+_A manual rollback deploys without a separate approval, and the CLI shows
+what the Application wants._
+
+- **Changed:** on an Application with manual sync, `ksync rollback` approves
+  and deploys the Revision it names; no `ksync sync` is needed. The rollback
+  target was re-planned against the live state, its new plan digest matched no
+  approval, and it sat in `AwaitingApproval`. `ksync rollback` now records the
+  chosen Revision in `sync.kuvryn.io/rollback-target-revision`, which the
+  admission webhook checks belongs to the Application and the commit. The
+  webhook records the requester in `rollback-requested-by` and
+  `rollback-requested-at`, and in `rollback-target-hash` a fingerprint of the
+  desired state the Revision's last completed rollout deployed, recorded in
+  the new `status.deployedDesiredStateHash`, with the Application's
+  `spec.sync` and `spec.strategy`. Kuvryn Sync approves the target under that
+  user, with a `RollbackApproved` Event, only while it is the chosen Revision
+  rendering that desired state under that sync policy and strategy. If a
+  spec, Helm values or sync policy change made it another one, or the
+  Revision never deployed, the target waits for `ksync sync` with
+  `ApprovalStale` and `RollbackTargetChanged` Events, and the command's output
+  says so when it can tell, with runnable `ksync plan` and `ksync sync
+--revision` commands. While a rollback is requested on an Application with
+  manual sync, only that approval or a `ksync sync` given at or after the
+  request deploys it, including a rollback whose target is already live; an
+  older approval no longer does. A failure policy's rollback on an
+  Application with manual sync still waits for such a `ksync sync`, and
+  automatic Applications are unchanged. With webhooks disabled
+  these annotations are not verified, as with approvals; at startup the
+  manager logs every pending rollback request with a requester, since one
+  written while webhooks were off survives turning them on. **Upgrade:**
+  re-apply the CRDs (`dist/install.yaml`, or `config/crd/bases` with Helm,
+  which does not ship them); until the Revision CRD has the new status field,
+  no deployed hash is stored and every manual rollback waits for `ksync sync`.
+- **Changed:** `ksync graph` prints a text tree by default, like `ksync
+diagnose`'s chains: each managed resource, what it leads to with the edge
+  type, and missing, unreadable and optional references marked. `-o json`,
+  the previous default, and `-o dot` print exactly what they did.
+- **Fixed:** `ksync plan` shows the Revision the Application wants, such as
+  a pending rollback's target, the Revision the rollback chose, or the
+  Revision awaiting approval, not the newest one created. During a rollback it showed the Revision being rolled
+  back from, with no approval hint. `-f` is unchanged.
+- **Fixed:** `ksync history` lists Revisions newest first, by start and then
+  creation; it printed them in alphabetical order. `APPROVED BY` shows `—`
+  for a Revision no approval covers, such as a rollback target back in
+  `AwaitingApproval`, which named the approver of its first rollout. `-o json`
+  is unchanged.
+- **Fixed:** Repository discovery drops every rollback request annotation
+  from a `.ksync.yaml` Application, including the target Revision and the
+  requester's record; one carrying `rollback-target-revision` was refused by
+  the admission webhook and never created.
+- **Fixed:** a Revision deployed again, such as a rollback target, counts its
+  health timeout from the new rollout, not from its first one.
+
 ## 0.6.3
 
 _Null fields in built-in resources no longer count as drift._

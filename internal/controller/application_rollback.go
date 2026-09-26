@@ -27,8 +27,10 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 // rollbackSourceRetry is how often a rollback whose target cannot be fetched
@@ -75,7 +77,69 @@ func clearRollbackRequest(application *corev1alpha1.Application) {
 	delete(annotations, corev1alpha1.RollbackRevisionAnnotation)
 	delete(annotations, corev1alpha1.RollbackFromAnnotation)
 	delete(annotations, corev1alpha1.RollbackKindAnnotation)
+	delete(annotations, corev1alpha1.RollbackTargetRevisionAnnotation)
+	delete(annotations, corev1alpha1.RollbackRequestedByAnnotation)
+	delete(annotations, corev1alpha1.RollbackRequestedAtAnnotation)
+	delete(annotations, corev1alpha1.RollbackTargetHashAnnotation)
 	application.SetAnnotations(annotations)
+}
+
+// rollbackApproval approves the plan of a manual rollback's target on an
+// Application with manual sync: requesting the rollback is the decision to
+// deploy the Revision the requester chose. The admission webhook records on
+// the request who made it, when, which Revision they chose and that
+// Revision's desired-state hash at the time. The approval is recorded under
+// that requester and time, for the digest of the plan this reconcile
+// applies, and only while revision is the chosen Revision with the desired
+// state it had then. A failure policy's rollback, a request without a
+// recorded requester or chosen Revision, and a held Revision are not
+// approved.
+//
+// changed reports a person's request whose target is no longer what they
+// chose: the spec changed since, so the controller built another Revision
+// of the commit, or the chosen one now renders another desired state, such
+// as after a Helm values change. It must be approved with ksync sync.
+//
+// Applying one group of a rollout changes the plan for the next, so while
+// the rollout is in progress the approval already recorded for this request
+// stands, as manualApproval keeps it; the desired state must still be the
+// chosen one.
+func rollbackApproval(application *corev1alpha1.Application, req rollbackRequest, revision *corev1alpha1.Revision, rollout rolloutState) (approval *corev1alpha1.RevisionApproval, changed bool) {
+	if !req.active() || req.automatic() || revision.Spec.Source.Revision != req.target || heldBy(revision) != nil {
+		return nil, false
+	}
+	annotations := application.GetAnnotations()
+	chosen := annotations[corev1alpha1.RollbackTargetRevisionAnnotation]
+	chosenHash := annotations[corev1alpha1.RollbackTargetHashAnnotation]
+	requestedBy := annotations[corev1alpha1.RollbackRequestedByAnnotation]
+	requestedAt, err := time.Parse(time.RFC3339, annotations[corev1alpha1.RollbackRequestedAtAnnotation])
+	if chosen == "" || chosenHash == "" || requestedBy == "" || err != nil {
+		return nil, false
+	}
+	if revision.Name != chosen || revisionid.Binding(revision.Spec.DesiredStateHash, application) != chosenHash {
+		return nil, true
+	}
+	if revision.Status.Plan.Digest == "" {
+		return nil, false
+	}
+	approval = &corev1alpha1.RevisionApproval{
+		ApprovedBy: requestedBy, ApprovedAt: metav1.NewTime(requestedAt),
+		PlanDigest: revision.Status.Plan.Digest, DesiredStateHash: revision.Spec.DesiredStateHash,
+	}
+	if recorded := revision.Status.Approval; recorded != nil && rollout == rolloutInProgress &&
+		recorded.ApprovedBy == approval.ApprovedBy && recorded.ApprovedAt.Equal(&approval.ApprovedAt) &&
+		recorded.DesiredStateHash == approval.DesiredStateHash {
+		return recorded, false
+	}
+	return approval, false
+}
+
+// sameApproval reports whether two approvals record the same decision.
+func sameApproval(a, b *corev1alpha1.RevisionApproval) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ApprovedBy == b.ApprovedBy && a.ApprovedAt.Equal(&b.ApprovedAt) && a.PlanDigest == b.PlanDigest && a.DesiredStateHash == b.DesiredStateHash
 }
 
 // recordRollbackIntent records a request's source and kind when the request
@@ -246,4 +310,51 @@ func (r *ApplicationReconciler) reportHold(ctx context.Context, application *cor
 	application.Status.Sync.State = corev1alpha1.SyncStateOutOfSync
 	setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(hold.manual))
 	return r.updateApplicationStatus(withHold(ctx, hold), application)
+}
+
+// RollbackRequestAudit logs, once at startup, every Application carrying a
+// pending rollback request with a recorded requester. The admission webhook
+// keeps the record of an unchanged request, so one written by hand while
+// webhooks were disabled survives turning them on again, and on an
+// Application with manual sync it still approves its target. Requests are
+// not ignored by age instead: a legitimate rollback whose rollout spans a
+// manager restart, such as an upgrade, would then lose its approval.
+type RollbackRequestAudit struct {
+	// Reader lists Applications before the cache has started.
+	Reader client.Reader
+}
+
+// Start implements manager.Runnable.
+func (a *RollbackRequestAudit) Start(ctx context.Context) error {
+	log := logf.FromContext(ctx).WithName("rollback-audit")
+	pending, err := pendingRollbackRequests(ctx, a.Reader)
+	if err != nil {
+		log.Error(err, "Could not list Applications for pending rollback requests")
+		return nil
+	}
+	for _, name := range pending {
+		log.Info("Application carries a pending rollback request; if it was recorded while admission webhooks were disabled, its requester was not verified: remove its sync.kuvryn.io/rollback-* annotations and request the rollback again", "application", name)
+	}
+	return nil
+}
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable: every
+// replica warns.
+func (a *RollbackRequestAudit) NeedLeaderElection() bool { return false }
+
+// pendingRollbackRequests names, as namespace/name and sorted, the
+// Applications with a pending rollback request that records a requester.
+func pendingRollbackRequests(ctx context.Context, reader client.Reader) ([]string, error) {
+	var list corev1alpha1.ApplicationList
+	if err := reader.List(ctx, &list); err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, app := range list.Items {
+		if rollbackRequestOf(&app).active() && app.Annotations[corev1alpha1.RollbackRequestedByAnnotation] != "" {
+			out = append(out, app.Namespace+"/"+app.Name)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }

@@ -103,6 +103,8 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 	for _, key := range []string{
 		corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation,
 		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
+		corev1alpha1.RollbackTargetRevisionAnnotation, corev1alpha1.RollbackTargetHashAnnotation,
+		corev1alpha1.RollbackRequestedByAnnotation, corev1alpha1.RollbackRequestedAtAnnotation,
 	} {
 		delete(app.Annotations, key)
 	}

@@ -63,14 +63,24 @@ func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 		corev1alpha1.RollbackRevisionAnnotation: "a-sha",
 		corev1alpha1.RollbackFromAnnotation:     "b-sha",
 		corev1alpha1.RollbackKindAnnotation:     corev1alpha1.RollbackKindManual,
-		"team":                                  "payments",
+		// A request's record would otherwise make the webhook refuse the
+		// Application, or claim a requester Git cannot name.
+		corev1alpha1.RollbackTargetRevisionAnnotation: "payments-abc",
+		corev1alpha1.RollbackTargetHashAnnotation:     "hash",
+		corev1alpha1.RollbackRequestedByAnnotation:    "mallory@example.com",
+		corev1alpha1.RollbackRequestedAtAnnotation:    "2026-09-26T10:00:00Z",
+		"team": "payments",
 	}}}
 	app.Spec.Source.Render.Type = corev1alpha1.RenderTypeYAML
 	normalized, err := normalizeDiscoveredApplication(repository, configFileName, 0, app, map[string]struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation} {
+	for _, key := range []string{
+		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
+		corev1alpha1.RollbackTargetRevisionAnnotation, corev1alpha1.RollbackTargetHashAnnotation,
+		corev1alpha1.RollbackRequestedByAnnotation, corev1alpha1.RollbackRequestedAtAnnotation,
+	} {
 		if _, ok := normalized.Annotations[key]; ok {
 			t.Errorf("discovery kept %s", key)
 		}

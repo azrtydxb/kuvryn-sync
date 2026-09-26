@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,6 +25,8 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/applier"
+	"github.com/azrtydxb/kuvryn-sync/internal/graph"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 )
 
 // graphClient holds an Application whose Deployment runs a Pod that needs a
@@ -323,5 +327,109 @@ func TestHelpListsEveryCommand(t *testing.T) {
 		if !strings.Contains(stdout.String(), "  ksync "+command+" ") {
 			t.Errorf("help does not list %q", command)
 		}
+	}
+}
+
+// Catches ksync graph printing JSON unless asked, which people cannot read
+// at a glance: the default is a tree from the Application's managed
+// resources down, with edge types and missing objects marked.
+func TestGraphPrintsATextTreeByDefault(t *testing.T) {
+	defer func(previous func() (client.Client, error)) { newClient = previous }(newClient)
+	newClient = func() (client.Client, error) { return graphClient(t), nil }
+	var stdout, stderr bytes.Buffer
+	if _, code := Run(context.Background(), []string{"graph", "payments"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	want := `payments: 1 managed resource, 4 objects, 1 missing
+Deployment/payments/api
+├─ Owns ReplicaSet/payments/api-1
+│  ├─ Owns Pod/payments/api-1-a
+│  │  └─ Uses Secret/payments/db  (missing)
+│  └─ Uses Secret/payments/db  (missing)
+└─ Uses Secret/payments/db  (missing)
+`
+	if stdout.String() != want {
+		t.Fatalf("text graph:\n%s\nwant:\n%s", stdout.String(), want)
+	}
+}
+
+// Catches a change to the JSON scripts read: -o json stays byte for byte
+// what it was before the text output became the default.
+func TestGraphJSONIsUnchanged(t *testing.T) {
+	defer func(previous func() (client.Client, error)) { newClient = previous }(newClient)
+	newClient = func() (client.Client, error) { return graphClient(t), nil }
+	var stdout, stderr bytes.Buffer
+	if _, code := Run(context.Background(), []string{"graph", "payments", "-o", "json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	golden, err := os.ReadFile(filepath.Join("testdata", "graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != string(golden) {
+		t.Fatalf("JSON graph changed:\n%s\nwant:\n%s", stdout.String(), golden)
+	}
+}
+
+// Catches a text graph that hides what it could not show: unreadable
+// references, optional ones, objects no managed resource leads to, reads
+// that failed, and a node reached twice expanded twice.
+func TestRenderGraphMarksWhatItCannotShow(t *testing.T) {
+	object := func(kind, name string, labels map[string]string, spec map[string]any) unstructured.Unstructured {
+		obj := unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": kind,
+			"metadata": map[string]any{"name": name, "namespace": "payments"},
+		}}
+		if spec != nil {
+			obj.Object["spec"] = spec
+		}
+		obj.SetLabels(labels)
+		return obj
+	}
+	selecting := func(app string) map[string]any { return map[string]any{"selector": map[string]any{"app": app}} }
+	api := object("Pod", "api", map[string]string{"app": "api"}, map[string]any{
+		"serviceAccountName": "api",
+		"containers": []any{map[string]any{"name": "api", "envFrom": []any{
+			map[string]any{"configMapRef": map[string]any{"name": "flags", "optional": true}},
+		}}},
+	})
+	worker := object("Pod", "worker", map[string]string{"app": "worker"}, map[string]any{"containers": []any{map[string]any{"name": "worker"}}})
+	g := graph.Build([]unstructured.Unstructured{
+		object("Service", "api", nil, selecting("api")),
+		object("Service", "web", nil, selecting("api")),
+		object("Service", "jobs", nil, selecting("worker")),
+		api, worker,
+		object("ConfigMap", "orphan", nil, nil),
+	})
+	g.MarkUnreadable(resource.ID{Version: "v1", Kind: "ServiceAccount", Namespace: "payments", Name: "api"})
+	g.Unread = []string{"could not list EndpointSlices: forbidden"}
+	managed := []resource.ID{
+		{Version: "v1", Kind: "Service", Namespace: "payments", Name: "api"},
+		{Version: "v1", Kind: "Service", Namespace: "payments", Name: "jobs"},
+		{Version: "v1", Kind: "Service", Namespace: "payments", Name: "web"},
+		{Version: "v1", Kind: "Pod", Namespace: "payments", Name: "worker"},
+	}
+	want := `payments: 4 managed resources, 8 objects, 1 missing, 1 unreadable
+Pod/payments/worker
+Service/payments/api
+└─ Selects Pod/payments/api
+   ├─ Uses ConfigMap/payments/flags  (missing, optional)
+   └─ RunsAs ServiceAccount/payments/api  (unreadable)
+Service/payments/jobs
+└─ Selects Pod/payments/worker  (managed)
+Service/payments/web
+└─ Selects Pod/payments/api  (shown above)
+
+Not linked to a managed resource:
+ConfigMap/payments/orphan
+
+Could not read:
+could not list EndpointSlices: forbidden
+`
+	if got := RenderGraph("payments", g, managed); got != want {
+		t.Fatalf("text graph:\n%s\nwant:\n%s", got, want)
+	}
+	if got := RenderGraph("payments", graph.Build(nil), nil); got != "payments: no managed resources found\n" {
+		t.Fatalf("empty graph: %q", got)
 	}
 }

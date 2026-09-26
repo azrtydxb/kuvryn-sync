@@ -11,8 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 var rollbackEpoch = time.Unix(1000, 0)
@@ -211,5 +213,205 @@ func TestApproveRefusesARolledBackRevision(t *testing.T) {
 	err := approve(context.Background(), c, "default", "payments", "payments-b", &stdout)
 	if err == nil || err.Error() != "revision payments-b was replaced by a rollback; push a new commit, delete the Revision, or run ksync rollback --revision payments-b" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Catches `ksync rollback` on a manual-approval Application saying only that
+// it requested a rollback, which left people waiting for a deploy that
+// needed a separate `ksync sync`, and claiming to deploy the Revision it
+// asked for when the controller would build another one from a changed
+// spec. The request names the Revision chosen, and the output says it
+// approves and deploys that Revision only when the controller will.
+func TestRollbackSaysWhatItApprovesAndDeploys(t *testing.T) {
+	manual := func() *corev1alpha1.Application {
+		app := rollbackApp("b-sha", "b-sha")
+		app.Spec.Sync.Automatic = false
+		app.Spec.Source.Path = "apps/payments"
+		app.Status.ServiceAccountName = "payments-deployer"
+		return app
+	}
+	// Revisions named as the controller names them for the spec now.
+	built := func(app *corev1alpha1.Application, commit string, phase corev1alpha1.RevisionPhase, minute int) corev1alpha1.Revision {
+		name, _, err := revisionid.For(app, commit, app.Status.ServiceAccountName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev := rollbackRevision(name, commit, phase, minute)
+		rev.Spec.DesiredStateHash = "hash-" + commit
+		rev.Status.DeployedDesiredStateHash = "hash-" + commit
+		return rev
+	}
+	revisions := func(app *corev1alpha1.Application) []corev1alpha1.Revision {
+		return []corev1alpha1.Revision{built(app, "a-sha", corev1alpha1.RevisionPhaseHealthy, 0), built(app, "b-sha", corev1alpha1.RevisionPhaseHealthy, 1)}
+	}
+	// The admission webhook records the requester and the chosen
+	// Revision's desired state; the fake client has no webhook.
+	stamping := func(c client.Client) client.Client {
+		return interceptor.NewClient(c.(client.WithWatch), interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				annotations := obj.GetAnnotations()
+				annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+				annotations[corev1alpha1.RollbackTargetHashAnnotation] = revisionid.Binding("hash-a-sha", obj.(*corev1alpha1.Application))
+				obj.SetAnnotations(annotations)
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	}
+	run := func(c client.Client) string {
+		t.Helper()
+		var stdout bytes.Buffer
+		if err := rollback(context.Background(), c, "default", "payments", "", &stdout); err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String()
+	}
+
+	app := manual()
+	chosen := revisions(app)[0].Name
+	c := stamping(rollbackClient(t, app, revisions(app)...))
+	want := "rollback requested for payments to " + chosen + " (a-sha)\n" +
+		"the request approves and deploys " + chosen + " as alice@example.com while it renders what it deployed; no ksync sync is needed\n" +
+		"holding b-sha once the rollback completes\n"
+	if got := run(c); got != want {
+		t.Fatalf("manual sync output:\n%s\nwant:\n%s", got, want)
+	}
+	requested := &corev1alpha1.Application{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, requested); err != nil {
+		t.Fatal(err)
+	}
+	if got := requested.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation]; got != chosen {
+		t.Fatalf("rollback-target-revision = %q, want the chosen %s", got, chosen)
+	}
+
+	// The spec changed since the Revisions were built: the rollback plans
+	// another Revision of the commit, which the request does not approve.
+	changed := manual()
+	old := revisions(changed)
+	changed.Spec.Source.Render.Type = corev1alpha1.RenderTypeKustomize
+	got := run(stamping(rollbackClient(t, changed, old...)))
+	if strings.Contains(got, "approves and deploys") || !strings.Contains(got, "spec changed since "+old[0].Name+" was built") || !strings.Contains(got, "ksync sync") {
+		t.Fatalf("a changed spec claims to deploy the chosen Revision:\n%s", got)
+	}
+
+	// A requester but no desired state: the chosen Revision never deployed.
+	undeployed := interceptor.NewClient(rollbackClient(t, manual(), revisions(manual())...).(client.WithWatch), interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			annotations := obj.GetAnnotations()
+			annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+			obj.SetAnnotations(annotations)
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+	if got := run(undeployed); strings.Contains(got, "approves and deploys") || strings.Contains(got, "webhooks") || !strings.Contains(got, "never deployed") || !strings.Contains(got, "ksync sync") {
+		t.Fatalf("a Revision that never deployed:\n%s", got)
+	}
+
+	if got := run(rollbackClient(t, manual(), revisions(manual())...)); !strings.Contains(got, "no requester was recorded") || !strings.Contains(got, "awaits approval") {
+		t.Fatalf("without a recorded requester the output does not say the target awaits approval:\n%s", got)
+	}
+
+	automatic := manual()
+	automatic.Spec.Sync.Automatic = true
+	if got := run(rollbackClient(t, automatic, revisions(automatic)...)); !strings.Contains(got, "the request deploys "+chosen+"\n") || strings.Contains(got, "approv") {
+		t.Fatalf("automatic sync output:\n%s", got)
+	}
+}
+
+// rollbackFixture holds a manual-sync Application in namespace with two
+// Healthy Revisions named as the controller names them, and a client whose
+// updates carry the record the admission webhook would add, bound to the
+// Application as bound.
+func rollbackFixture(t *testing.T, namespace string, bound func(*corev1alpha1.Application)) (*corev1alpha1.Application, []corev1alpha1.Revision, func(*corev1alpha1.Application) client.Client) {
+	t.Helper()
+	app := rollbackApp("b-sha", "b-sha")
+	app.Namespace = namespace
+	app.Spec.Sync.Automatic = false
+	app.Spec.Source.Path = "apps/payments"
+	app.Status.ServiceAccountName = "payments-deployer"
+	revisions := make([]corev1alpha1.Revision, 0, 2)
+	for i, commit := range []string{"a-sha", "b-sha"} {
+		name, _, err := revisionid.For(app, commit, app.Status.ServiceAccountName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev := rollbackRevision(name, commit, corev1alpha1.RevisionPhaseHealthy, i)
+		rev.Namespace = namespace
+		rev.Spec.DesiredStateHash = "hash-" + commit
+		rev.Status.DeployedDesiredStateHash = "hash-" + commit
+		revisions = append(revisions, rev)
+	}
+	build := func(current *corev1alpha1.Application) client.Client {
+		return interceptor.NewClient(rollbackClient(t, current, revisions...).(client.WithWatch), interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				requested := obj.(*corev1alpha1.Application).DeepCopy()
+				if bound != nil {
+					bound(requested)
+				}
+				annotations := obj.GetAnnotations()
+				annotations[corev1alpha1.RollbackRequestedByAnnotation] = "alice@example.com"
+				annotations[corev1alpha1.RollbackTargetHashAnnotation] = revisionid.Binding("hash-a-sha", requested)
+				obj.SetAnnotations(annotations)
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	}
+	return app, revisions, build
+}
+
+// Catches the changed-spec message printing commands that do not run: it
+// left out -n for a namespace other than default and --revision, which
+// ksync sync requires.
+func TestRollbackAfterASpecChangePrintsRunnableCommands(t *testing.T) {
+	for _, namespace := range []string{"ksync-demo", "default"} {
+		app, _, build := rollbackFixture(t, namespace, nil)
+		app.Spec.Source.Render.Type = corev1alpha1.RenderTypeKustomize
+		rebuilt, _, err := revisionid.For(app, "a-sha", app.Status.ServiceAccountName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stdout bytes.Buffer
+		if err := rollback(context.Background(), build(app), namespace, "payments", "", &stdout); err != nil {
+			t.Fatal(err)
+		}
+		flag := ""
+		if namespace != "default" {
+			flag = " -n " + namespace
+		}
+		for _, want := range []string{
+			"ksync plan payments" + flag + "\n",
+			"ksync sync payments" + flag + " --revision " + rebuilt,
+		} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("%s: output lacks %q:\n%s", namespace, want, stdout.String())
+			}
+		}
+	}
+}
+
+// Catches ksync rollback claiming a pending request approves its target
+// after spec.sync or spec.strategy changed: the webhook keeps the request's
+// record, bound to the policy it was made under, and the controller then
+// refuses it.
+func TestRollbackReportsARequestBoundToAnEarlierSyncPolicy(t *testing.T) {
+	// The request was recorded while the Application did not prune.
+	app, revisions, build := rollbackFixture(t, "default", func(a *corev1alpha1.Application) { a.Spec.Sync.Prune = false })
+	app.Spec.Sync.Prune = true
+	var stdout bytes.Buffer
+	if err := rollback(context.Background(), build(app), "default", "payments", "", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	got := stdout.String()
+	if strings.Contains(got, "approves and deploys") || !strings.Contains(got, "spec.sync or spec.strategy") || !strings.Contains(got, "ksync sync payments --revision "+revisions[0].Name) {
+		t.Fatalf("a request bound to an earlier sync policy:\n%s", got)
+	}
+
+	// Recorded under the policy the Application has, the request approves.
+	app, revisions, build = rollbackFixture(t, "default", nil)
+	stdout.Reset()
+	if err := rollback(context.Background(), build(app), "default", "payments", "", &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "the request approves and deploys "+revisions[0].Name) {
+		t.Fatalf("a current request:\n%s", stdout.String())
 	}
 }

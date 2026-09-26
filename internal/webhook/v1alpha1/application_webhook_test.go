@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 )
 
 var _ = Describe("Application approval webhook", Ordered, func() {
@@ -211,6 +212,245 @@ var _ = Describe("Application approval webhook", Ordered, func() {
 		Expect(stored.GetAnnotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedDigestAnnotation, "digest-created"))
 		Expect(stored.GetAnnotations()).To(HaveKeyWithValue(corev1alpha1.ApprovedByAnnotation, "alice@example.com"))
 		Expect(stored.GetAnnotations()).NotTo(HaveKey(corev1alpha1.ApproveDigestAnnotation))
+	})
+})
+
+var _ = Describe("Application rollback request webhook", Ordered, func() {
+	const appName = "rollback-request-app"
+	var alice, bob client.Client
+	key := client.ObjectKey{Name: appName, Namespace: "default"}
+
+	BeforeAll(func() {
+		Expect(k8sClient.Create(ctx, &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: "rollback-request-admins"},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "cluster-admin"},
+			Subjects: []rbacv1.Subject{
+				{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "alice@example.com"},
+				{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "bob@example.com"},
+			},
+		})).To(Succeed())
+		as := func(user string) client.Client {
+			config := rest.CopyConfig(cfg)
+			config.Impersonate = rest.ImpersonationConfig{UserName: user}
+			c, err := client.New(config, client.Options{Scheme: scheme.Scheme})
+			Expect(err).NotTo(HaveOccurred())
+			return c
+		}
+		alice, bob = as("alice@example.com"), as("bob@example.com")
+		Expect(k8sClient.Create(ctx, &corev1alpha1.Application{
+			ObjectMeta: metav1.ObjectMeta{Name: appName, Namespace: "default"},
+			Spec: corev1alpha1.ApplicationSpec{
+				Source: corev1alpha1.ApplicationSource{
+					RepositoryRef: corev1alpha1.LocalObjectReference{Name: "platform"},
+					Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+				},
+			},
+		})).To(Succeed())
+	})
+
+	annotate := func(c client.Client, annotations map[string]string) {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		current := app.GetAnnotations()
+		if current == nil {
+			current = map[string]string{}
+		}
+		for k, v := range annotations {
+			if v == "" {
+				delete(current, k)
+			} else {
+				current[k] = v
+			}
+		}
+		app.SetAnnotations(current)
+		Expect(c.Update(ctx, app)).To(Succeed())
+	}
+	annotations := func() map[string]string {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		return app.GetAnnotations()
+	}
+
+	It("records who requested a rollback and when", func() {
+		annotate(alice, map[string]string{
+			corev1alpha1.RollbackRevisionAnnotation: "a-sha",
+			corev1alpha1.RollbackFromAnnotation:     "b-sha",
+		})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		_, err := time.Parse(time.RFC3339, got[corev1alpha1.RollbackRequestedAtAnnotation])
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("keeps the requester when the controller records the request's kind", func() {
+		before := annotations()
+		annotate(bob, map[string]string{corev1alpha1.RollbackKindAnnotation: corev1alpha1.RollbackKindManual})
+		after := annotations()
+		Expect(after).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		Expect(after[corev1alpha1.RollbackRequestedAtAnnotation]).To(Equal(before[corev1alpha1.RollbackRequestedAtAnnotation]))
+	})
+
+	It("reverts a forged requester", func() {
+		annotate(bob, map[string]string{
+			corev1alpha1.RollbackRequestedByAnnotation: "mallory@example.com",
+			corev1alpha1.RollbackRequestedAtAnnotation: "",
+		})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		Expect(got).To(HaveKey(corev1alpha1.RollbackRequestedAtAnnotation))
+	})
+
+	It("records whoever turns an automatic rollback into a manual one", func() {
+		annotate(alice, map[string]string{corev1alpha1.RollbackKindAnnotation: corev1alpha1.RollbackKindAutomatic})
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		annotate(bob, map[string]string{corev1alpha1.RollbackKindAnnotation: corev1alpha1.RollbackKindManual})
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "bob@example.com"))
+	})
+
+	It("records whoever changes the target", func() {
+		annotate(alice, map[string]string{corev1alpha1.RollbackRevisionAnnotation: "z-sha"})
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+	})
+
+	It("clears the requester with the request", func() {
+		annotate(alice, map[string]string{
+			corev1alpha1.RollbackRevisionAnnotation: "",
+			corev1alpha1.RollbackFromAnnotation:     "",
+			corev1alpha1.RollbackKindAnnotation:     "",
+		})
+		got := annotations()
+		Expect(got).NotTo(HaveKey(corev1alpha1.RollbackRequestedByAnnotation))
+		Expect(got).NotTo(HaveKey(corev1alpha1.RollbackRequestedAtAnnotation))
+	})
+
+	// revision creates a Revision last rendered as hash; deployed, when set,
+	// is the desired state its last completed rollout deployed.
+	revision := func(name, application, commit, hash string, deployed ...string) {
+		rev := &corev1alpha1.Revision{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: corev1alpha1.RevisionSpec{
+				ApplicationRef: corev1alpha1.LocalObjectReference{Name: application},
+				Source: corev1alpha1.RevisionSource{
+					RepositoryRef: corev1alpha1.LocalObjectReference{Name: "platform"},
+					Revision:      commit,
+					Render:        corev1alpha1.RenderSpec{Type: corev1alpha1.RenderTypeYAML},
+				},
+				DesiredStateHash: hash,
+			},
+		}
+		Expect(k8sClient.Create(ctx, rev)).To(Succeed())
+		if len(deployed) > 0 {
+			rev.Status.DeployedDesiredStateHash = deployed[0]
+			Expect(k8sClient.Status().Update(ctx, rev)).To(Succeed())
+		}
+	}
+	application := func() *corev1alpha1.Application {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		return app
+	}
+	tryAnnotate := func(c client.Client, annotations map[string]string) error {
+		app := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, key, app)).To(Succeed())
+		current := app.GetAnnotations()
+		if current == nil {
+			current = map[string]string{}
+		}
+		for k, v := range annotations {
+			current[k] = v
+		}
+		app.SetAnnotations(current)
+		return c.Update(ctx, app)
+	}
+
+	// Catches a rollback bound to the chosen Revision's latest render, which
+	// a drift check may have made with values nobody deployed, rather than to
+	// the desired state its rollout deployed.
+	It("records the desired state the chosen Revision deployed, not its latest render", func() {
+		revision("rollback-request-app-a", appName, "a-sha", "hash-a-rerendered", "hash-a")
+		annotate(alice, map[string]string{
+			corev1alpha1.RollbackRevisionAnnotation:       "a-sha",
+			corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-a",
+			corev1alpha1.RollbackKindAnnotation:           corev1alpha1.RollbackKindManual,
+		})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackTargetHashAnnotation, revisionid.Binding("hash-a", application())))
+		Expect(got[corev1alpha1.RollbackTargetHashAnnotation]).NotTo(Equal(revisionid.Binding("hash-a-rerendered", application())))
+	})
+
+	It("restores a forged target hash on unrelated updates", func() {
+		annotate(bob, map[string]string{
+			corev1alpha1.RollbackTargetHashAnnotation: "hash-forged",
+			"example.com/note":                        "unrelated",
+		})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackTargetHashAnnotation, revisionid.Binding("hash-a", application())))
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+	})
+
+	It("records whoever chooses another Revision", func() {
+		revision("rollback-request-app-a2", appName, "a-sha", "hash-a2", "hash-a2")
+		annotate(bob, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-a2"})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "bob@example.com"))
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackTargetHashAnnotation, revisionid.Binding("hash-a2", application())))
+	})
+
+	// Catches a rollback approving a Revision no rollout ever deployed.
+	It("records no desired state for a Revision that never deployed", func() {
+		revision("rollback-request-app-a3", appName, "a-sha", "hash-a3")
+		annotate(alice, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-a3"})
+		got := annotations()
+		Expect(got).To(HaveKeyWithValue(corev1alpha1.RollbackRequestedByAnnotation, "alice@example.com"))
+		Expect(got).NotTo(HaveKey(corev1alpha1.RollbackTargetHashAnnotation))
+		annotate(bob, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-a2"})
+	})
+
+	It("rejects a target Revision of another Application", func() {
+		revision("other-app-a", "other-app", "a-sha", "hash-other")
+		err := tryAnnotate(bob, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "other-app-a"})
+		Expect(apierrors.IsBadRequest(err)).To(BeTrue(), "err = %v", err)
+		Expect(annotations()).To(HaveKeyWithValue(corev1alpha1.RollbackTargetRevisionAnnotation, "rollback-request-app-a2"))
+	})
+
+	It("rejects a target Revision that does not exist", func() {
+		err := tryAnnotate(bob, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-missing"})
+		Expect(apierrors.IsBadRequest(err)).To(BeTrue(), "err = %v", err)
+	})
+
+	It("rejects a target Revision of another commit than the rollback's", func() {
+		revision("rollback-request-app-z", appName, "z-sha", "hash-z")
+		err := tryAnnotate(bob, map[string]string{corev1alpha1.RollbackTargetRevisionAnnotation: "rollback-request-app-z"})
+		Expect(apierrors.IsBadRequest(err)).To(BeTrue(), "err = %v", err)
+	})
+
+	It("clears the target Revision's record with the request", func() {
+		annotate(alice, map[string]string{
+			corev1alpha1.RollbackRevisionAnnotation:       "",
+			corev1alpha1.RollbackTargetRevisionAnnotation: "",
+			corev1alpha1.RollbackKindAnnotation:           "",
+		})
+		got := annotations()
+		Expect(got).NotTo(HaveKey(corev1alpha1.RollbackTargetHashAnnotation))
+		Expect(got).NotTo(HaveKey(corev1alpha1.RollbackRequestedByAnnotation))
+	})
+
+	It("records no requester without an authenticated user", func() {
+		defaulter := &ApplicationCustomDefaulter{Reader: k8sClient, Now: time.Now}
+		app := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{
+			Name: "anonymous-rollback", Namespace: "default",
+			Annotations: map[string]string{
+				corev1alpha1.RollbackRevisionAnnotation:    "a-sha",
+				corev1alpha1.RollbackRequestedByAnnotation: "mallory@example.com",
+			},
+		}}
+		anonymous := admission.NewContextWithRequest(ctx, admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			UserInfo: authenticationv1.UserInfo{Username: "system:anonymous", Groups: []string{"system:unauthenticated"}},
+		}})
+		Expect(defaulter.Default(anonymous, app)).To(Succeed())
+		Expect(app.GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRequestedByAnnotation))
+		Expect(app.GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRequestedAtAnnotation))
 	})
 })
 

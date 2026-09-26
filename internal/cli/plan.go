@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
+	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 	"github.com/azrtydxb/kuvryn-sync/internal/version"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,15 +37,17 @@ Read:
   ksync history <application> [-o table|json]    List an Application's Revisions
   ksync revision <revision>                      Show one Revision
   ksync plan <application> [-f file] [-o text|json|yaml]
-                                                 Show the newest Revision's plan
+                                                 Show the plan of the Revision the
+                                                 Application wants deployed
   ksync diagnose <application>                   Explain why an Application is not Healthy
-  ksync graph <application> [-o json|dot]        Print the live resource graph
+  ksync graph <application> [-o text|json|dot]   Print the live resource graph
   ksync drift <application>                      Show sync state (alias of get)
 
 Change:
   ksync sync <application> --revision <revision> Approve a Revision's plan (alias: approve)
   ksync rollback <application> [--revision <revision>]
-                                                 Roll back to a healthy Revision
+                                                 Roll back to a healthy Revision; approves
+                                                 and deploys it under manual sync
   ksync suspend <application>                    Stop reconciling an Application
   ksync resume <application>                     Resume reconciling an Application
 
@@ -329,7 +334,9 @@ func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) e
 
 // rollback requests a rollback of application to the named Revision, or by
 // default to the newest known-good one. It records the source revision rolled
-// back from, which the controller holds once the rollback completes.
+// back from, which the controller holds once the rollback completes. On an
+// Application with manual sync the request is also the approval: the
+// controller deploys the target's plan under the requester's identity.
 func rollback(ctx context.Context, c client.Client, namespace, application, revisionName string, stdout io.Writer) error {
 	app := &corev1alpha1.Application{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
@@ -374,18 +381,79 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackRevisionAnnotation, rev.Spec.Source.Revision)
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackFromAnnotation, from)
 	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackKindAnnotation, corev1alpha1.RollbackKindManual)
+	metav1.SetMetaDataAnnotation(&app.ObjectMeta, corev1alpha1.RollbackTargetRevisionAnnotation, rev.Name)
 	if err := c.Update(ctx, app); err != nil {
 		return err
 	}
 	if rolledBack(rev) {
 		_, _ = fmt.Fprintf(stdout, "revision %s was replaced by an earlier rollback; rolling back to it lifts that hold\n", rev.Name)
 	}
-	if from == rev.Spec.Source.Revision {
-		_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
-		return nil
+	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s)\n", app.Name, rev.Name, rev.Spec.Source.Revision)
+	_, _ = fmt.Fprintln(stdout, rollbackOutcome(app, rev, namespace))
+	if from != rev.Spec.Source.Revision {
+		_, _ = fmt.Fprintf(stdout, "holding %s once the rollback completes\n", from)
 	}
-	_, _ = fmt.Fprintf(stdout, "rollback requested for %s to %s (%s), holding %s once it completes\n", app.Name, rev.Name, rev.Spec.Source.Revision, from)
 	return nil
+}
+
+// rollbackOutcome says what a recorded rollback request to rev does. On an
+// Application with manual sync, the request approves the chosen Revision's
+// plan under the requester the admission webhook recorded, but only if the
+// controller builds that Revision from the spec now and the webhook bound
+// the request to a desired state that Revision deployed.
+func rollbackOutcome(app *corev1alpha1.Application, rev *corev1alpha1.Revision, namespace string) string {
+	requester := app.Annotations[corev1alpha1.RollbackRequestedByAnnotation]
+	bound := app.Annotations[corev1alpha1.RollbackTargetHashAnnotation]
+	approve := approveCommand(app.Name, namespace, false, rev.Name)
+	rebuilt, same := rebuiltName(app, rev)
+	switch {
+	case !same:
+		how := "which deploys"
+		if !app.Spec.Sync.Automatic {
+			how = "which awaits approval; review and approve it with:\n  " + planCommand(app.Name, namespace) + "\n  " + approveCommand(app.Name, namespace, false, rebuilt)
+		}
+		return fmt.Sprintf("the Application's spec changed since %s was built, so the rollback plans a new Revision, %s, of %s from the current spec, %s", rev.Name, rebuilt, rev.Spec.Source.Revision, how)
+	case app.Spec.Sync.Automatic:
+		return "the request deploys " + rev.Name
+	case requester != "" && bound != "" && bound != revisionid.RollbackBinding(rev, app):
+		return fmt.Sprintf("the pending rollback request was recorded before spec.sync or spec.strategy changed, or before %s deployed again, so it no longer approves %s; it awaits approval once planned: %s", rev.Name, rev.Name, approve)
+	case requester != "" && bound != "":
+		return fmt.Sprintf("the request approves and deploys %s as %s while it renders what it deployed; no ksync sync is needed", rev.Name, requester)
+	case requester != "":
+		return fmt.Sprintf("%s never deployed in a completed rollout, so the request does not approve it; it awaits approval once planned: %s", rev.Name, approve)
+	default:
+		return fmt.Sprintf("no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s", rev.Name, approve)
+	}
+}
+
+// planCommand is the ksync plan command for application. It names the
+// namespace unless it is the default one the CLI assumes without -n.
+func planCommand(application, namespace string) string {
+	command := "ksync plan " + application
+	if namespace != defaultNamespace {
+		command += " -n " + namespace
+	}
+	return command
+}
+
+// rebuiltName returns the name of the Revision the controller builds for
+// rev's source revision from app's spec as it is now, and whether that is
+// rev itself rather than a new Revision because the path, render settings
+// or service account changed. An Application whose service account is not
+// known yet is assumed unchanged.
+func rebuiltName(app *corev1alpha1.Application, rev *corev1alpha1.Revision) (string, bool) {
+	serviceAccount := app.Spec.ServiceAccountName
+	if serviceAccount == "" {
+		serviceAccount = app.Status.ServiceAccountName
+	}
+	if serviceAccount == "" {
+		return rev.Name, true
+	}
+	name, _, err := revisionid.For(app, rev.Spec.Source.Revision, serviceAccount)
+	if err != nil {
+		return rev.Name, true
+	}
+	return name, name == rev.Name
 }
 
 // rolledBack reports a Revision a completed rollback replaced.
@@ -603,7 +671,7 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 	if err != nil {
 		return nil, err
 	}
-	return newestRevision(ctx, c, application, namespace)
+	return wantedRevision(ctx, c, application, namespace)
 }
 
 // newestRevision returns the most recently created Revision of application.
@@ -639,4 +707,110 @@ func newer(a, b metav1.ObjectMeta) bool {
 		return a.Name > b.Name
 	}
 	return false
+}
+
+// wantedRevision returns the Revision application currently wants deployed:
+// the one for its desired state, not the newest one created. It is, in turn,
+// a Revision of
+//
+//   - the source revision a pending rollback targets, before and after the
+//     controller picks the request up: its Revision awaiting approval, else
+//     the Revision the rollback chose;
+//   - status.desiredRevision, the commit it plans, such as one awaiting
+//     approval;
+//   - status.deployedRevision, when every Revision of the desired commit is
+//     held by a completed rollback and the Application keeps running the
+//     rollback target.
+//
+// Among several Revisions of that commit, such as after a service account
+// change, it prefers one that is not held, then the newest. Without the
+// Application or a Revision of its commit, it returns the newest Revision.
+func wantedRevision(ctx context.Context, c client.Client, application, namespace string) (*corev1alpha1.Revision, error) {
+	app := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
+		if apierrors.IsNotFound(err) {
+			return newestRevision(ctx, c, application, namespace)
+		}
+		return nil, err
+	}
+	revisions, err := applicationRevisions(ctx, c, application, namespace)
+	if err != nil {
+		return nil, err
+	}
+	commit := strings.TrimSpace(app.Annotations[corev1alpha1.RollbackRevisionAnnotation])
+	if commit != "" {
+		if wanted := rollbackTargetOf(revisions, commit, app.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation]); wanted != nil {
+			return wanted, nil
+		}
+	}
+	if commit == "" {
+		commit = app.Status.DesiredRevision
+		if wanted := revisionOf(revisions, commit); wanted != nil && rolledBack(wanted) && app.Status.DeployedRevision != "" {
+			commit = app.Status.DeployedRevision
+		}
+	}
+	if wanted := revisionOf(revisions, commit); wanted != nil {
+		return wanted, nil
+	}
+	return newestRevision(ctx, c, application, namespace)
+}
+
+// rollbackTargetOf returns the Revision a pending rollback to commit plans:
+// one of commit awaiting approval, which is the chosen Revision or, after a
+// spec change, the one the controller built instead; otherwise the chosen
+// Revision, when it exists and is of commit. It is nil when neither is found,
+// and the caller falls back to the newest Revision of commit.
+func rollbackTargetOf(revisions []corev1alpha1.Revision, commit, chosen string) *corev1alpha1.Revision {
+	var awaiting, named *corev1alpha1.Revision
+	for i := range revisions {
+		rev := &revisions[i]
+		if rev.Spec.Source.Revision != commit {
+			continue
+		}
+		if rev.Name == chosen {
+			named = rev
+		}
+		if rev.Status.Phase == corev1alpha1.RevisionPhaseAwaitingApproval && (awaiting == nil || rev.Name == chosen || (awaiting.Name != chosen && newer(rev.ObjectMeta, awaiting.ObjectMeta))) {
+			awaiting = rev
+		}
+	}
+	if awaiting != nil {
+		return awaiting
+	}
+	return named
+}
+
+// revisionOf returns the Revision of commit among revisions, preferring one
+// no rollback holds, then the newest; nil when there is none.
+func revisionOf(revisions []corev1alpha1.Revision, commit string) *corev1alpha1.Revision {
+	var best *corev1alpha1.Revision
+	for i := range revisions {
+		rev := &revisions[i]
+		if commit == "" || rev.Spec.Source.Revision != commit {
+			continue
+		}
+		switch {
+		case best == nil:
+			best = rev
+		case rolledBack(best) != rolledBack(rev):
+			if rolledBack(best) {
+				best = rev
+			}
+		case newer(rev.ObjectMeta, best.ObjectMeta):
+			best = rev
+		}
+	}
+	return best
+}
+
+// applicationRevisions lists the Revisions whose spec.applicationRef names
+// application.
+func applicationRevisions(ctx context.Context, c client.Client, application, namespace string) ([]corev1alpha1.Revision, error) {
+	var list corev1alpha1.RevisionList
+	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(list.Items, func(rev corev1alpha1.Revision) bool {
+		return rev.Spec.ApplicationRef.Name != application
+	}), nil
 }

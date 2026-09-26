@@ -27,7 +27,7 @@ Core commands use Kubernetes CRDs directly:
 - `ksync history <application>` lists retained deployment attempts.
 - `ksync diagnose <application>` prints the latest deterministic failure and
   the causal chains in `status.diagnosis`.
-- `ksync graph <application>` prints the live resource graph as JSON or DOT.
+- `ksync graph <application>` prints the live resource graph as a text tree, JSON or DOT.
 - `ksync rollback <application>` requests rollback to the newest known-good
   Revision other than the desired and deployed ones, and holds the revision
   rolled back from.
@@ -66,11 +66,18 @@ state stays the one approved; a changed desired state, or a later rollout of
 the same Revision (for example self-heal), needs a fresh approval. The applied Revision keeps the record in
 `status.approval`, and `ksync history -o json` exports it.
 
+A manual `ksync rollback` is its own approval of the Revision it names, while
+that Revision's desired state is the one it had when the rollback was
+requested; the webhook records the requester, the time and that desired state
+the same way. See [Rollback](concepts.md#rollback).
+
 The webhook fails closed: while the controller is unavailable, Applications
 cannot be created or updated. With `ENABLE_WEBHOOKS=false` nothing verifies
-the approval annotations, anyone who can update an Application can forge
-them, and the manager says so at startup; do not disable webhooks where
-approvals matter.
+the approval or rollback request annotations, anyone who can update an
+Application can forge them, and the manager says so at startup; do not disable
+webhooks where approvals matter. Records forged meanwhile survive turning
+webhooks on again; the manager then logs each pending rollback request at
+startup so you can check it.
 
 ## Image automation
 
