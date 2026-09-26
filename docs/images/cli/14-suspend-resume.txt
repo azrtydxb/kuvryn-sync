@@ -1,0 +1,9 @@
+$ ksync suspend podinfo -n ksync-demo
+updated podinfo suspend=true
+
+$ ksync get podinfo -n ksync-demo
+NAME     SYNC       HEALTH     DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo  OutOfSync  Suspended  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  a30fa3224289a3f3e413157104dee8844e329926  ksync-deployer
+
+$ ksync resume podinfo -n ksync-demo
+updated podinfo suspend=false

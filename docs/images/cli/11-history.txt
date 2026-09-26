@@ -1,0 +1,8 @@
+$ ksync history podinfo -n ksync-demo
+NAME                  PHASE    REVISION                                  APPROVED BY
+podinfo-1a77a0f91d12  Healthy  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  system:admin
+podinfo-b939e830aae1  Healthy  a30fa3224289a3f3e413157104dee8844e329926  system:admin
+
+$ ksync revision podinfo-1a77a0f91d12 -n ksync-demo
+NAME                  PHASE    APPLICATION  REVISION
+podinfo-1a77a0f91d12  Healthy  podinfo      dd507173b7b75b2312a36cabe0de5f09c1ce69c8

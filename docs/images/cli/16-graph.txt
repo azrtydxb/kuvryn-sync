@@ -1,0 +1,16 @@
+$ ksync graph podinfo-broken -n ksync-demo
+podinfo-broken: 2 managed resources, 8 objects, 1 missing
+Deployment/ksync-demo/podinfo-broken
+├─ Owns ReplicaSet/ksync-demo/podinfo-broken-589b5b8475
+│  ├─ Owns Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr
+│  │  ├─ Uses ConfigMap/ksync-demo/kube-root-ca.crt
+│  │  ├─ Uses Secret/ksync-demo/podinfo-db  (missing)
+│  │  └─ RunsAs ServiceAccount/ksync-demo/default
+│  └─ Uses Secret/ksync-demo/podinfo-db  (missing)
+└─ Uses Secret/ksync-demo/podinfo-db  (missing)
+Service/ksync-demo/podinfo-broken
+├─ Selects Deployment/ksync-demo/podinfo-broken  (managed)
+├─ Selects ReplicaSet/ksync-demo/podinfo-broken-589b5b8475  (shown above)
+├─ Endpoints EndpointSlice/ksync-demo/podinfo-broken-5vspt
+├─ Owns EndpointSlice/ksync-demo/podinfo-broken-5vspt
+└─ Selects Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr  (shown above)

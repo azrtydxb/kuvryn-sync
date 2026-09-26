@@ -1,0 +1,35 @@
+$ ksync apps -n ksync-demo
+NAME            SYNC              HEALTH    DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo         AwaitingApproval  Unknown   dd507173b7b75b2312a36cabe0de5f09c1ce69c8  a30fa3224289a3f3e413157104dee8844e329926  ksync-deployer
+podinfo-broken  OutOfSync         Degraded  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  ksync-deployer
+
+$ ksync plan podinfo -n ksync-demo
+Application: podinfo
+Revision:    podinfo-1a77a0f91d12
+Commit:      dd507173b7b75b2312a36cabe0de5f09c1ce69c8
+Phase:       AwaitingApproval
+
+~ Deployment/ksync-demo/podinfo
+    metadata.annotations.sync.kuvryn.io/revision
+      podinfo-b939e830aae1 -> podinfo-1a77a0f91d12
+    metadata.labels.app.kubernetes.io/version
+      6.14.0 -> 6.15.0
+    metadata.labels.helm.sh/chart
+      podinfo-6.14.0 -> podinfo-6.15.0
+    spec.template.spec.containers[0].image
+      ghcr.io/stefanprodan/podinfo:6.14.0 -> ghcr.io/stefanprodan/podinfo:6.15.0
+
+~ Service/ksync-demo/podinfo
+    metadata.annotations.sync.kuvryn.io/revision
+      podinfo-b939e830aae1 -> podinfo-1a77a0f91d12
+    metadata.labels.app.kubernetes.io/version
+      6.14.0 -> 6.15.0
+    metadata.labels.helm.sh/chart
+      podinfo-6.14.0 -> podinfo-6.15.0
+
+2 changed
+0 created
+0 deleted
+0 unchanged
+
+Approve with: ksync sync podinfo -n ksync-demo --revision podinfo-1a77a0f91d12

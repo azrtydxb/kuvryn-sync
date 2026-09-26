@@ -1,0 +1,4 @@
+$ ksync rollback podinfo -n ksync-demo
+rollback requested for podinfo to podinfo-b939e830aae1 (a30fa3224289a3f3e413157104dee8844e329926)
+the request approves and deploys podinfo-b939e830aae1 as system:admin while it renders what it deployed; no ksync sync is needed
+holding dd507173b7b75b2312a36cabe0de5f09c1ce69c8 once the rollback completes

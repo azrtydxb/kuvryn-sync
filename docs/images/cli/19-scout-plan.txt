@@ -1,0 +1,17 @@
+$ ksync plan kuvryn-scout -n kuvryn-scout
+Application: kuvryn-scout
+Revision:    kuvryn-scout-6e040de6f9b2
+Commit:      5262cb7b1a07daf5bf1d035446a71926781d5a73
+Phase:       Healthy
+
+= Deployment/kuvryn-scout/kuvryn-scout
+= Certificate/kuvryn-scout/kuvryn-scout-tls
+= Ingress/kuvryn-scout/kuvryn-scout
+= Cluster/kuvryn-scout/kuvryn-scout-db
+= PersistentVolumeClaim/kuvryn-scout/kuvryn-scout-data
+= Service/kuvryn-scout/kuvryn-scout
+= ServiceAccount/kuvryn-scout/kuvryn-scout
+0 changed
+0 created
+0 deleted
+7 unchanged

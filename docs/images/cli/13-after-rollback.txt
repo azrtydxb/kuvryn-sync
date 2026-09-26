@@ -1,0 +1,21 @@
+$ ksync get podinfo -n ksync-demo
+NAME     SYNC       HEALTH   DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo  OutOfSync  Healthy  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  a30fa3224289a3f3e413157104dee8844e329926  ksync-deployer
+
+$ ksync history podinfo -n ksync-demo
+NAME                  PHASE    REVISION                                  APPROVED BY
+podinfo-b939e830aae1  Healthy  a30fa3224289a3f3e413157104dee8844e329926  system:admin
+podinfo-1a77a0f91d12  Failed   dd507173b7b75b2312a36cabe0de5f09c1ce69c8  system:admin
+
+$ ksync plan podinfo -n ksync-demo
+Application: podinfo
+Revision:    podinfo-b939e830aae1
+Commit:      a30fa3224289a3f3e413157104dee8844e329926
+Phase:       Healthy
+
+= Deployment/ksync-demo/podinfo
+= Service/ksync-demo/podinfo
+0 changed
+0 created
+0 deleted
+2 unchanged

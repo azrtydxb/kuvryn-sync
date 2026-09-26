@@ -1,0 +1,17 @@
+$ ksync apps -n ksync-demo
+NAME            SYNC       HEALTH    DESIRED                                   DEPLOYED                                  SERVICEACCOUNT
+podinfo         OutOfSync  Healthy   dd507173b7b75b2312a36cabe0de5f09c1ce69c8  a30fa3224289a3f3e413157104dee8844e329926  ksync-deployer
+podinfo-broken  OutOfSync  Degraded  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  dd507173b7b75b2312a36cabe0de5f09c1ce69c8  ksync-deployer
+
+$ ksync diagnose podinfo-broken -n ksync-demo
+podinfo-broken: health Degraded, sync OutOfSync
+Ready: False: RetryBlocked: maxAttempts 1 reached for desired revision dd507173b7b75b2312a36cabe0de5f09c1ce69c8; last failure TimeoutFailure: Health observation timed out
+Failure: TimeoutFailure: Health observation timed out
+Causes (1):
+
+1. MissingSecret  Secret/ksync-demo/podinfo-db
+   Secret ksync-demo/podinfo-db does not exist; Pod podinfo-broken-589b5b8475-br2rr: CreateContainerConfigError: container podinfo is waiting: secret "podinfo-db" not found
+   Deployment/ksync-demo/podinfo-broken
+   └─ ReplicaSet/ksync-demo/podinfo-broken-589b5b8475
+      └─ Pod/ksync-demo/podinfo-broken-589b5b8475-br2rr
+         └─ Secret/ksync-demo/podinfo-db

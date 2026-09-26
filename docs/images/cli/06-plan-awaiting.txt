@@ -1,0 +1,18 @@
+$ ksync get podinfo -n ksync-demo
+NAME     SYNC              HEALTH   DESIRED                                   DEPLOYED  SERVICEACCOUNT
+podinfo  AwaitingApproval  Unknown  a30fa3224289a3f3e413157104dee8844e329926            ksync-deployer
+
+$ ksync plan podinfo -n ksync-demo
+Application: podinfo
+Revision:    podinfo-b939e830aae1
+Commit:      a30fa3224289a3f3e413157104dee8844e329926
+Phase:       AwaitingApproval
+
++ Deployment/ksync-demo/podinfo
++ Service/ksync-demo/podinfo
+0 changed
+2 created
+0 deleted
+0 unchanged
+
+Approve with: ksync sync podinfo -n ksync-demo --revision podinfo-b939e830aae1
