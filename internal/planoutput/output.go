@@ -13,9 +13,13 @@ import (
 
 // Document is the machine-readable shape printed by the plan CLI.
 type Document struct {
-	Application string                    `json:"application,omitempty"`
-	Revision    string                    `json:"revision,omitempty"`
-	Plan        corev1alpha1.RevisionPlan `json:"plan"`
+	Application string `json:"application,omitempty"`
+	// Revision is the source commit the plan was rendered from.
+	Revision string `json:"revision,omitempty"`
+	// RevisionName names the Revision object, which ksync sync approves.
+	RevisionName string                     `json:"revisionName,omitempty"`
+	Phase        corev1alpha1.RevisionPhase `json:"phase,omitempty"`
+	Plan         corev1alpha1.RevisionPlan  `json:"plan"`
 }
 
 // Write renders a plan document in text, json, or yaml form.
@@ -57,7 +61,23 @@ func RedactDocument(doc Document) Document {
 }
 
 func writeText(w io.Writer, doc Document) error {
-	if _, err := fmt.Fprintf(w, "Application: %s\nRevision:    %s\n\n", doc.Application, doc.Revision); err != nil {
+	if _, err := fmt.Fprintf(w, "Application: %s\n", doc.Application); err != nil {
+		return err
+	}
+	if doc.RevisionName != "" {
+		if _, err := fmt.Fprintf(w, "Revision:    %s\n", doc.RevisionName); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "Commit:      %s\n", doc.Revision); err != nil {
+		return err
+	}
+	if doc.Phase != "" {
+		if _, err := fmt.Fprintf(w, "Phase:       %s\n", doc.Phase); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
 	for _, res := range doc.Plan.Resources {
