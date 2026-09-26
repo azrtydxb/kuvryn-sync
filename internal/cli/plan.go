@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	"github.com/azrtydxb/kuvryn-sync/internal/applier"
 	"github.com/azrtydxb/kuvryn-sync/internal/planoutput"
 	"github.com/azrtydxb/kuvryn-sync/internal/revisionid"
 	"github.com/azrtydxb/kuvryn-sync/internal/version"
@@ -218,15 +219,9 @@ func runHistory(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
-	var list corev1alpha1.RevisionList
-	if err := c.List(ctx, &list, client.InNamespace(*namespace)); err != nil {
+	revisions, err := applicationRevisions(ctx, c, fs.Arg(0), *namespace)
+	if err != nil {
 		return err
-	}
-	revisions := []corev1alpha1.Revision{}
-	for _, rev := range list.Items {
-		if rev.Spec.ApplicationRef.Name == fs.Arg(0) {
-			revisions = append(revisions, rev)
-		}
 	}
 	if *output == "json" {
 		out, err := RenderHistoryJSON(revisions)
@@ -359,12 +354,11 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 	}
 	target := revisionName
 	if target == "" {
-		var list corev1alpha1.RevisionList
-		if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+		revisions, err := applicationRevisions(ctx, c, app.Name, namespace)
+		if err != nil {
 			return err
 		}
-		var err error
-		if target, err = defaultRollbackTarget(app, list.Items); err != nil {
+		if target, err = defaultRollbackTarget(app, revisions); err != nil {
 			return err
 		}
 	}
@@ -679,16 +673,13 @@ func loadRevision(ctx context.Context, application, namespace, file string) (*co
 var errNoRevision = errors.New("no Revision found")
 
 func newestRevision(ctx context.Context, c client.Client, application, namespace string) (*corev1alpha1.Revision, error) {
-	var list corev1alpha1.RevisionList
-	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+	revisions, err := applicationRevisions(ctx, c, application, namespace)
+	if err != nil {
 		return nil, err
 	}
 	var newest *corev1alpha1.Revision
-	for i := range list.Items {
-		rev := &list.Items[i]
-		if rev.Spec.ApplicationRef.Name != application {
-			continue
-		}
+	for i := range revisions {
+		rev := &revisions[i]
 		if newest == nil || newer(rev.ObjectMeta, newest.ObjectMeta) {
 			newest = rev
 		}
@@ -803,11 +794,11 @@ func revisionOf(revisions []corev1alpha1.Revision, commit string) *corev1alpha1.
 	return best
 }
 
-// applicationRevisions lists the Revisions whose spec.applicationRef names
-// application.
+// applicationRevisions lists the Revisions of application: labelled with its
+// name, so the server filters them, and whose spec.applicationRef names it.
 func applicationRevisions(ctx context.Context, c client.Client, application, namespace string) ([]corev1alpha1.Revision, error) {
 	var list corev1alpha1.RevisionList
-	if err := c.List(ctx, &list, client.InNamespace(namespace)); err != nil {
+	if err := c.List(ctx, &list, client.InNamespace(namespace), client.MatchingLabels{applier.ApplicationLabelKey: application}); err != nil {
 		return nil, err
 	}
 	return slices.DeleteFunc(list.Items, func(rev corev1alpha1.Revision) bool {

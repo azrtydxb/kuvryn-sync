@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 )
@@ -44,8 +46,9 @@ func TestUpsertDiscoveredApplicationRefusesAnApplicationAnotherControllerOwns(t 
 	repository := &corev1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{Name: "platform", Namespace: "default", UID: "platform-uid"}}
 	desired := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}, Spec: corev1alpha1.ApplicationSpec{Source: corev1alpha1.ApplicationSource{Path: "taken"}}}
 
-	if err := r.upsertDiscoveredApplication(context.Background(), repository, desired, configFileName); err == nil {
-		t.Fatal("took over an Application another controller owns")
+	err := r.upsertDiscoveredApplication(context.Background(), repository, desired, configFileName)
+	if owned := (*controllerutil.AlreadyOwnedError)(nil); !errors.As(err, &owned) {
+		t.Fatalf("got %v, want the Application refused as owned by another controller", err)
 	}
 	got := &corev1alpha1.Application{}
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(owned), got); err != nil {
@@ -70,7 +73,11 @@ func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 		corev1alpha1.RollbackTargetHashAnnotation:     "hash",
 		corev1alpha1.RollbackRequestedByAnnotation:    "mallory@example.com",
 		corev1alpha1.RollbackRequestedAtAnnotation:    "2026-09-26T10:00:00Z",
-		"team": "payments",
+		// Without approved-revision the webhook refuses the Application,
+		// which would stop discovery for the whole Repository.
+		corev1alpha1.ApproveDigestAnnotation: "sha256:abc",
+		"sync.kuvryn.io/added-later":         "true",
+		"team":                               "payments",
 	}}}
 	app.Spec.Source.Render.Type = corev1alpha1.RenderTypeYAML
 	normalized, err := normalizeDiscoveredApplication(repository, configFileName, 0, app, map[string]struct{}{})
@@ -81,6 +88,7 @@ func TestDiscoveredApplicationsCannotRequestARollback(t *testing.T) {
 		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
 		corev1alpha1.RollbackTargetRevisionAnnotation, corev1alpha1.RollbackTargetHashAnnotation,
 		corev1alpha1.RollbackRequestedByAnnotation, corev1alpha1.RollbackRequestedAtAnnotation,
+		corev1alpha1.ApproveDigestAnnotation, "sync.kuvryn.io/added-later",
 	} {
 		if _, ok := normalized.Annotations[key]; ok {
 			t.Errorf("discovery kept %s", key)

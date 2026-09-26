@@ -56,3 +56,35 @@ func TestContainedAcceptsAPathInsideTheWorkspace(t *testing.T) {
 		t.Fatalf("path inside the workspace was refused: %v", err)
 	}
 }
+
+// Catches the yaml and helm renderers failing on a broken link the Git cache
+// kept because it points inside the repository, which kustomize skips.
+func TestContainedSkipsABrokenLinkInsideTheWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing.md", filepath.Join(workspace, "app", "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Contained(workspace, filepath.Join(workspace, "app")); err != nil {
+		t.Fatalf("refused a broken link inside the workspace: %v", err)
+	}
+}
+
+func TestContainedRefusesABrokenLinkOutOfTheWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"../../outside.yaml", "/nonexistent/secret.yaml"} {
+		link := filepath.Join(workspace, "app", "values.yaml")
+		_ = os.Remove(link)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		if err := Contained(workspace, filepath.Join(workspace, "app")); err == nil {
+			t.Fatalf("accepted a broken link to %s", target)
+		}
+	}
+}

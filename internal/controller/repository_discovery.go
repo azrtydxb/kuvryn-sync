@@ -112,14 +112,12 @@ func normalizeDiscoveredApplication(repository *corev1alpha1.Repository, configP
 		return app, err
 	}
 	// Approvals come from people through the admission webhook, and
-	// rollbacks from people or a failure policy, never from Git.
-	for _, key := range []string{
-		corev1alpha1.ApprovedRevisionAnnotation, corev1alpha1.ApprovedByAnnotation, corev1alpha1.ApprovedAtAnnotation, corev1alpha1.ApprovedDigestAnnotation,
-		corev1alpha1.RollbackRevisionAnnotation, corev1alpha1.RollbackFromAnnotation, corev1alpha1.RollbackKindAnnotation,
-		corev1alpha1.RollbackTargetRevisionAnnotation, corev1alpha1.RollbackTargetHashAnnotation,
-		corev1alpha1.RollbackRequestedByAnnotation, corev1alpha1.RollbackRequestedAtAnnotation,
-	} {
-		delete(app.Annotations, key)
+	// rollbacks from people or a failure policy, never from Git; Kuvryn Sync
+	// sets its own annotations, so none of them is taken from Git.
+	for key := range app.Annotations {
+		if strings.HasPrefix(key, corev1alpha1.GroupVersion.Group+"/") {
+			delete(app.Annotations, key)
+		}
 	}
 	return app, nil
 }
