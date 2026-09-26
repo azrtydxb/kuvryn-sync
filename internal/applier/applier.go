@@ -2,9 +2,14 @@ package applier
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -14,6 +19,11 @@ const (
 	ApplicationLabelKey          = "sync.kuvryn.io/application"
 	ApplicationNamespaceLabelKey = "sync.kuvryn.io/application-namespace"
 	RevisionAnnotationKey        = "sync.kuvryn.io/revision"
+	// LegacyFieldManager is the manager the API server records for the
+	// fields an object already had when it was first server-side applied,
+	// such as everything client-side apply or Helm set before Kuvryn Sync
+	// took over. No controller writes as it.
+	LegacyFieldManager = "before-first-apply"
 )
 
 // Applier mutates Kubernetes resources with server-side apply.
@@ -35,11 +45,38 @@ func (a Applier) Apply(ctx context.Context, application, revision string, desire
 	for i := range desired {
 		obj := desired[i].DeepCopy()
 		MarkManaged(obj, application, a.ApplicationNamespace, revision)
-		if err := a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), options...); err != nil {
+		err := a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), options...)
+		if err != nil && policy == corev1alpha1.ConflictPolicyFail && onlyLegacyConflicts(err) {
+			// Fields the API server attributes to the legacy owner were set
+			// before any server-side apply, such as by client-side apply or
+			// Helm before Kuvryn Sync took over: take them over. The server
+			// named every conflict, so no other manager's field is taken.
+			err = a.Client.Apply(ctx, client.ApplyConfigurationFromUnstructured(obj), client.FieldOwner(FieldManager), client.ForceOwnership)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// onlyLegacyConflicts reports whether err is a server-side apply conflict
+// whose every conflicting field is held by LegacyFieldManager alone.
+func onlyLegacyConflicts(err error) bool {
+	var status apierrors.APIStatus
+	if !apierrors.IsConflict(err) || !errors.As(err, &status) || status.Status().Details == nil {
+		return false
+	}
+	causes := status.Status().Details.Causes
+	if len(causes) == 0 {
+		return false
+	}
+	for _, cause := range causes {
+		if cause.Type != metav1.CauseTypeFieldManagerConflict || !strings.Contains(cause.Message, strconv.Quote(LegacyFieldManager)) {
+			return false
+		}
+	}
+	return true
 }
 
 // MarkManaged adds the labels and annotation Kuvryn Sync applies with every

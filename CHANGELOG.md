@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.1
+
+_Installations moved from client-side apply can change their fields, and each
+rollout attempt gets its own health timeout._
+
+- **Fixed:** a change to a field an object already had before Kuvryn Sync
+  first applied it failed with a `ConflictFailure` naming the
+  `before-first-apply` manager, and the failure policy rolled it back. The API server
+  records that manager for fields set by client-side apply or Helm before any
+  server-side apply; no controller writes as it. Kuvryn Sync now takes those
+  fields over under `conflictPolicy: fail` too, only when every conflict the
+  API server reports is with that manager, and the plan lists them as
+  `adopt`.
+- **Fixed:** a retried Revision, a held Revision deployed again, and a
+  self-heal repair of a finished rollout counted `spec.health.timeout` from an
+  earlier attempt. Anything still Progressing timed out at once, which used up
+  `maxAttempts` or triggered the failure policy. Each attempt now starts its
+  own clock.
+
 ## 0.7.0
 
 _Git write access no longer switches off approval for discovered

@@ -341,6 +341,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	newAttempt := revision.Status.Phase == "" || revision.Status.Phase == corev1alpha1.RevisionPhasePending || revision.Status.Phase == corev1alpha1.RevisionPhaseFailed
 	if newAttempt {
 		revision.Status.Attempts++
+		// Each attempt has its own health timeout: a retry, or a held
+		// Revision deployed again, does not count from an earlier attempt.
+		revision.Status.StartedAt = nil
 	}
 	status.StartPlanning(revision, application, now)
 	if err := r.updateRevisionStatus(ctx, revision); err != nil {
@@ -534,6 +537,11 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if !application.Spec.Sync.Automatic {
 		revision.Status.Approval = approval
+	}
+	if rollout == rolloutComplete {
+		// A repair of a finished rollout, such as self-heal, is a rollout of
+		// its own: its health timeout counts from now.
+		revision.Status.StartedAt = &now
 	}
 	return r.applyAndObserve(ctx, tenant, application, revision, rendered, progress)
 }
@@ -1027,11 +1035,16 @@ func revisionIdentity(application *corev1alpha1.Application, revision, serviceAc
 }
 
 // markConflictPolicy records on each conflict how apply will treat it, so an
-// adopting plan shows every field and manager it takes over.
+// adopting plan shows every field and manager it takes over. Fields only the
+// legacy before-first-apply owner holds are always taken over.
 func markConflictPolicy(plan *planner.Plan, policy corev1alpha1.ConflictPolicy) {
 	for i := range plan.Changes {
 		for j := range plan.Changes[i].Conflicts {
-			plan.Changes[i].Conflicts[j].Policy = policy
+			conflict := &plan.Changes[i].Conflicts[j]
+			conflict.Policy = policy
+			if conflict.Manager == applier.LegacyFieldManager {
+				conflict.Policy = corev1alpha1.ConflictPolicyAdopt
+			}
 		}
 	}
 }

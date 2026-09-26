@@ -102,6 +102,14 @@ is `fail`, which prevents Kuvryn Sync from taking fields owned by another manage
 lists every field and its previous manager, and manual approval, when
 enabled, applies to the takeover like any other change.
 
+Fields held only by `before-first-apply` are taken over under either policy.
+The API server records that manager for the fields an object already had when
+it was first server-side applied, such as everything client-side apply or Helm
+set before Kuvryn Sync took over; no controller writes as it. Without this, an
+installation moved to Kuvryn Sync could not change any of those fields. The
+plan lists them with policy `adopt`, and apply takes them over only when every
+conflict the API server reports is with that manager.
+
 ## RBAC and service account impersonation
 
 Kuvryn Sync reads, applies, and prunes an Application's resources as a service

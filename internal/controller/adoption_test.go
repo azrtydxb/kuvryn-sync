@@ -81,6 +81,35 @@ var _ = Describe("Adopting fields owned by another manager", func() {
 		}
 	})
 
+	// Catches an installation migrated to Kuvryn Sync from client-side apply
+	// being unable to change any field it had then: the API server records
+	// those fields under before-first-apply, and every change conflicted.
+	It("takes over fields only the legacy before-first-apply owner holds", func() {
+		deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "payments"}})
+		legacy := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "app-config", Namespace: "payments"}, Data: map[string]string{"key": "before"}}
+		Expect(k8sClient.Create(ctx, legacy, client.FieldOwner("before-first-apply"))).To(Succeed())
+		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
+		app.Spec.Sync.Automatic = true
+		Expect(k8sClient.Create(ctx, app)).To(Succeed())
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+		revision := listApplicationRevisions(ctx, appName).Items[0]
+		Expect(revision.Status.Failure).To(BeNil())
+		Expect(revision.Status.Plan.Resources[0].Conflicts).To(ContainElement(corev1alpha1.PlanConflict{
+			Path: "data.key", Manager: "before-first-apply", Policy: corev1alpha1.ConflictPolicyAdopt,
+		}))
+		live := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, liveKey, live)).To(Succeed())
+		Expect(live.Data).To(HaveKeyWithValue("key", "desired"))
+		for _, managed := range live.ManagedFields {
+			if managed.Manager == "before-first-apply" {
+				Expect(string(managed.FieldsV1.Raw)).NotTo(ContainSubstring(`"f:key"`), "the legacy owner still holds data.key")
+			}
+		}
+	})
+
 	It("still fails on the same conflict by default", func() {
 		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
 		app.Spec.Sync.Automatic = true
