@@ -122,12 +122,17 @@ func (s *Server) applications(ctx context.Context, r *http.Request, reader clien
 	if err := listIn(ctx, r, reader, &list); err != nil {
 		return nil, err
 	}
-	// One list of Revisions for every row. Without list on Revisions the
-	// rows fall back to their condition transitions.
+	// One list of Revisions for every row. A viewer without list on
+	// Revisions gets rows that fall back to their condition transitions; any
+	// other failure is a read failure, not a reason to show stale times.
 	var revs corev1alpha1.RevisionList
 	newest := map[string]*corev1alpha1.Revision{}
-	if listIn(ctx, r, reader, &revs) == nil {
+	switch err := listIn(ctx, r, reader, &revs); {
+	case err == nil:
 		newest = newestByApplication(revs.Items)
+	case apierrors.IsForbidden(err), errors.Is(err, errNeedNamespace):
+	default:
+		return nil, err
 	}
 	out := make([]AppRow, 0, len(list.Items))
 	for i := range list.Items {
