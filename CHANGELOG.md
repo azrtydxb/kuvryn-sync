@@ -3,7 +3,7 @@
 ## 0.7.0
 
 _Git write access no longer switches off approval for discovered
-Applications._
+Applications, and health is observed after a rollout finishes._
 
 - **Breaking:** a Repository now limits what Applications discovered from
   `.ksync.yaml` may switch on, through the new `spec.applicationPolicy`:
@@ -24,6 +24,27 @@ Applications._
   affected. See
   [Upgrading to 0.7.0](docs/upgrade.md#upgrading-to-070) for finding the
   discovered Applications and allowing what they use before upgrading.
+- **Fixed:** an Application stayed Healthy after its rollout for as long as
+  nothing changed in Git, even when its workloads stopped being available. A
+  Deployment that crash-looped for hours was reported Healthy. Kuvryn Sync now
+  keeps observing health after a rollout: a resource that stops being Healthy
+  turns the Application Degraded, with a diagnosis and a `HealthDegraded`
+  Event, or Progressing when no cause is evident. It stays Synced, and the
+  Revision and failure policy are unaffected.
+- **Fixed:** discovery now drops every `sync.kuvryn.io/` annotation a
+  `.ksync.yaml` declares. An `approve-digest` annotation from Git made the
+  admission webhook refuse the new Application, which stopped discovery for
+  the whole Repository.
+- **Fixed:** chart pulls from OCI registries time out after two minutes. A
+  registry that accepted the connection and never answered held the reconcile
+  worker, and every later pull of that chart, forever.
+- **Fixed:** the yaml and helm renderers skip a broken symlink that points
+  inside the repository, as kustomize does, instead of failing the render. A
+  broken link pointing out of it is still refused.
+- **Changed:** `ksync plan`, `history`, `rollback` and `diagnose` list only
+  the Application's Revisions, by label, instead of every Revision in the
+  namespace.
+- **Docs:** removed the alpha and MVP status wording.
 
 ## 0.6.4
 
@@ -548,5 +569,5 @@ skip` is new.
 
 - Added product-path E2E coverage for Repository, Application, Revision, and applied workload reconciliation.
 - Made E2E setup idempotent and included E2E build-tag linting.
-- Reconciled stale Procoder planning signals after MVP closure.
+- Reconciled stale Procoder planning signals.
 - Fixed local Procoder CLI version mismatch so finish review can run `procoder review`.

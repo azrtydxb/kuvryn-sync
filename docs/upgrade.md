@@ -5,14 +5,14 @@ nav_order: 11
 
 # Upgrade notes
 
-Kuvryn Sync is currently `v1alpha1`. Compatibility checks are practical rather than contractual:
+Compatibility checks:
 
 - CRDs are generated from Go API types with `make manifests`.
 - Existing sample manifests in `config/samples` should continue to validate against generated CRDs.
 - Revision history is bounded by Application policy, so upgrades must not require unbounded status data.
 - Public integrations should use CRDs and Kubernetes Events, not controller internals.
 
-Before an alpha upgrade:
+Before an upgrade:
 
 ```sh
 make manifests generate fmt test

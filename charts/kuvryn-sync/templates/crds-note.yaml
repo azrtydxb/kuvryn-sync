@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: {{ include "kuvryn-sync.fullname" . }}-install-note
 data:
-  note: Apply config/crd/bases before installing this alpha chart.
+  note: Apply config/crd/bases before installing this chart.

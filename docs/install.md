@@ -5,7 +5,7 @@ nav_order: 4
 
 # Install Kuvryn Sync
 
-Kuvryn Sync can be installed from raw Kubernetes manifests or from the alpha Helm
+Kuvryn Sync can be installed from raw Kubernetes manifests or from the Helm
 chart. Both paths install the same CRDs and controller.
 
 ## Requirements
@@ -79,7 +79,7 @@ kubectl apply -k config/default
 
 ## Helm chart
 
-The alpha chart lives in `charts/kuvryn-sync` and expects CRDs to be installed
+The chart lives in `charts/kuvryn-sync` and expects CRDs to be installed
 first. It deploys `ghcr.io/azrtydxb/kuvryn-sync:v<appVersion>` by default; set
 `image.tag` only to an image built from the same commit as the chart.
 

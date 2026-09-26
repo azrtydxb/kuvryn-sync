@@ -6,7 +6,7 @@ nav_order: 8
 # Operations guide
 
 Kuvryn Sync is installed from generated CRDs plus the controller manifests in
-`config/` or the alpha Helm chart in `charts/kuvryn-sync`.
+`config/` or the Helm chart in `charts/kuvryn-sync`.
 
 ## Web console
 

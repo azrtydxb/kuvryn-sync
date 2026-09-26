@@ -42,10 +42,6 @@ Kuvryn Sync focuses on the product path that matters for day-two operations:
 
 ![The Kuvryn Sync console Applications page](docs/images/console-applications.png)
 
-> Status: alpha (`sync.kuvryn.io/v1alpha1`). The MVP is functional and covered by
-> controller, CLI, and product-path e2e tests, but the API may still
-> change before a stable release.
-
 ## Documentation
 
 The full documentation site is published with GitHub Pages:
@@ -156,7 +152,7 @@ internal/               source, renderer, plan, apply, health, drift, graph,
                         diagnosis, ops packages
 config/                 CRDs, RBAC, manager manifests, samples
 docs/                   GitHub Pages documentation
-charts/kuvryn-sync/          alpha Helm chart
+charts/kuvryn-sync/     Helm chart
 test/e2e/               product-path Kubernetes e2e tests
 kuvryn-sync-full-spec.md   product and engineering specification
 ```
