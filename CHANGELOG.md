@@ -21,9 +21,13 @@ what the Application wants._
   spec, Helm values or sync policy change made it another one, or the
   Revision never deployed, the target waits for `ksync sync` with
   `ApprovalStale` and `RollbackTargetChanged` Events, and the command's output
-  says so when it can tell. A failure
-  policy's rollback on an Application with manual sync still waits for
-  approval, and automatic Applications are unchanged. With webhooks disabled
+  says so when it can tell, with runnable `ksync plan` and `ksync sync
+--revision` commands. While a rollback is requested on an Application with
+  manual sync, only that approval or a `ksync sync` given at or after the
+  request deploys it, including a rollback whose target is already live; an
+  older approval no longer does. A failure policy's rollback on an
+  Application with manual sync still waits for such a `ksync sync`, and
+  automatic Applications are unchanged. With webhooks disabled
   these annotations are not verified, as with approvals; at startup the
   manager logs every pending rollback request with a requester, since one
   written while webhooks were off survives turning them on. **Upgrade:**
@@ -35,8 +39,8 @@ diagnose`'s chains: each managed resource, what it leads to with the edge
   type, and missing, unreadable and optional references marked. `-o json`,
   the previous default, and `-o dot` print exactly what they did.
 - **Fixed:** `ksync plan` shows the Revision the Application wants, such as
-  a pending rollback's target or the Revision awaiting approval, not the
-  newest one created. During a rollback it showed the Revision being rolled
+  a pending rollback's target, the Revision the rollback chose, or the
+  Revision awaiting approval, not the newest one created. During a rollback it showed the Revision being rolled
   back from, with no approval hint. `-f` is unchanged.
 - **Fixed:** `ksync history` lists Revisions newest first, by start and then
   creation; it printed them in alphabetical order. `APPROVED BY` shows `—`

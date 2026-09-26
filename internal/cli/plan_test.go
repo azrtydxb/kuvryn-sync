@@ -284,3 +284,51 @@ func TestPlanShowsTheRevisionTheApplicationWants(t *testing.T) {
 		t.Fatalf("without the Application: %v, %v", got, err)
 	}
 }
+
+// Catches ksync plan showing another Revision of the rollback's commit than
+// the one the rollback chose: it took the newest unheld Revision of the
+// commit, ignoring rollback-target-revision.
+func TestPlanShowsTheRevisionTheRollbackChose(t *testing.T) {
+	revision := func(name string, phase corev1alpha1.RevisionPhase, minute int) corev1alpha1.Revision {
+		rev := rollbackRevision(name, "a30f", phase, minute)
+		rev.Namespace, rev.Spec.ApplicationRef.Name = "ksync-demo", "podinfo"
+		return rev
+	}
+	current := rollbackRevision("podinfo-1a77a0f91d12", "dd50", corev1alpha1.RevisionPhaseHealthy, 5)
+	current.Namespace, current.Spec.ApplicationRef.Name = "ksync-demo", "podinfo"
+	app := func(chosen string) *corev1alpha1.Application {
+		a := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "podinfo", Namespace: "ksync-demo", Annotations: map[string]string{
+			corev1alpha1.RollbackRevisionAnnotation: "a30f",
+			corev1alpha1.RollbackFromAnnotation:     "dd50",
+		}}}
+		if chosen != "" {
+			a.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation] = chosen
+		}
+		a.Status.DesiredRevision, a.Status.DeployedRevision = "dd50", "dd50"
+		return a
+	}
+	chosen := revision("podinfo-b939e830aae1", corev1alpha1.RevisionPhaseHealthy, 0)
+	other := revision("podinfo-c0ffee000000", corev1alpha1.RevisionPhaseHealthy, 1)
+	rebuilt := revision("podinfo-c0ffee000000", corev1alpha1.RevisionPhaseAwaitingApproval, 1)
+	cases := []struct {
+		name      string
+		app       *corev1alpha1.Application
+		revisions []corev1alpha1.Revision
+		want      string
+	}{
+		{"the chosen Revision over a newer one of the commit", app(chosen.Name), []corev1alpha1.Revision{chosen, other, current}, chosen.Name},
+		// A changed spec made the controller build another Revision of the
+		// commit, which is the one waiting for approval.
+		{"the Revision awaiting approval the controller built instead", app(chosen.Name), []corev1alpha1.Revision{chosen, rebuilt, current}, rebuilt.Name},
+		{"the commit when the chosen Revision is gone", app("podinfo-deleted00000"), []corev1alpha1.Revision{chosen, other, current}, other.Name},
+		{"the commit without a chosen Revision", app(""), []corev1alpha1.Revision{chosen, other, current}, other.Name},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := wantedRevision(context.Background(), rollbackClient(t, tc.app, tc.revisions...), "podinfo", "ksync-demo")
+			if err != nil || got.Name != tc.want {
+				t.Fatalf("revision = %v, %v; want %s", got, err, tc.want)
+			}
+		})
+	}
+}

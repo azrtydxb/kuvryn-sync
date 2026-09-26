@@ -403,38 +403,57 @@ func rollback(ctx context.Context, c client.Client, namespace, application, revi
 // the request to a desired state that Revision deployed.
 func rollbackOutcome(app *corev1alpha1.Application, rev *corev1alpha1.Revision, namespace string) string {
 	requester := app.Annotations[corev1alpha1.RollbackRequestedByAnnotation]
+	bound := app.Annotations[corev1alpha1.RollbackTargetHashAnnotation]
+	approve := approveCommand(app.Name, namespace, false, rev.Name)
+	rebuilt, same := rebuiltName(app, rev)
 	switch {
-	case !rebuildsAs(app, rev):
-		how := "it deploys that Revision"
+	case !same:
+		how := "which deploys"
 		if !app.Spec.Sync.Automatic {
-			how = "that Revision awaits approval: review it with ksync plan " + app.Name + " and approve it with ksync sync"
+			how = "which awaits approval; review and approve it with:\n  " + planCommand(app.Name, namespace) + "\n  " + approveCommand(app.Name, namespace, false, rebuilt)
 		}
-		return fmt.Sprintf("the Application's spec changed since %s was built, so the rollback plans a new Revision of %s from the current spec, and %s", rev.Name, rev.Spec.Source.Revision, how)
+		return fmt.Sprintf("the Application's spec changed since %s was built, so the rollback plans a new Revision, %s, of %s from the current spec, %s", rev.Name, rebuilt, rev.Spec.Source.Revision, how)
 	case app.Spec.Sync.Automatic:
 		return "the request deploys " + rev.Name
-	case requester != "" && app.Annotations[corev1alpha1.RollbackTargetHashAnnotation] != "":
+	case requester != "" && bound != "" && bound != revisionid.RollbackBinding(rev, app):
+		return fmt.Sprintf("the pending rollback request was recorded before spec.sync or spec.strategy changed, or before %s deployed again, so it no longer approves %s; it awaits approval once planned: %s", rev.Name, rev.Name, approve)
+	case requester != "" && bound != "":
 		return fmt.Sprintf("the request approves and deploys %s as %s while it renders what it deployed; no ksync sync is needed", rev.Name, requester)
 	case requester != "":
-		return fmt.Sprintf("%s never deployed in a completed rollout, so the request does not approve it; it awaits approval once planned: %s", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
+		return fmt.Sprintf("%s never deployed in a completed rollout, so the request does not approve it; it awaits approval once planned: %s", rev.Name, approve)
 	default:
-		return fmt.Sprintf("no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s", rev.Name, approveCommand(app.Name, namespace, false, rev.Name))
+		return fmt.Sprintf("no requester was recorded (are the admission webhooks disabled?), so %s awaits approval once planned: %s", rev.Name, approve)
 	}
 }
 
-// rebuildsAs reports whether the controller, rolling back to rev's source
-// revision, builds rev itself from app's spec as it is now, rather than a new
-// Revision because the path, render settings or service account changed. An
-// Application whose service account is not known yet is assumed unchanged.
-func rebuildsAs(app *corev1alpha1.Application, rev *corev1alpha1.Revision) bool {
+// planCommand is the ksync plan command for application. It names the
+// namespace unless it is the default one the CLI assumes without -n.
+func planCommand(application, namespace string) string {
+	command := "ksync plan " + application
+	if namespace != defaultNamespace {
+		command += " -n " + namespace
+	}
+	return command
+}
+
+// rebuiltName returns the name of the Revision the controller builds for
+// rev's source revision from app's spec as it is now, and whether that is
+// rev itself rather than a new Revision because the path, render settings
+// or service account changed. An Application whose service account is not
+// known yet is assumed unchanged.
+func rebuiltName(app *corev1alpha1.Application, rev *corev1alpha1.Revision) (string, bool) {
 	serviceAccount := app.Spec.ServiceAccountName
 	if serviceAccount == "" {
 		serviceAccount = app.Status.ServiceAccountName
 	}
 	if serviceAccount == "" {
-		return true
+		return rev.Name, true
 	}
 	name, _, err := revisionid.For(app, rev.Spec.Source.Revision, serviceAccount)
-	return err != nil || name == rev.Name
+	if err != nil {
+		return rev.Name, true
+	}
+	return name, name == rev.Name
 }
 
 // rolledBack reports a Revision a completed rollback replaced.
@@ -695,7 +714,8 @@ func newer(a, b metav1.ObjectMeta) bool {
 // a Revision of
 //
 //   - the source revision a pending rollback targets, before and after the
-//     controller picks the request up;
+//     controller picks the request up: its Revision awaiting approval, else
+//     the Revision the rollback chose;
 //   - status.desiredRevision, the commit it plans, such as one awaiting
 //     approval;
 //   - status.deployedRevision, when every Revision of the desired commit is
@@ -718,6 +738,11 @@ func wantedRevision(ctx context.Context, c client.Client, application, namespace
 		return nil, err
 	}
 	commit := strings.TrimSpace(app.Annotations[corev1alpha1.RollbackRevisionAnnotation])
+	if commit != "" {
+		if wanted := rollbackTargetOf(revisions, commit, app.Annotations[corev1alpha1.RollbackTargetRevisionAnnotation]); wanted != nil {
+			return wanted, nil
+		}
+	}
 	if commit == "" {
 		commit = app.Status.DesiredRevision
 		if wanted := revisionOf(revisions, commit); wanted != nil && rolledBack(wanted) && app.Status.DeployedRevision != "" {
@@ -728,6 +753,31 @@ func wantedRevision(ctx context.Context, c client.Client, application, namespace
 		return wanted, nil
 	}
 	return newestRevision(ctx, c, application, namespace)
+}
+
+// rollbackTargetOf returns the Revision a pending rollback to commit plans:
+// one of commit awaiting approval, which is the chosen Revision or, after a
+// spec change, the one the controller built instead; otherwise the chosen
+// Revision, when it exists and is of commit. It is nil when neither is found,
+// and the caller falls back to the newest Revision of commit.
+func rollbackTargetOf(revisions []corev1alpha1.Revision, commit, chosen string) *corev1alpha1.Revision {
+	var awaiting, named *corev1alpha1.Revision
+	for i := range revisions {
+		rev := &revisions[i]
+		if rev.Spec.Source.Revision != commit {
+			continue
+		}
+		if rev.Name == chosen {
+			named = rev
+		}
+		if rev.Status.Phase == corev1alpha1.RevisionPhaseAwaitingApproval && (awaiting == nil || rev.Name == chosen || (awaiting.Name != chosen && newer(rev.ObjectMeta, awaiting.ObjectMeta))) {
+			awaiting = rev
+		}
+	}
+	if awaiting != nil {
+		return awaiting
+	}
+	return named
 }
 
 // revisionOf returns the Revision of commit among revisions, preferring one

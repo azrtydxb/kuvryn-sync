@@ -93,7 +93,10 @@ ksync plan payments -n default
 ```
 
 That is the Revision for its desired state, not the newest one created: the
-target of a pending rollback, from the moment it is requested; otherwise the
+target of a pending rollback, from the moment it is requested, which is the
+Revision of the rollback's commit awaiting approval if there is one, else the
+Revision the rollback chose (`sync.kuvryn.io/rollback-target-revision`);
+otherwise the
 Revision of `status.desiredRevision`, such as one awaiting approval; or, while
 a completed rollback holds the desired commit, the rollback target the
 Application keeps running. Among several Revisions of that commit it shows the
@@ -182,9 +185,13 @@ holding dd50c3a1f2e4 once the rollback completes
 
 If the Application's path, render settings or service account changed since
 that Revision was built, the rollback plans a new Revision of the commit from
-the current spec. The command says so instead, and that the new Revision
-awaits approval with `ksync plan` and `ksync sync`; with automatic sync, it
-says that Revision deploys. If the chosen Revision renders differently from what it
+the current spec. The command says so instead, names the new Revision, and
+prints the `ksync plan` and `ksync sync --revision` commands that review and
+approve it, with `-n` outside the `default` namespace; with automatic sync, it
+says that Revision deploys. Running `ksync rollback` again while a request is
+pending keeps that request's record; if `spec.sync` or `spec.strategy`
+changed since, the command says the request no longer approves the target and
+prints the `ksync sync` command. If the chosen Revision renders differently from what it
 deployed when Kuvryn Sync re-plans it, for example after a Helm `valuesFrom`
 change, or `spec.sync` or `spec.strategy` changed after the request, it also
 waits for `ksync sync`, with a `RollbackTargetChanged` Event. A Revision that
