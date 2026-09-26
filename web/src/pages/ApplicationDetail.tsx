@@ -8,13 +8,32 @@ import type {
   ResourceRow,
   RevisionRow,
 } from "../api/types";
+import { Command } from "../components/Command";
+import {
+  FilterBar,
+  NoMatch,
+  SearchFilter,
+  SelectFilter,
+  SwitchFilter,
+  useFilters,
+} from "../components/Filters";
 import { StatusBadge } from "../components/StatusBadge";
-import { ago, DASH, planSummary, shortDigest, shortSha } from "../format";
+import { Ago, Clip, Digest, Sha, Tip } from "../components/Tip";
+import {
+  filterHistory,
+  filterResources,
+  HISTORY_FILTERS,
+  isFiltered,
+  PHASE_ORDER,
+  presentValues,
+  RESOURCE_FILTERS,
+} from "../filters";
+import { DASH, planSummary } from "../format";
 import { useShell } from "../layout/context";
+import { HEADER_TIP } from "../tips";
 import {
   Badge,
   Button,
-  CodeBlock,
   EmptyState,
   Icon,
   PropertyList,
@@ -96,7 +115,8 @@ export default function ApplicationDetail() {
             <h1 className="ks-head__title">{name}</h1>
             {app && (
               <p className="ks-head__lead ks-head__lead--mono">
-                {app.repository} · {app.path} · {app.render} ·{" "}
+                {app.repository} · <Clip text={app.path} max={48} /> ·{" "}
+                {app.render} ·{" "}
                 <span className="ks-nowrap">
                   runs as {app.policy.serviceAccountName}
                 </span>
@@ -156,11 +176,18 @@ function Overview({ app }: { app: AppDetail }) {
               { label: "Repository", value: app.source.repository, mono: true },
               {
                 label: "Revision",
-                value:
-                  app.source.revision + " → " + shortSha(app.deployedRevision),
+                value: (
+                  <>
+                    {app.source.revision} → <Sha sha={app.deployedRevision} />
+                  </>
+                ),
                 mono: true,
               },
-              { label: "Path", value: app.source.path, mono: true },
+              {
+                label: "Path",
+                value: <Clip text={app.source.path} max={40} />,
+                mono: true,
+              },
               { label: "Renderer", value: app.source.render },
               {
                 label: "Service account",
@@ -224,7 +251,9 @@ function Overview({ app }: { app: AppDetail }) {
                   </td>
                   <td className="az-table__mono">{c.reason}</td>
                   <td className="ks-wrap ks-wrap--wide">{c.message}</td>
-                  <td className="ks-right">{ago(c.lastTransitionTime)}</td>
+                  <td className="ks-right">
+                    <Ago iso={c.lastTransitionTime} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -293,7 +322,7 @@ function Diagnosis({ app, ns }: { app: AppDetail; ns: string }) {
           description="No managed resource is Degraded; status.diagnosis is empty."
         />
       )}
-      <CodeBlock
+      <Command
         title="Same view from the CLI"
         code={
           "ksync diagnose " +
@@ -349,7 +378,7 @@ function PlanTab({ app, ns }: { app: AppDetail; ns: string }) {
           <span className="az-eyebrow">Newest revision</span>
           <span className="ks-plan__name">{plan.revision}</span>
           <span className="ks-plan__digest">
-            plan digest {shortDigest(plan.digest)}
+            plan digest <Digest digest={plan.digest} />
           </span>
         </div>
         {counts.map(([label, value]) => (
@@ -421,7 +450,7 @@ function PlanTab({ app, ns }: { app: AppDetail; ns: string }) {
         </table>
       </div>
       {awaiting && (
-        <CodeBlock
+        <Command
           title="Approve this exact plan digest with the CLI · recorded under your identity"
           code={
             "ksync plan " +
@@ -443,6 +472,7 @@ function PlanTab({ app, ns }: { app: AppDetail; ns: string }) {
 }
 
 function HistoryTab({ rows }: { rows: RevisionRow[] | undefined }) {
+  const { filters, set, clear } = useFilters(HISTORY_FILTERS);
   if (!rows) return null;
   if (rows.length === 0) {
     return (
@@ -453,88 +483,167 @@ function HistoryTab({ rows }: { rows: RevisionRow[] | undefined }) {
       />
     );
   }
+  const shown = filterHistory(rows, filters);
   return (
-    <div className="az-table-wrap">
-      <table className="az-table">
-        <thead>
-          <tr>
-            <th>Revision</th>
-            <th>Commit</th>
-            <th>Phase</th>
-            <th>Plan</th>
-            <th>Approved by</th>
-            <th>Attempts</th>
-            <th className="ks-right">Started</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((h) => (
-            <tr key={h.name}>
-              <td className="az-table__mono ks-strong">{h.name}</td>
-              <td className="az-table__mono">{shortSha(h.commit)}</td>
-              <td>
-                <StatusBadge kind="phase" value={h.phase} />
-              </td>
-              <td className="az-table__mono">{planSummary(h.plan)}</td>
-              <td>{h.approvedBy}</td>
-              <td>{h.attempts || DASH}</td>
-              <td className="ks-right">{ago(h.started)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <FilterBar
+        label="Filter history"
+        shown={shown.length}
+        total={rows.length}
+        filtered={isFiltered(filters)}
+        onClear={clear}
+      >
+        <SelectFilter
+          label="Phase"
+          all="All phases"
+          value={filters.phase}
+          options={presentValues(
+            rows.map((r) => r.phase),
+            PHASE_ORDER,
+            filters.phase,
+          )}
+          onChange={(phase) => set({ phase })}
+        />
+      </FilterBar>
+      {shown.length === 0 ? (
+        <NoMatch what="revisions" onClear={clear} />
+      ) : (
+        <div className="az-table-wrap">
+          <table className="az-table">
+            <thead>
+              <tr>
+                <th>Revision</th>
+                <th>Commit</th>
+                <th>Phase</th>
+                <th>
+                  <Tip text={HEADER_TIP.plan} side="bottom">
+                    Plan
+                  </Tip>
+                </th>
+                <th>Approved by</th>
+                <th>Attempts</th>
+                <th className="ks-right">Started</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((h) => (
+                <tr key={h.name}>
+                  <td className="az-table__mono ks-strong">{h.name}</td>
+                  <td className="az-table__mono">
+                    <Sha sha={h.commit} />
+                  </td>
+                  <td>
+                    <StatusBadge kind="phase" value={h.phase} />
+                  </td>
+                  <td className="az-table__mono">{planSummary(h.plan)}</td>
+                  <td>{h.approvedBy}</td>
+                  <td>{h.attempts || DASH}</td>
+                  <td className="ks-right">
+                    <Ago iso={h.started} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
 function ResourcesTab({ rows }: { rows: ResourceRow[] | undefined }) {
+  const { filters, set, clear } = useFilters(RESOURCE_FILTERS);
   if (!rows) return null;
+  const shown = filterResources(rows, filters);
   return (
-    <div className="az-table-wrap">
-      <table className="az-table">
-        <thead>
-          <tr>
-            <th>Kind</th>
-            <th>Name</th>
-            <th>API version</th>
-            <th>Sync</th>
-            <th>Health</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((m, i) => (
-            <tr key={i}>
-              <td className="az-table__primary">{m.kind}</td>
-              <td className="az-table__mono">
-                {m.visible ? (
-                  m.name
-                ) : (
-                  <span className="ks-muted">
-                    {m.name === DASH
-                      ? NOT_VISIBLE
-                      : m.name + " · " + NOT_VISIBLE}
-                  </span>
-                )}
-              </td>
-              <td className="az-table__mono">{m.apiVersion}</td>
-              <td>
-                {m.sync === DASH ? (
-                  DASH
-                ) : (
-                  <StatusBadge kind="sync" value={m.sync} dot={false} />
-                )}
-              </td>
-              <td>
-                {m.health === DASH ? (
-                  DASH
-                ) : (
-                  <StatusBadge kind="health" value={m.health} />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <FilterBar
+        label="Filter resources"
+        shown={shown.length}
+        total={rows.length}
+        filtered={isFiltered(filters)}
+        onClear={clear}
+      >
+        <SearchFilter
+          label="Search resources"
+          value={filters.q}
+          onChange={(q) => set({ q }, { replace: true })}
+        />
+        <SelectFilter
+          label="Kind"
+          all="All kinds"
+          value={filters.kind}
+          options={presentValues(
+            rows.map((r) => r.kind),
+            [],
+            filters.kind,
+          )}
+          onChange={(kind) => set({ kind })}
+        />
+        <SwitchFilter
+          label="Only not synced or unhealthy"
+          checked={filters.attention === "1"}
+          onChange={(on) => set({ attention: on ? "1" : "" })}
+        />
+      </FilterBar>
+      {shown.length === 0 && rows.length > 0 ? (
+        <NoMatch what="resources" onClear={clear} />
+      ) : (
+        <div className="az-table-wrap">
+          <table className="az-table">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Name</th>
+                <th>API version</th>
+                <th>
+                  <Tip text={HEADER_TIP.sync} side="bottom">
+                    Sync
+                  </Tip>
+                </th>
+                <th>
+                  <Tip text={HEADER_TIP.health} side="bottom">
+                    Health
+                  </Tip>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((m, i) => (
+                <tr key={i}>
+                  <td className="az-table__primary">{m.kind}</td>
+                  <td className="az-table__mono">
+                    {m.visible ? (
+                      m.name
+                    ) : (
+                      <span className="ks-muted">
+                        {m.name === DASH
+                          ? NOT_VISIBLE
+                          : m.name + " · " + NOT_VISIBLE}
+                      </span>
+                    )}
+                  </td>
+                  <td className="az-table__mono">{m.apiVersion}</td>
+                  <td>
+                    {m.sync === DASH ? (
+                      DASH
+                    ) : (
+                      <StatusBadge kind="sync" value={m.sync} dot={false} />
+                    )}
+                  </td>
+                  <td>
+                    {m.health === DASH ? (
+                      DASH
+                    ) : (
+                      <StatusBadge kind="health" value={m.health} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }

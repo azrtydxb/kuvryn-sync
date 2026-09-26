@@ -115,3 +115,10 @@
     padding: 20px 16px;
   }
 }
+
+/* The username is cut to the sidebar; its tooltip shows it whole. */
+.ks-shell__usertip,
+.ks-shell__usertip > .ks-tip__target {
+  min-width: 0;
+  flex: 1 1 auto;
+}

@@ -1,4 +1,6 @@
+import { stateTip } from "../tips";
 import { Badge, type Tone } from "../ui/azrty";
+import { Tip } from "./Tip";
 
 // Tone maps from "Kuvryn Sync Console.dc.html" (SYNC_T, HEALTH_T, PHASE_T,
 // ACT_T), extended to every state the API reports.
@@ -62,7 +64,10 @@ function toneOf(kind: BadgeKind, value: string): Tone {
   }
 }
 
-/** A state badge in the design's tone for its kind. */
+/**
+ * A state badge in the design's tone for its kind. Sync and health badges
+ * explain their state in a tooltip.
+ */
 export function StatusBadge({
   kind,
   value,
@@ -72,9 +77,11 @@ export function StatusBadge({
   value: string;
   dot?: boolean;
 }) {
-  return (
+  const badge = (
     <Badge tone={toneOf(kind, value)} dot={dot}>
       {value}
     </Badge>
   );
+  const tip = stateTip(kind, value);
+  return tip ? <Tip text={tip}>{badge}</Tip> : badge;
 }

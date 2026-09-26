@@ -17,4 +17,9 @@ test("TestLiveRefresh", async ({ page }) => {
   await expect(
     page.getByRole("row", { name: /catalog.*Degraded/ }),
   ).toBeVisible({ timeout: 15000 }); // one 10s poll plus room for slow runners
+  // Later tests expect the seeded health.
+  execSync("go run ./hack/console-dev set-health catalog Healthy", {
+    cwd: "..",
+    stdio: "inherit",
+  });
 });

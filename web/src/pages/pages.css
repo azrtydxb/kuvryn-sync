@@ -250,3 +250,35 @@
 .ks-rowlink:focus-visible {
   outline-offset: 3px;
 }
+
+/* Stat cards sit in tooltips; the clickable ones set a filter. */
+.ks-stats > .ks-stat-tip,
+.ks-stat-tip > .ks-tip__target,
+.ks-statbtn {
+  display: flex;
+  min-width: 0;
+}
+
+.ks-stat-tip > .ks-tip__target,
+.ks-statbtn {
+  flex: 1;
+  cursor: default;
+}
+
+.ks-stat-tip .az-stat {
+  flex: 1;
+}
+
+.ks-statbtn {
+  border-radius: var(--az-radius-lg);
+  cursor: pointer;
+}
+
+.ks-statbtn:hover .az-stat {
+  border-color: var(--az-border-strong);
+}
+
+.ks-statbtn[aria-pressed="true"] .az-stat {
+  border-color: var(--az-indicator);
+  box-shadow: inset 0 0 0 1px var(--az-indicator);
+}
