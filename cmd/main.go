@@ -106,7 +106,8 @@ func main() {
 		"Service account in the Application namespace that Kuvryn Sync impersonates when an Application sets no "+
 			"serviceAccountName. When empty, such Applications are refused.")
 	flag.DurationVar(&driftResyncInterval, "drift-resync-interval", 5*time.Minute,
-		"How often Applications managing kinds the controller may not watch are re-checked for drift. 0 disables it.")
+		"How often Applications managing kinds the controller may not watch are re-checked for drift, "+
+			"and unhealthy Applications for health. 0 disables the drift re-check; health then uses 5m.")
 	flag.StringVar(&receiverAddr, "webhook-receiver-bind-address", "",
 		"Address for the GitHub/GitLab push webhook receiver, e.g. :9292. Empty disables it.")
 	opts := zap.Options{

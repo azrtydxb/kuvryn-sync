@@ -31,8 +31,10 @@ Applications, and health is observed after a rollout finishes._
   without `selfHeal`: a resource that stops being Healthy, or was deleted,
   turns the Application Degraded, with a diagnosis, a `HealthDegraded` Event
   and `Ready=False`, or Progressing when no cause is evident. The Revision is
-  not changed, no notification is sent and the failure policy does not act,
-  but Applications that depend on it wait until it is Healthy again.
+  not changed and no notification is sent. The failure policy does not act
+  on an observed degradation, but with `selfHeal` a drift repair is a rollout
+  and can fail and roll back as one. Applications that depend on it wait
+  until it is Healthy again.
 - **Fixed:** discovery now drops every `sync.kuvryn.io/` annotation a
   `.ksync.yaml` declares. An `approve-digest` annotation from Git made the
   admission webhook refuse the new Application, which stopped discovery for

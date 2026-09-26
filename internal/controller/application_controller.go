@@ -256,8 +256,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return result, r.updateApplicationStatus(ctx, application)
 	}
 
-	// Drift of a finished rollout is reported without re-evaluating health, so
-	// it keeps the health last observed.
+	// A finished rollout's health is evaluated again from its live state; the
+	// health last observed is kept when that evaluation fails.
 	previousHealth, previousState := application.Status.Health.State, application.Status.State
 	application.Status.ObservedGeneration = application.Generation
 	application.Status.DesiredRevision = resolved.Revision
@@ -507,10 +507,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.markFinishedRolloutUnhealthy(ctx, application, state, message, previousHealth)
 		default:
 			application.Status.Health.State, application.Status.State = state, state
-			if ready := apimeta.FindStatusCondition(application.Status.Conditions, ReadyCondition); ready != nil && ready.Status == metav1.ConditionFalse &&
-				(ready.Reason == string(corev1alpha1.HealthStateDegraded) || ready.Reason == string(corev1alpha1.HealthStateProgressing)) {
-				setReady(application, metav1.ConditionTrue, "Healthy", "Application is Healthy; live state has drifted from its deployed Revision")
+			r.markFinishedRolloutRecovered(ctx, application)
+			// Healthy and only drifted: the watches report what changes next.
+			revision.Status.Phase = finishedPhase(previousPhase)
+			if err := r.updateRevisionStatus(ctx, revision); err != nil {
+				return ctrl.Result{}, err
 			}
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 		}
 		return r.keepFinishedRollout(ctx, application, revision, previousPhase)
 	}
@@ -1544,8 +1547,9 @@ func (r *ApplicationReconciler) markApplicationFailure(application *corev1alpha1
 
 // ReadyCondition is the Application condition that is True after the last
 // rollout completed Synced and Healthy, and False after a failure or an
-// automatic rollback. Drift without self-heal, suspension, dependency and
-// approval waits, and rollouts in progress leave it as it was.
+// automatic rollback, and False while a finished rollout's resources are not
+// Healthy. Suspension, dependency and approval waits, and rollouts in
+// progress leave it as it was.
 const ReadyCondition = "Ready"
 
 // setReady records the Ready condition. Its transition time moves only when

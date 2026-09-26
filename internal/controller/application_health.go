@@ -22,6 +22,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -112,6 +113,24 @@ func (r *ApplicationReconciler) markFinishedRolloutUnhealthy(ctx context.Context
 	setReady(application, metav1.ConditionFalse, reason, message)
 	if state == corev1alpha1.HealthStateDegraded && previousHealth != corev1alpha1.HealthStateDegraded {
 		r.event(application, corev1.EventTypeWarning, "HealthDegraded", "Application became Degraded after its rollout: "+message)
+	}
+}
+
+// markFinishedRolloutRecovered resets a Ready condition that reported a
+// finished rollout's resources as not Healthy once they are again: to the
+// hold, while the desired commit is held, and to True otherwise. Any other
+// Ready reason is left as it was.
+func (r *ApplicationReconciler) markFinishedRolloutRecovered(ctx context.Context, application *corev1alpha1.Application) {
+	ready := apimeta.FindStatusCondition(application.Status.Conditions, ReadyCondition)
+	if ready == nil || ready.Status != metav1.ConditionFalse {
+		return
+	}
+	hold := holdFrom(ctx)
+	switch {
+	case hold != nil && ready.Reason == "RolledBack":
+		setReady(application, metav1.ConditionFalse, "RolledBack", holdMessage(hold.manual))
+	case hold == nil && (ready.Reason == string(corev1alpha1.HealthStateDegraded) || ready.Reason == string(corev1alpha1.HealthStateProgressing)):
+		setReady(application, metav1.ConditionTrue, "Healthy", "Application is Healthy; live state has drifted from its deployed Revision")
 	}
 }
 

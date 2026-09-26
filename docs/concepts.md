@@ -96,8 +96,8 @@ and a `HealthDegraded` Event. A managed resource that was deleted is Degraded
 too. The Application turns Progressing instead while a resource is only on its
 way, such as a Deployment scaling up, and no cause is evident, and Healthy
 again once every resource is. Changes to Deployments, StatefulSets and
-DaemonSets are noticed as they happen; everything is checked again at the
-drift resync interval, five minutes by default.
+DaemonSets are noticed as they happen; an Application that is not Healthy is
+also checked again at the drift resync interval, five minutes by default.
 
 Observing a degradation changes no Revision, sends no notification and does not
 trigger the failure policy. Dependents wait while the Application is not
