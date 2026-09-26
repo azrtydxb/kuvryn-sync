@@ -88,14 +88,21 @@ A [HealthCheck](api.md#healthcheck) overrides these rules for one kind with CEL
 expressions. A rollout waits only for Progressing resources, until
 `spec.health.timeout`.
 
-Health keeps being observed after a rollout finishes. When a workload stops
-being available while nothing changes in Git, such as a Pod that crash-loops or
-is OOMKilled, the Application turns Degraded with a
-[diagnosis](#resource-graph-and-diagnosis) and a `HealthDegraded` Event. It
-turns Progressing instead while a resource is only on its way, such as a
-Deployment scaling up, and no cause is evident. It stays Synced, the Revision
-keeps its finished phase, and the failure policy does not act: it covers
-rollouts only. The Application turns Healthy again once every resource is.
+Health keeps being observed after a rollout finishes, including while drift is
+reported without `selfHeal`. When a workload stops being available while
+nothing changes in Git, such as a Pod that crash-loops or is OOMKilled, the
+Application turns Degraded with a [diagnosis](#resource-graph-and-diagnosis)
+and a `HealthDegraded` Event. A managed resource that was deleted is Degraded
+too. The Application turns Progressing instead while a resource is only on its
+way, such as a Deployment scaling up, and no cause is evident, and Healthy
+again once every resource is. Changes to Deployments, StatefulSets and
+DaemonSets are noticed as they happen; everything is checked again at the
+drift resync interval, five minutes by default.
+
+Observing a degradation changes no Revision, sends no notification and does not
+trigger the failure policy. Dependents wait while the Application is not
+Healthy. With `selfHeal`, a drift repair is a rollout again: it can fail on the
+same degradation, and the failure policy then acts on it.
 
 ## Resource graph and diagnosis
 

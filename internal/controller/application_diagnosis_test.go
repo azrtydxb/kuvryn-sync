@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -216,6 +217,9 @@ var _ = Describe("Application diagnosis", func() {
 		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secret, Namespace: "payments"}})).To(Succeed())
 		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
 		app.Spec.Sync.Automatic = true
+		// The failure policy covers rollouts: it must not roll back a
+		// degradation observed after one.
+		app.Spec.Strategy.FailurePolicy.Action = corev1alpha1.FailureActionRollback
 		Expect(k8sClient.Create(ctx, app)).To(Succeed())
 		reconciler := newApplicationReconciler([]unstructured.Unstructured{desired}, nil)
 		recorder := record.NewFakeRecorder(100)
@@ -264,6 +268,7 @@ var _ = Describe("Application diagnosis", func() {
 		Expect(ready).NotTo(BeNil())
 		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 		Expect(ready.Reason).To(Equal("Degraded"))
+		Expect(updated.Status.Resources.Healthy).To(BeZero())
 		revisions := listApplicationRevisions(ctx, appName).Items
 		Expect(revisions).To(HaveLen(1))
 		Expect(revisions[0].Status.Phase).To(Equal(corev1alpha1.RevisionPhaseHealthy), "the finished rollout stays finished")
@@ -282,6 +287,34 @@ var _ = Describe("Application diagnosis", func() {
 		updated = reconcileOnce(reconciler)
 		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
 		Expect(updated.Status.Diagnosis).To(BeEmpty())
+		Expect(updated.Status.Resources.Healthy).To(Equal(updated.Status.Resources.Total), "the summary follows the recovery")
+	})
+
+	It("reports a managed resource deleted after a healthy rollout while drift is not repaired", func() {
+		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secret, Namespace: "payments"}})).To(Succeed())
+		app := newApplication(appName, corev1alpha1.RenderTypeYAML)
+		app.Spec.Sync.Automatic = true
+		app.Spec.Sync.SelfHeal = false
+		Expect(k8sClient.Create(ctx, app)).To(Succeed())
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{desired}, nil)
+		recorder := record.NewFakeRecorder(100)
+		reconciler.Recorder = recorder
+		reconcileOnce(reconciler)
+		setDeploymentStatus(1, appsv1.DeploymentCondition{Type: appsv1.DeploymentProgressing, Status: corev1.ConditionTrue, Reason: "NewReplicaSetAvailable"})
+		Eventually(func() corev1alpha1.HealthState {
+			return reconcileOnce(reconciler).Status.Health.State
+		}, 20*time.Second, 500*time.Millisecond).Should(Equal(corev1alpha1.HealthStateHealthy))
+		drainEvents(recorder)
+
+		deleteObject(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "payments"}})
+		Eventually(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "api", Namespace: "payments"}, &appsv1.Deployment{}))
+		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
+
+		updated := reconcileOnce(reconciler)
+		Expect(updated.Status.Sync.State).To(Equal(corev1alpha1.SyncStateDrifted))
+		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateDegraded))
+		Expect(drainEvents(recorder)).To(ContainElement(HavePrefix("Warning HealthDegraded")))
 	})
 })
 

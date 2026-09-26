@@ -27,10 +27,12 @@ Applications, and health is observed after a rollout finishes._
 - **Fixed:** an Application stayed Healthy after its rollout for as long as
   nothing changed in Git, even when its workloads stopped being available. A
   Deployment that crash-looped for hours was reported Healthy. Kuvryn Sync now
-  keeps observing health after a rollout: a resource that stops being Healthy
-  turns the Application Degraded, with a diagnosis and a `HealthDegraded`
-  Event, or Progressing when no cause is evident. It stays Synced, and the
-  Revision and failure policy are unaffected.
+  keeps observing health after a rollout, also while drift is reported
+  without `selfHeal`: a resource that stops being Healthy, or was deleted,
+  turns the Application Degraded, with a diagnosis, a `HealthDegraded` Event
+  and `Ready=False`, or Progressing when no cause is evident. The Revision is
+  not changed, no notification is sent and the failure policy does not act,
+  but Applications that depend on it wait until it is Healthy again.
 - **Fixed:** discovery now drops every `sync.kuvryn.io/` annotation a
   `.ksync.yaml` declares. An `approve-digest` annotation from Git made the
   admission webhook refuse the new Application, which stopped discovery for
@@ -41,9 +43,9 @@ Applications, and health is observed after a rollout finishes._
 - **Fixed:** the yaml and helm renderers skip a broken symlink that points
   inside the repository, as kustomize does, instead of failing the render. A
   broken link pointing out of it is still refused.
-- **Changed:** `ksync plan`, `history`, `rollback` and `diagnose` list only
-  the Application's Revisions, by label, instead of every Revision in the
-  namespace.
+- **Changed:** `ksync plan`, `history`, `rollback` and `diagnose` ask the API
+  server for the Application's Revisions by label, instead of listing every
+  Revision in the namespace and filtering them.
 - **Docs:** removed the alpha and MVP status wording.
 
 ## 0.6.4

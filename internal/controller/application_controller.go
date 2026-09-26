@@ -461,9 +461,18 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// A finished rollout's workloads can stop being available while
 		// nothing changes in Git: report their live health rather than the
 		// health they had when the rollout finished.
-		if rollout == rolloutComplete && !request.active() {
-			if result, unhealthy, err := r.reportSteadyStateHealth(ctx, tenant, application, revision, previousPhase, rendered, previousHealth); unhealthy || err != nil {
-				return result, err
+		if !fresh && rollout == rolloutComplete && !request.active() {
+			application.Status.Sync.State = corev1alpha1.SyncStateSynced
+			state, message, err := r.finishedRolloutHealth(ctx, tenant, application, rendered, liveResult, previousHealth)
+			if err != nil {
+				log.Error(err, "Could not evaluate the health of a finished rollout", "application", application.Name, "namespace", application.Namespace)
+				application.Status.Health.State, application.Status.State = previousHealth, previousState
+				return r.keepFinishedRollout(ctx, application, revision, previousPhase)
+			}
+			if state != corev1alpha1.HealthStateHealthy {
+				r.markFinishedRolloutUnhealthy(ctx, application, state, message, previousHealth)
+				log.Info("Application's finished rollout is not healthy", "application", application.Name, "namespace", application.Namespace, "health", state)
+				return r.keepFinishedRollout(ctx, application, revision, previousPhase)
 			}
 		}
 		transition := previousPhase != corev1alpha1.RevisionPhaseHealthy && previousPhase != corev1alpha1.RevisionPhaseRolledBack
@@ -478,17 +487,32 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// and the Revision keeps its finished phase so the next reconcile does
 	// not mistake it for a rollout in progress.
 	if !fresh && rollout == rolloutComplete && !application.Spec.Sync.SelfHeal {
-		revision.Status.Phase = finishedPhase(previousPhase)
 		application.Status.Sync.State = corev1alpha1.SyncStateDrifted
 		application.Status.Health.State, application.Status.State = previousHealth, previousState
-		if err := r.updateRevisionStatus(ctx, revision); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.updateApplicationStatus(ctx, application); err != nil {
-			return ctrl.Result{}, err
-		}
 		log.Info("Application drifted from its deployed Revision", "application", application.Name, "namespace", application.Namespace, "revision", resolved.Revision, "revisionRecord", revision.Name)
-		return ctrl.Result{}, nil
+		if request.active() {
+			revision.Status.Phase = finishedPhase(previousPhase)
+			if err := r.updateRevisionStatus(ctx, revision); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
+		}
+		// Drift is not repaired, but the health of what is live still is
+		// what the Application reports.
+		state, message, err := r.finishedRolloutHealth(ctx, tenant, application, rendered, liveResult, previousHealth)
+		switch {
+		case err != nil:
+			log.Error(err, "Could not evaluate the health of a drifted Application", "application", application.Name, "namespace", application.Namespace)
+		case state != corev1alpha1.HealthStateHealthy:
+			r.markFinishedRolloutUnhealthy(ctx, application, state, message, previousHealth)
+		default:
+			application.Status.Health.State, application.Status.State = state, state
+			if ready := apimeta.FindStatusCondition(application.Status.Conditions, ReadyCondition); ready != nil && ready.Status == metav1.ConditionFalse &&
+				(ready.Reason == string(corev1alpha1.HealthStateDegraded) || ready.Reason == string(corev1alpha1.HealthStateProgressing)) {
+				setReady(application, metav1.ConditionTrue, "Healthy", "Application is Healthy; live state has drifted from its deployed Revision")
+			}
+		}
+		return r.keepFinishedRollout(ctx, application, revision, previousPhase)
 	}
 	if failure := conflictFailure(plan); failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)

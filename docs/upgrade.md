@@ -5,7 +5,7 @@ nav_order: 11
 
 # Upgrade notes
 
-Compatibility checks:
+Compatibility checks are practical rather than contractual:
 
 - CRDs are generated from Go API types with `make manifests`.
 - Existing sample manifests in `config/samples` should continue to validate against generated CRDs.
