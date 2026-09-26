@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0
+
+_The console's tables can be filtered, and tooltips explain what it
+abbreviates._
+
+- **New:** every console table has filters: a search box and the states
+  present in its rows, such as Sync and Health on Applications, Application
+  and Phase on Revisions, State on Repositories, and Kind with "Only not
+  synced or unhealthy" on an Application's resources. They narrow the rows
+  already loaded, show "N of M" and an empty state with "Clear filters", and
+  live in the URL, so they survive a reload and Back and can be shared. The
+  Healthy, Not synced and Awaiting approval cards set the matching filter.
+- **New:** tooltips, on hover and keyboard focus, explain each Sync and
+  Health state, show the absolute local time behind relative times, and the
+  full commit, digest, path, URL or username behind a shortened one, and say
+  what column headers, stat cards, LIVE, Read-only and icon buttons mean.
+- **Fixed:** the Applications table's time column is now "Last change": the
+  latest of the condition transitions and the newest Revision's start and
+  completion. It used the newest condition transition alone, which went
+  stale because Ready stays True across deploys. The API adds `lastChange`
+  and keeps `lastReconcile` with its old meaning.
+- **Fixed:** `docs/console.md` applies and deletes the raw-manifest console
+  in `kuvryn-sync-system`; the documented commands put it in the current
+  namespace.
+
 ## 0.5.0
 
 _The console signs people in with a Kubernetes token, so it runs on any
