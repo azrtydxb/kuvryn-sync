@@ -24,6 +24,30 @@ an action is needed, it shows the exact `ksync` command instead.
 
 ![An Application's diagnosis chain](images/console-diagnosis.png)
 
+## Filter the tables
+
+Each table has filters above it: a search box, and the states present in
+the rows, such as Sync and Health on Applications, Application and Phase on
+Revisions, State on Repositories, and Kind with "Only not synced or
+unhealthy" on an Application's resources. The "Healthy", "Not synced" and
+"Awaiting approval" cards set the matching filter. Filters narrow the rows
+the page already has, show "N of M", and live in the URL, for example
+`/apps?q=platform&health=Healthy`, so they survive a reload and Back and a
+link shares them. They work with the chosen namespace.
+
+![Applications filtered to Healthy ones in the platform repository](images/console-filters.png)
+
+![No Revision matches the filters](images/console-no-match.png)
+
+Tooltips explain what the console abbreviates, on hover and on keyboard
+focus: each Sync and Health state, the absolute local time behind "4 min
+ago", full commit SHAs, digests, long paths and URLs, the signed-in username,
+and what each stat card counts. "Last change" is when an Application's
+newest Revision started or finished, or a condition changed, whichever is
+latest.
+
+![A Sync badge's tooltip](images/console-tooltip.png)
+
 ## How access works
 
 The console has no permission model of its own. People sign in, and every
