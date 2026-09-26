@@ -45,3 +45,26 @@ func TestFailRecordsFailureAndDegradedHealth(t *testing.T) {
 		t.Fatalf("app states = sync %s health %s", app.Status.Sync.State, app.Status.Health.State)
 	}
 }
+
+// TestCompleteHealthyKeepsTheFirstCompletion fails if confirming an already
+// healthy Revision again - every "already synced" reconcile does, and a
+// manager restart forces one - moves its completedAt, which then no longer
+// says when the rollout finished.
+func TestCompleteHealthyKeepsTheFirstCompletion(t *testing.T) {
+	rev := &corev1alpha1.Revision{}
+	app := &corev1alpha1.Application{}
+	first := metav1.NewTime(time.Date(2026, 9, 25, 19, 48, 25, 0, time.UTC))
+	CompleteHealthy(rev, app, first)
+	CompleteHealthy(rev, app, metav1.NewTime(first.Add(10*time.Hour)))
+	if !rev.Status.CompletedAt.Equal(&first) {
+		t.Fatalf("completedAt = %v after a second confirmation, want the first completion %v", rev.Status.CompletedAt, first)
+	}
+	// A Revision that failed and is then healed completes anew.
+	rev = &corev1alpha1.Revision{}
+	Fail(rev, app, first, corev1alpha1.RevisionFailure{Reason: "HealthTimeout"})
+	healed := metav1.NewTime(first.Add(time.Hour))
+	CompleteHealthy(rev, app, healed)
+	if !rev.Status.CompletedAt.Equal(&healed) {
+		t.Fatalf("completedAt = %v after a failed Revision became healthy, want %v", rev.Status.CompletedAt, healed)
+	}
+}
