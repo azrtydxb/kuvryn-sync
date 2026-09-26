@@ -34,14 +34,10 @@ func StartApplying(rev *corev1alpha1.Revision, app *corev1alpha1.Application, no
 	app.Status.Sync.State = corev1alpha1.SyncStateApplying
 }
 
-// CompleteHealthy marks a Revision deployed and healthy. Confirming a Revision
-// that is already Healthy keeps its completedAt, so the time still says when
-// the rollout finished rather than when it was last re-checked.
+// CompleteHealthy marks a Revision deployed and healthy.
 func CompleteHealthy(rev *corev1alpha1.Revision, app *corev1alpha1.Application, now metav1.Time) {
-	if rev.Status.Phase != corev1alpha1.RevisionPhaseHealthy || rev.Status.CompletedAt == nil {
-		rev.Status.CompletedAt = &now
-	}
 	rev.Status.Phase = corev1alpha1.RevisionPhaseHealthy
+	rev.Status.CompletedAt = &now
 	app.Status.Sync.State = corev1alpha1.SyncStateSynced
 	app.Status.Health.State = corev1alpha1.HealthStateHealthy
 	app.Status.State = corev1alpha1.HealthStateHealthy
