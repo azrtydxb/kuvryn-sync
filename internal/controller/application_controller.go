@@ -1507,18 +1507,25 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 			}
 		}
 	} else if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback {
-		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
+		target, err := r.rollbackTarget(ctx, application, revision)
+		switch {
+		case err == nil:
 			setRollbackRequest(application, rollbackRequest{target: target.Spec.Source.Revision, from: revision.Spec.Source.Revision, kind: corev1alpha1.RollbackKindAutomatic})
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.updateKeepingStatus(ctx, application); err != nil {
 				return err
 			}
-		} else {
+		case errors.Is(err, rollback.ErrNoTarget):
 			// With nothing to roll back to, such as on a first rollout, the
 			// failure is handled as under pause: it stays the reported
 			// cause and the Revision is retried within maxAttempts.
 			failure.Message += "; " + noRollbackTargetMessage
+		default:
+			// The Revisions could not be listed (API or RBAC error). Nothing
+			// is recorded yet, so the reconcile is retried and the rollback
+			// is not skipped for a target that may well exist.
+			return fmt.Errorf("find a rollback target: %w", err)
 		}
 	}
 	status.Fail(revision, application, now, failure)

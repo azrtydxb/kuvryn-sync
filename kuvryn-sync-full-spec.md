@@ -820,7 +820,7 @@ Apply
 Observe
   |
   v
-RolledBack / RollbackFailed
+RolledBack / RollbackAbandoned
 ```
 
 A crucial semantic: Git may still request the failed version after cluster rollback. Kuvryn Sync MUST expose this honestly:
@@ -1198,7 +1198,7 @@ DeploymentHealthy
 DeploymentFailed
 RollbackStarted
 RollbackCompleted
-RollbackFailed
+RollbackAbandoned
 DriftDetected
 DriftReconciled
 ApplicationSuspended

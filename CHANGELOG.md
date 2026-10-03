@@ -28,7 +28,9 @@ image, and dependencies are waited for before planning._
   Revision (such as a first rollout), the real failure is reported, with
   "no previous healthy Revision to roll back to" added to its message, instead of
   being replaced by `RollbackFailed`. The `RollbackFailed` reason is no longer
-  produced. ([#33](https://github.com/azrtydxb/kuvryn-sync/issues/33))
+  produced. An error while looking up a rollback target (such as an API or RBAC
+  error listing Revisions) is no longer mistaken for "nothing to roll back to":
+  the reconcile is retried instead. ([#33](https://github.com/azrtydxb/kuvryn-sync/issues/33))
 
 ## 0.7.1
 
