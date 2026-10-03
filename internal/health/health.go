@@ -25,7 +25,7 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 	}
 	result := Result{Resource: id, State: corev1alpha1.HealthStateHealthy, Reason: "Ready"}
 	switch obj.GetKind() {
-	case "Deployment", "StatefulSet", "DaemonSet":
+	case "Deployment", "StatefulSet":
 		desired := int64OrDefault(obj, 1, "spec", "replicas")
 		available := int64OrDefault(obj, 0, "status", "availableReplicas")
 		observed := int64OrDefault(obj, 0, "status", "observedGeneration")
@@ -35,6 +35,23 @@ func Evaluate(obj unstructured.Unstructured) (Result, error) {
 		}
 		if available < desired {
 			return progressing(result, "ReplicasUnavailable", fmt.Sprintf("%d/%d replicas available", available, desired)), nil
+		}
+	case "DaemonSet":
+		// A DaemonSet has no replicas: it wants one pod on every node it
+		// schedules to.
+		desired := int64OrDefault(obj, 0, "status", "desiredNumberScheduled")
+		updated := int64OrDefault(obj, 0, "status", "updatedNumberScheduled")
+		available := int64OrDefault(obj, 0, "status", "numberAvailable")
+		observed := int64OrDefault(obj, 0, "status", "observedGeneration")
+		generation := obj.GetGeneration()
+		if generation > 0 && observed < generation {
+			return progressing(result, "GenerationPending", "controller has not observed latest generation"), nil
+		}
+		if updated < desired {
+			return progressing(result, "ReplicasUnavailable", fmt.Sprintf("%d/%d pods updated", updated, desired)), nil
+		}
+		if available < desired {
+			return progressing(result, "ReplicasUnavailable", fmt.Sprintf("%d/%d pods available", available, desired)), nil
 		}
 	case "Pod":
 		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")

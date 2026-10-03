@@ -116,6 +116,46 @@ func TestDeploymentPastItsProgressDeadlineStaysProgressing(t *testing.T) {
 	}
 }
 
+func TestEvaluateDaemonSets(t *testing.T) {
+	for _, tc := range []struct {
+		name                                  string
+		observed, desired, updated, available int64
+		state                                 corev1alpha1.HealthState
+		reason, message                       string
+	}{
+		{name: "fully available", observed: 2, desired: 3, updated: 3, available: 3, state: corev1alpha1.HealthStateHealthy, reason: "Ready"},
+		{name: "rolling", observed: 2, desired: 3, updated: 1, available: 3, state: corev1alpha1.HealthStateProgressing, reason: "ReplicasUnavailable", message: "1/3 pods updated"},
+		{name: "pods starting", observed: 2, desired: 3, updated: 3, available: 2, state: corev1alpha1.HealthStateProgressing, reason: "ReplicasUnavailable", message: "2/3 pods available"},
+		{name: "unobserved generation", observed: 1, desired: 3, updated: 3, available: 3, state: corev1alpha1.HealthStateProgressing, reason: "GenerationPending"},
+		{name: "no matching nodes", observed: 2, state: corev1alpha1.HealthStateHealthy, reason: "Ready"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ds := obj("apps/v1", "DaemonSet", "monitoring", "node-exporter")
+			ds.SetGeneration(2)
+			_ = unstructured.SetNestedField(ds.Object, map[string]any{
+				"observedGeneration":     tc.observed,
+				"desiredNumberScheduled": tc.desired,
+				"updatedNumberScheduled": tc.updated,
+				"numberAvailable":        tc.available,
+			}, "status")
+			got, err := Evaluate(ds)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != tc.state || got.Reason != tc.reason || got.Message != tc.message && tc.message != "" {
+				t.Fatalf("daemonset = %#v", got)
+			}
+		})
+	}
+
+	// A DaemonSet the controller has not reported on yet has no status.
+	fresh := obj("apps/v1", "DaemonSet", "monitoring", "node-exporter")
+	fresh.SetGeneration(1)
+	if got, err := Evaluate(fresh); err != nil || got.State != corev1alpha1.HealthStateProgressing || got.Reason != "GenerationPending" {
+		t.Fatalf("daemonset without status = %#v, %v", got, err)
+	}
+}
+
 func deployment(name string, replicas, available int64) unstructured.Unstructured {
 	obj := obj("apps/v1", "Deployment", "payments", name)
 	obj.SetGeneration(1)
