@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -131,6 +132,51 @@ func TestPullFromHTTPRepositoryCachesAndRenders(t *testing.T) {
 	}
 	if _, _, err := Pull(t.TempDir(), "payments", ChartSource{Repository: "http://charts.example.com", Name: "app", Version: "0.1.0"}); err == nil || !strings.Contains(err.Error(), "https") {
 		t.Fatalf("plain http repository: %v", err)
+	}
+}
+
+func TestPullFromHTTPSRepositoryWritesOnlyInsideTheCache(t *testing.T) {
+	repoDir := t.TempDir()
+	archive, _ := packagedChart(t, repoDir)
+	server := httptest.NewTLSServer(http.FileServer(http.Dir(repoDir)))
+	defer server.Close()
+	index, err := repo.IndexDirectory(repoDir, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := index.WriteFile(filepath.Join(repoDir, "index.yaml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Like the distroless image: the home directory is missing below a
+	// read-only root, and no Helm or XDG location is configured.
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	for _, name := range []string{"XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "HELM_CACHE_HOME", "HELM_CONFIG_HOME", "HELM_DATA_HOME", "HELM_CONTENT_CACHE", "HELM_REPOSITORY_CACHE", "HELM_REPOSITORY_CONFIG", "HELM_REGISTRY_CONFIG", "HELM_PLUGINS"} {
+		t.Setenv(name, "")
+	}
+
+	path, digest, err := Pull(t.TempDir(), "payments", ChartSource{Repository: server.URL, Name: "app", Version: "0.1.0", CAFile: caFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest != sha(archive) {
+		t.Fatalf("digest = %s, want %s", digest, sha(archive))
+	}
+	if filepath.Base(path) != "app-0.1.0.tgz" {
+		t.Fatalf("path = %s", path)
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("pull wrote under HOME: %v", err)
 	}
 }
 

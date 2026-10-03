@@ -16,7 +16,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"helm.sh/helm/v4/pkg/action"
 	"helm.sh/helm/v4/pkg/cli"
+	"helm.sh/helm/v4/pkg/getter"
 	"helm.sh/helm/v4/pkg/registry"
+	repo "helm.sh/helm/v4/pkg/repo/v1"
 )
 
 // ChartSource is a chart in an https Helm repository or an oci:// registry.
@@ -77,6 +79,7 @@ func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 	settings := cli.New()
 	settings.RepositoryConfig = filepath.Join(dest, "repositories.yaml")
 	settings.RepositoryCache = filepath.Join(dest, "index-cache")
+	settings.ContentCache = filepath.Join(dest, "content-cache")
 	settings.RegistryConfig = filepath.Join(dest, "registry.json")
 	settings.PluginsDirectory = filepath.Join(dest, "no-plugins")
 	options := []registry.ClientOption{
@@ -102,11 +105,16 @@ func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 	pull.PlainHTTP = src.PlainHTTP
 	pull.CaFile = src.CAFile
 	pull.SetRegistryClient(registryClient)
-	ref := src.Name
+	var ref string
 	if strings.HasPrefix(src.Repository, "oci://") {
 		ref = strings.TrimSuffix(src.Repository, "/") + "/" + src.Name
 	} else {
-		pull.RepoURL = src.Repository
+		// Helm's pull.RepoURL lookup writes the repository index to the
+		// default cache, so look the chart up here and pull its URL.
+		ref, err = findChartURL(settings, src)
+		if err != nil {
+			return "", "", fmt.Errorf("pull chart %s %s: %w", src.Name, src.Version, err)
+		}
 	}
 	if _, err := pull.Run(ref); err != nil {
 		return "", "", fmt.Errorf("pull chart %s %s: %w", src.Name, src.Version, err)
@@ -116,6 +124,42 @@ func Pull(cacheDir, namespace string, src ChartSource) (string, string, error) {
 		return "", "", err
 	}
 	return digestFile(archive)
+}
+
+// findChartURL resolves a chart in an https Helm repository to its download
+// URL, like Helm's repo.FindChartInRepoURL but with the index written to
+// settings.RepositoryCache instead of Helm's default cache, which need not be
+// writable.
+func findChartURL(settings *cli.EnvSettings, src ChartSource) (string, error) {
+	chartRepo, err := repo.NewChartRepository(&repo.Entry{
+		Name:     "chart",
+		URL:      src.Repository,
+		Username: src.Username,
+		Password: src.Password,
+		CAFile:   src.CAFile,
+	}, getter.All(settings))
+	if err != nil {
+		return "", err
+	}
+	chartRepo.CachePath = settings.RepositoryCache
+	// The index is only needed for this lookup, and can be large.
+	defer func() { _ = os.RemoveAll(settings.RepositoryCache) }()
+	indexPath, err := chartRepo.DownloadIndexFile()
+	if err != nil {
+		return "", fmt.Errorf("looks like %q is not a valid chart repository or cannot be reached: %w", src.Repository, err)
+	}
+	index, err := repo.LoadIndexFile(indexPath)
+	if err != nil {
+		return "", err
+	}
+	version, err := index.Get(src.Name, src.Version)
+	if err != nil {
+		return "", repo.ChartNotFoundError{Chart: fmt.Sprintf("chart %q version %q", src.Name, src.Version), RepoURL: src.Repository}
+	}
+	if len(version.URLs) == 0 {
+		return "", fmt.Errorf("chart %q version %q has no downloadable URLs", src.Name, src.Version)
+	}
+	return repo.ResolveReferenceURL(src.Repository, version.URLs[0])
 }
 
 func findArchive(dir string) (string, error) {
