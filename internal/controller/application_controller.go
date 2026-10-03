@@ -333,6 +333,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// from now, not from its first rollout.
 			revision.Status.StartedAt = nil
 		}
+		// Dependencies are waited for before the live state is read: a
+		// dependency may install the kinds this Application renders, which
+		// cannot be read, scoped or planned until it is Healthy. The wait
+		// comes before the attempt starts, so it never uses one.
+		if ready, err := r.dependenciesReady(ctx, application); err != nil {
+			return ctrl.Result{}, err
+		} else if !ready {
+			return ctrl.Result{}, r.awaitDependencies(ctx, application, revision)
+		}
 	}
 
 	now := metav1.Now()
@@ -523,16 +532,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure := conflictFailure(plan); failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	if ready, err := r.dependenciesReady(ctx, application); err != nil {
-		return ctrl.Result{}, err
-	} else if !ready {
-		// Like an approval wait, a dependency wait is not part of the
-		// rollout: its health timeout starts once it applies.
-		revision.Status.StartedAt = nil
-		if err := r.updateRevisionStatus(ctx, revision); err != nil {
+	// A rollout already under way, or a self-heal of a finished one, checks
+	// its dependencies again before it applies; a fresh rollout checked them
+	// before planning.
+	if !fresh {
+		if ready, err := r.dependenciesReady(ctx, application); err != nil {
 			return ctrl.Result{}, err
+		} else if !ready {
+			return ctrl.Result{}, r.awaitDependencies(ctx, application, revision)
 		}
-		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	approval, stale := r.rolloutApproval(application, revision, request, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
@@ -1788,6 +1796,16 @@ func (r *ApplicationReconciler) dependenciesReady(ctx context.Context, applicati
 	}
 	apimeta.SetStatusCondition(&application.Status.Conditions, condition)
 	return condition.Status == metav1.ConditionTrue, nil
+}
+
+// awaitDependencies records a dependency wait. Like an approval wait, it is
+// not part of the rollout: its health timeout starts once it applies.
+func (r *ApplicationReconciler) awaitDependencies(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision) error {
+	revision.Status.StartedAt = nil
+	if err := r.updateRevisionStatus(ctx, revision); err != nil {
+		return err
+	}
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func dependencyHealthy(dep *corev1alpha1.Application) bool {

@@ -46,10 +46,14 @@ bootstrapping.
 
 Applications can depend on other Applications in the same namespace with
 `spec.dependsOn`, for example workloads on the operator that serves their
-custom resources. Kuvryn Sync still plans a dependent, but applies it only once
-every dependency is Healthy at the revision it currently wants, and reports
-what it waits for in the `DependenciesReady` condition. Dependents are
-re-queued as soon as a dependency changes.
+custom resources. Kuvryn Sync starts a dependent's rollout, reading its live
+state and planning it, only once every dependency is Healthy at the revision it
+currently wants, so a dependent may use kinds whose CRDs a dependency installs.
+It reports what it waits for in the `DependenciesReady` condition; the wait
+does not count as an attempt or against the rollout's health timeout. A rollout
+already under way, or a self-heal of a deployed Revision, checks its
+dependencies again before it applies. Dependents are re-queued as soon as a
+dependency changes.
 
 ## Revision
 
