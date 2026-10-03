@@ -1,6 +1,7 @@
 package rollback
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -34,4 +35,19 @@ func TestTargetErrorsWhenPreviousHealthyMissing(t *testing.T) {
 
 func rev(name, app string, phase corev1alpha1.RevisionPhase, unix int64) corev1alpha1.Revision {
 	return corev1alpha1.Revision{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: metav1.NewTime(time.Unix(unix, 0))}, Spec: corev1alpha1.RevisionSpec{ApplicationRef: corev1alpha1.LocalObjectReference{Name: app}}, Status: corev1alpha1.RevisionStatus{Phase: phase}}
+}
+
+func TestTargetReportsNoTargetAsErrNoTarget(t *testing.T) {
+	current := rev("cur", "payments", corev1alpha1.RevisionPhaseFailed, 10)
+	history := []corev1alpha1.Revision{
+		rev("other", "other", corev1alpha1.RevisionPhaseHealthy, 9),
+		rev("bad", "payments", corev1alpha1.RevisionPhaseFailed, 8),
+	}
+	_, err := Target(current, history)
+	if !errors.Is(err, ErrNoTarget) {
+		t.Fatalf("expected ErrNoTarget, got %v", err)
+	}
+	if got, want := err.Error(), `no previous healthy Revision found for Application "payments"`; got != want {
+		t.Fatalf("message = %q, want %q", got, want)
+	}
 }

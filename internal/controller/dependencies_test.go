@@ -100,6 +100,49 @@ var _ = Describe("Application dependencies", func() {
 		Expect(k8sClient.Get(ctx, configKey, &corev1.ConfigMap{})).To(Succeed())
 	})
 
+	// Catches dependsOn being checked only after planning: reading the live
+	// state of a kind whose CRD the dependency has not installed yet failed
+	// the Revision with PlanFailure and used up its attempts.
+	It("waits for a dependency before reading the live state of kinds it installs", func() {
+		create("operator")
+		create("workload", "operator")
+		sprocket := customObject("Sprocket", "pending", "desired")
+		reconciler := newApplicationReconciler([]unstructured.Unstructured{sprocket}, nil)
+
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: workload})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(condition(workload).Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition(workload).Reason).To(Equal("DependencyNotReady"))
+			revisions := listApplicationRevisions(ctx, "workload").Items
+			Expect(revisions).To(HaveLen(1))
+			Expect(revisions[0].Status.Phase).NotTo(Equal(corev1alpha1.RevisionPhaseFailed))
+			Expect(revisions[0].Status.Failure).To(BeNil())
+			Expect(revisions[0].Status.Attempts).To(BeZero(), "a dependency wait used an attempt")
+			app := &corev1alpha1.Application{}
+			Expect(k8sClient.Get(ctx, workload, app)).To(Succeed())
+			Expect(apimeta.FindStatusCondition(app.Status.Conditions, ReadyCondition)).To(BeNil())
+		}
+
+		ensureCustomKind(ctx, "Sprocket", "sprockets")
+		operator := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "operator", Namespace: "default"}, operator)).To(Succeed())
+		operator.Status.ObservedGeneration = operator.Generation
+		operator.Status.Health.State = corev1alpha1.HealthStateHealthy
+		operator.Status.DesiredRevision, operator.Status.DeployedRevision = "sha-1", "sha-1"
+		Expect(k8sClient.Status().Update(ctx, operator)).To(Succeed())
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: workload})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(condition(workload).Status).To(Equal(metav1.ConditionTrue))
+		applied := customObject("Sprocket", "", "")
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "pending", Namespace: "payments"}, &applied)).To(Succeed())
+		revision := listApplicationRevisions(ctx, "workload").Items[0]
+		Expect(revision.Status.Failure).To(BeNil())
+		Expect(revision.Status.Attempts).To(Equal(int32(1)))
+		Expect(k8sClient.Delete(ctx, &applied)).To(Succeed())
+	})
+
 	It("reports a dependency cycle instead of waiting forever", func() {
 		create("a", "b")
 		create("b", "a")

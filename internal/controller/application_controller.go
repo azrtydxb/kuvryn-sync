@@ -333,6 +333,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// from now, not from its first rollout.
 			revision.Status.StartedAt = nil
 		}
+		// Dependencies are waited for before the live state is read: a
+		// dependency may install the kinds this Application renders, which
+		// cannot be read, scoped or planned until it is Healthy. The wait
+		// comes before the attempt starts, so it never uses one.
+		if ready, err := r.dependenciesReady(ctx, application); err != nil {
+			return ctrl.Result{}, err
+		} else if !ready {
+			return ctrl.Result{}, r.awaitDependencies(ctx, application, revision)
+		}
 	}
 
 	now := metav1.Now()
@@ -523,16 +532,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if failure := conflictFailure(plan); failure != nil {
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
 	}
-	if ready, err := r.dependenciesReady(ctx, application); err != nil {
-		return ctrl.Result{}, err
-	} else if !ready {
-		// Like an approval wait, a dependency wait is not part of the
-		// rollout: its health timeout starts once it applies.
-		revision.Status.StartedAt = nil
-		if err := r.updateRevisionStatus(ctx, revision); err != nil {
+	// A rollout already under way, or a self-heal of a finished one, checks
+	// its dependencies again before it applies; a fresh rollout checked them
+	// before planning.
+	if !fresh {
+		if ready, err := r.dependenciesReady(ctx, application); err != nil {
 			return ctrl.Result{}, err
+		} else if !ready {
+			return ctrl.Result{}, r.awaitDependencies(ctx, application, revision)
 		}
-		return ctrl.Result{}, r.updateApplicationStatus(ctx, application)
 	}
 	approval, stale := r.rolloutApproval(application, revision, request, rollout)
 	if !application.Spec.Sync.Automatic && approval == nil {
@@ -1482,10 +1490,13 @@ func healthFailure(reason string) bool {
 	return false
 }
 
+// noRollbackTargetMessage is added to a failure a rollback failure policy
+// could not roll back from.
+const noRollbackTargetMessage = "no previous healthy Revision to roll back to"
+
 func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, failure corev1alpha1.RevisionFailure) error {
 	now := metav1.Now()
 	rollbackQueued := false
-	rollbackMissing := false
 	if request := rollbackRequestOf(application); request.active() {
 		// The rollback's own target failed. A retryable failure is tried
 		// again within the target's retry budget; any other would pin the
@@ -1496,15 +1507,25 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 			}
 		}
 	} else if application.Spec.Strategy.FailurePolicy.Action == corev1alpha1.FailureActionRollback {
-		if target, err := r.rollbackTarget(ctx, application, revision); err == nil {
+		target, err := r.rollbackTarget(ctx, application, revision)
+		switch {
+		case err == nil:
 			setRollbackRequest(application, rollbackRequest{target: target.Spec.Source.Revision, from: revision.Spec.Source.Revision, kind: corev1alpha1.RollbackKindAutomatic})
 			revision.Status.PreviousRevision = &corev1alpha1.LocalObjectReference{Name: target.Name}
 			rollbackQueued = true
 			if err := r.updateKeepingStatus(ctx, application); err != nil {
 				return err
 			}
-		} else {
-			rollbackMissing = true
+		case errors.Is(err, rollback.ErrNoTarget):
+			// With nothing to roll back to, such as on a first rollout, the
+			// failure is handled as under pause: it stays the reported
+			// cause and the Revision is retried within maxAttempts.
+			failure.Message += "; " + noRollbackTargetMessage
+		default:
+			// The Revisions could not be listed (API or RBAC error). Nothing
+			// is recorded yet, so the reconcile is retried and the rollback
+			// is not skipped for a target that may well exist.
+			return fmt.Errorf("find a rollback target: %w", err)
 		}
 	}
 	status.Fail(revision, application, now, failure)
@@ -1515,8 +1536,6 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	if rollbackQueued {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRollingBack
 		r.event(application, corev1.EventTypeWarning, "RollbackStarted", "Application failure triggered rollback")
-	} else if rollbackMissing {
-		revision.Status.Failure = &corev1alpha1.RevisionFailure{Reason: "RollbackFailed", Message: "No previous healthy Revision is available for rollback", Retryable: false}
 	}
 	r.event(application, corev1.EventTypeWarning, failure.Reason, failure.Message)
 	r.notify(ctx, application, revision, corev1alpha1.NotificationFailed, failure.Reason+": "+failure.Message)
@@ -1788,6 +1807,16 @@ func (r *ApplicationReconciler) dependenciesReady(ctx context.Context, applicati
 	}
 	apimeta.SetStatusCondition(&application.Status.Conditions, condition)
 	return condition.Status == metav1.ConditionTrue, nil
+}
+
+// awaitDependencies records a dependency wait. Like an approval wait, it is
+// not part of the rollout: its health timeout starts once it applies.
+func (r *ApplicationReconciler) awaitDependencies(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision) error {
+	revision.Status.StartedAt = nil
+	if err := r.updateRevisionStatus(ctx, revision); err != nil {
+		return err
+	}
+	return r.updateApplicationStatus(ctx, application)
 }
 
 func dependencyHealthy(dep *corev1alpha1.Application) bool {

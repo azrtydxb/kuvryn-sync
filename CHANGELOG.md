@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+_DaemonSets become Healthy, https chart repositories work on the read-only
+image, and dependencies are waited for before planning._
+
+- **Fixed:** every DaemonSet stayed `Progressing` with `0/1 replicas available`,
+  because its health was judged by `spec.replicas` and
+  `status.availableReplicas`, which DaemonSets do not have. It is now judged by
+  `desiredNumberScheduled`, `updatedNumberScheduled` and `numberAvailable`, so an
+  Application with a DaemonSet (for example kube-prometheus-stack's node
+  exporter) can become Healthy. ([#30](https://github.com/azrtydxb/kuvryn-sync/issues/30))
+- **Fixed:** `render.helm.chart` with an `https://` repository failed with
+  `RenderFailure` (`open /.cache/helm/repository/...-index.yaml`): Helm's repository
+  lookup wrote the index to its default cache, which the distroless image cannot
+  write. The index is now downloaded into the per-pull cache directory, and so is
+  Helm's content cache; `oci://` charts are unchanged. The
+  `HELM_CACHE_HOME`-style `extraEnv` workaround is no longer needed.
+  ([#32](https://github.com/azrtydxb/kuvryn-sync/issues/32))
+- **Fixed:** `dependsOn` was checked only after the live state had been read and
+  the plan built. When a dependency installs the CRDs this Application renders,
+  planning failed with `PlanFailure: no matches for kind ...`, used up
+  `maxAttempts` and left the Application `RetryBlocked`. A new rollout now waits
+  for its dependencies first; the wait does not use an attempt.
+  ([#31](https://github.com/azrtydxb/kuvryn-sync/issues/31))
+- **Changed:** with `failurePolicy.action: rollback` and no earlier healthy
+  Revision (such as a first rollout), the real failure is reported, with
+  "no previous healthy Revision to roll back to" added to its message, instead of
+  being replaced by `RollbackFailed`. The `RollbackFailed` reason is no longer
+  produced. An error while looking up a rollback target (such as an API or RBAC
+  error listing Revisions) is no longer mistaken for "nothing to roll back to":
+  the reconcile is retried instead. ([#33](https://github.com/azrtydxb/kuvryn-sync/issues/33))
+
 ## 0.7.1
 
 _Fields owned by the legacy `before-first-apply` manager can change, and each

@@ -46,10 +46,14 @@ bootstrapping.
 
 Applications can depend on other Applications in the same namespace with
 `spec.dependsOn`, for example workloads on the operator that serves their
-custom resources. Kuvryn Sync still plans a dependent, but applies it only once
-every dependency is Healthy at the revision it currently wants, and reports
-what it waits for in the `DependenciesReady` condition. Dependents are
-re-queued as soon as a dependency changes.
+custom resources. Kuvryn Sync starts a dependent's rollout, reading its live
+state and planning it, only once every dependency is Healthy at the revision it
+currently wants, so a dependent may use kinds whose CRDs a dependency installs.
+It reports what it waits for in the `DependenciesReady` condition; the wait
+does not count as an attempt or against the rollout's health timeout. A rollout
+already under way, or a self-heal of a deployed Revision, checks its
+dependencies again before it applies. Dependents are re-queued as soon as a
+dependency changes.
 
 ## Revision
 
@@ -201,6 +205,13 @@ Application's spec resolves to, and a second `ksync rollback` while one is
 pending keeps the first one's source. Kuvryn Sync then
 runs normal reconciliation against the target, with the same validation,
 planning, apply, health, and event behavior as a forward sync.
+
+A `rollback` failure policy needs an earlier healthy Revision to return to.
+When there is none, such as on an Application's first rollout, the failure is
+handled as under `pause`: the Revision, the `Ready` condition and the Events
+keep the original failure reason, such as `ValidationFailure`, with "no
+previous healthy Revision to roll back to" added to its message, and the
+Revision is retried within `failurePolicy.maxAttempts`.
 
 On an Application with manual sync (`spec.sync.automatic: false`), a manual
 rollback is its own approval of the Revision you chose: asking to roll back to
