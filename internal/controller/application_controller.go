@@ -1490,10 +1490,13 @@ func healthFailure(reason string) bool {
 	return false
 }
 
+// noRollbackTargetMessage is added to a failure a rollback failure policy
+// could not roll back from.
+const noRollbackTargetMessage = "no previous healthy Revision to roll back to"
+
 func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, failure corev1alpha1.RevisionFailure) error {
 	now := metav1.Now()
 	rollbackQueued := false
-	rollbackMissing := false
 	if request := rollbackRequestOf(application); request.active() {
 		// The rollback's own target failed. A retryable failure is tried
 		// again within the target's retry budget; any other would pin the
@@ -1512,7 +1515,10 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 				return err
 			}
 		} else {
-			rollbackMissing = true
+			// With nothing to roll back to, such as on a first rollout, the
+			// failure is handled as under pause: it stays the reported
+			// cause and the Revision is retried within maxAttempts.
+			failure.Message += "; " + noRollbackTargetMessage
 		}
 	}
 	status.Fail(revision, application, now, failure)
@@ -1523,8 +1529,6 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 	if rollbackQueued {
 		revision.Status.Phase = corev1alpha1.RevisionPhaseRollingBack
 		r.event(application, corev1.EventTypeWarning, "RollbackStarted", "Application failure triggered rollback")
-	} else if rollbackMissing {
-		revision.Status.Failure = &corev1alpha1.RevisionFailure{Reason: "RollbackFailed", Message: "No previous healthy Revision is available for rollback", Retryable: false}
 	}
 	r.event(application, corev1.EventTypeWarning, failure.Reason, failure.Message)
 	r.notify(ctx, application, revision, corev1alpha1.NotificationFailed, failure.Reason+": "+failure.Message)

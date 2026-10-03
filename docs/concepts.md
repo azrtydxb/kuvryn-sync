@@ -206,6 +206,13 @@ pending keeps the first one's source. Kuvryn Sync then
 runs normal reconciliation against the target, with the same validation,
 planning, apply, health, and event behavior as a forward sync.
 
+A `rollback` failure policy needs an earlier healthy Revision to return to.
+When there is none, such as on an Application's first rollout, the failure is
+handled as under `pause`: the Revision, the `Ready` condition and the Events
+keep the original failure reason, such as `ValidationFailure`, with "no
+previous healthy Revision to roll back to" added to its message, and the
+Revision is retried within `failurePolicy.maxAttempts`.
+
 On an Application with manual sync (`spec.sync.automatic: false`), a manual
 rollback is its own approval of the Revision you chose: asking to roll back to
 it is the decision to deploy it, so no separate `ksync sync` is needed.

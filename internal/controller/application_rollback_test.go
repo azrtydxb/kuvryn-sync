@@ -240,6 +240,45 @@ var _ = Describe("Rollbacks", func() {
 		expectNewCommitDeploys()
 	})
 
+	// Catches a rollback failure policy reporting RollbackFailed instead of
+	// the real failure when a first rollout fails with nothing to roll back to.
+	It("keeps the original failure when there is no Revision to roll back to", func() {
+		updateApp := application()
+		updateApp.Spec.Strategy.FailurePolicy.Action = corev1alpha1.FailureActionRollback
+		attempts := int32(2)
+		updateApp.Spec.Strategy.FailurePolicy.MaxAttempts = &attempts
+		Expect(k8sClient.Update(ctx, updateApp)).To(Succeed())
+		r.Renderers = commitRenderer(nil, "a-sha")
+
+		expectRenderFailure := func(attempt int32) {
+			revisions := revisionsOf("a-sha")
+			Expect(revisions).To(HaveLen(1))
+			rev := revisions[0]
+			Expect(rev.Status.Phase).To(Equal(corev1alpha1.RevisionPhaseFailed))
+			Expect(rev.Status.Attempts).To(Equal(attempt))
+			Expect(rev.Status.Failure).NotTo(BeNil())
+			Expect(rev.Status.Failure.Reason).To(Equal("RenderFailure"))
+			Expect(rev.Status.Failure.Message).To(ContainSubstring("render failed"))
+			Expect(rev.Status.Failure.Message).To(ContainSubstring(noRollbackTargetMessage))
+			Expect(application().GetAnnotations()).NotTo(HaveKey(corev1alpha1.RollbackRevisionAnnotation))
+		}
+		reconcileOnce()
+		expectRenderFailure(1)
+		Expect(ready().Reason).To(Equal("RenderFailure"))
+		Expect(ready().Message).To(ContainSubstring(noRollbackTargetMessage))
+
+		// Like under pause, the Revision is retried within maxAttempts.
+		Eventually(func(g Gomega) {
+			reconcileOnce()
+			g.Expect(revisionsOf("a-sha")[0].Status.Attempts).To(Equal(int32(2)))
+		}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+		expectRenderFailure(2)
+
+		reconcileOnce()
+		Expect(ready().Reason).To(Equal("RetryBlocked"))
+		Expect(ready().Message).To(ContainSubstring("last failure RenderFailure: render failed"))
+	})
+
 	// Catches a manual rollback being undone, including Revisions created in
 	// the same second, which creation-time ordering could not tell apart.
 	It("holds a manual rollback until a new commit arrives", func() {
