@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.2
 
 _DaemonSets become Healthy, https chart repositories work on the read-only
 image, and dependencies are waited for before planning._
