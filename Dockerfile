@@ -41,7 +41,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
 
 # Git, Kustomize, and Helm all run in process, so the runtime needs only CA
 # certificates and a writable /tmp for the source cache.
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates && mkdir -p /tmp && chmod 1777 /tmp
 WORKDIR /
 COPY --from=builder /workspace/ksync .
