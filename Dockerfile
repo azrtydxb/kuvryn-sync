@@ -1,6 +1,6 @@
 # Build the console's web UI. Its output is platform-independent, so it runs
 # on the build platform, and the Go stage embeds it.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:25-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
