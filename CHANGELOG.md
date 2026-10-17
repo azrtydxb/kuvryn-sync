@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.3
+
+_Controller bookkeeping no longer takes over the parent's spec fields, so a
+tenant Application a parent manages stops conflicting with its own apply._
+
+- **Fixed:** a parent Application applying a tenant Application with
+  `conflictPolicy: fail` could block the tenant with `ConflictFailure`
+  naming the `ksync` manager on `.spec.health.timeout` and
+  `.spec.strategy.failurePolicy.timeout`. When the controller wrote its own
+  bookkeeping (a finalizer, or a rollback request) with a full `Update`, the
+  API server handed every field whose value the controller round-trips
+  differently to the controller's field manager: `metav1.Duration`
+  serialises `10m` as the canonical `10m0s`, so those two fields moved to
+  `ksync` and the parent's next server-side apply of the same Application
+  conflicted, and after `maxAttempts` left it `RetryBlocked`. The controller
+  now writes its metadata and finalizers with a merge patch of only the
+  fields it changed, keeping the spec ownership of the manager that applied
+  the object. ([#54](https://github.com/azrtydxb/kuvryn-sync/pull/54))
+
 ## 0.7.2
 
 _DaemonSets become Healthy, https chart repositories work on the read-only
