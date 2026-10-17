@@ -162,7 +162,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if application.Spec.DeletionPolicy == corev1alpha1.DeletionPolicyDeleteManagedResources && !controllerutil.ContainsFinalizer(application, applicationFinalizer) {
 		controllerutil.AddFinalizer(application, applicationFinalizer)
-		return ctrl.Result{}, r.Update(ctx, application)
+		return ctrl.Result{}, r.updateKeepingStatus(ctx, application)
 	}
 
 	if application.Spec.Suspend {
@@ -1133,7 +1133,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 			// managed resources are orphaned rather than blocking deletion forever.
 			r.event(application, corev1.EventTypeWarning, "ManagedResourcesOrphaned", safeMessage(err, "Application service account could not be used"))
 			controllerutil.RemoveFinalizer(application, applicationFinalizer)
-			return r.Update(ctx, application)
+			return r.updateKeepingStatus(ctx, application)
 		}
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{})
 		if err != nil {
@@ -1152,7 +1152,7 @@ func (r *ApplicationReconciler) reconcileDelete(ctx context.Context, application
 		}
 	}
 	controllerutil.RemoveFinalizer(application, applicationFinalizer)
-	return r.Update(ctx, application)
+	return r.updateKeepingStatus(ctx, application)
 }
 
 func staleManagedObjects(desired, desiredLive, managed []unstructured.Unstructured) []unstructured.Unstructured {
@@ -1470,12 +1470,22 @@ func (r *ApplicationReconciler) applyHistoryRetention(ctx context.Context, appli
 	return nil
 }
 
-// updateKeepingStatus updates the Application's metadata and spec, keeping the
-// status this reconcile computed: Update replaces the object with the
-// server's copy, whose status is the one persisted before this reconcile.
+// updateKeepingStatus persists the Application's metadata and spec changes
+// made this reconcile, keeping the status this reconcile computed. It patches
+// the diff against a fresh read, so only the fields this reconcile changed
+// are written: a full Update would hand every field it round-trips (such as
+// the canonical 10m0s form of a duration) to this manager, and that
+// ownership would then conflict with the parent's server-side apply of the
+// same Application (conflictPolicy: fail). The optimistic lock keeps the
+// conflict-and-retry behaviour of the Update it replaces.
 func (r *ApplicationReconciler) updateKeepingStatus(ctx context.Context, application *corev1alpha1.Application) error {
+	fresh := &corev1alpha1.Application{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(application), fresh); err != nil {
+		return err
+	}
 	computed := application.Status.DeepCopy()
-	err := r.Update(ctx, application)
+	application.Status = *fresh.Status.DeepCopy()
+	err := r.Patch(ctx, application, client.MergeFromWithOptions(fresh, client.MergeFromWithOptimisticLock{}))
 	application.Status = *computed
 	return err
 }
