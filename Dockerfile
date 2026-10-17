@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build
 
 # Build the ksync binary (CLI and manager)
-FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27 AS builder
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
