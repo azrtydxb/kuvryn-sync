@@ -1,6 +1,6 @@
 # Build the console's web UI. Its output is platform-independent, so it runs
 # on the build platform, and the Go stage embeds it.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build
 
 # Build the ksync binary (CLI and manager)
-FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27 AS builder
 ARG BUILDPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
@@ -41,7 +41,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
 
 # Git, Kustomize, and Helm all run in process, so the runtime needs only CA
 # certificates and a writable /tmp for the source cache.
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates && mkdir -p /tmp && chmod 1777 /tmp
 WORKDIR /
 COPY --from=builder /workspace/ksync .

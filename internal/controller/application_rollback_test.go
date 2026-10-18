@@ -930,11 +930,11 @@ func TestRecordRollbackIntentWritesOnlyChanges(t *testing.T) {
 	}
 	app := &corev1alpha1.Application{ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "default"}}
 	setRollbackRequest(app, rollbackRequest{target: "a-sha", from: "b-sha", kind: corev1alpha1.RollbackKindManual})
-	updates := 0
+	writes := 0
 	c := interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).WithObjects(app).Build(), interceptor.Funcs{
-		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-			updates++
-			return c.Update(ctx, obj, opts...)
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			writes++
+			return c.Patch(ctx, obj, patch, opts...)
 		},
 	})
 	r := &ApplicationReconciler{Client: c}
@@ -942,12 +942,12 @@ func TestRecordRollbackIntentWritesOnlyChanges(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(app), live); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || updates != 0 {
-		t.Fatalf("a complete request was written %d times: %v", updates, err)
+	if _, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || writes != 0 {
+		t.Fatalf("a complete request was written %d times: %v", writes, err)
 	}
 	delete(live.Annotations, corev1alpha1.RollbackKindAnnotation)
-	if req, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || updates != 1 || req.kind != corev1alpha1.RollbackKindManual {
-		t.Fatalf("a request without its kind: %d writes, %+v, %v", updates, req, err)
+	if req, err := r.recordRollbackIntent(context.Background(), live, rollbackRequestOf(live)); err != nil || writes != 1 || req.kind != corev1alpha1.RollbackKindManual {
+		t.Fatalf("a request without its kind: %d writes, %+v, %v", writes, req, err)
 	}
 }
 
