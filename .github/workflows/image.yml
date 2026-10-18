@@ -7,6 +7,11 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  # Integration tier: the image is built/published nightly too. It is never
+  # built for an untrusted pull request.
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch: {}
 
 # Main and tag runs publish, so only superseded pull request runs are cancelled.
 concurrency:
@@ -19,6 +24,10 @@ permissions:
 
 jobs:
   image:
+    # Off the PR path: publishing the controller image is integration work.
+    # It still runs on push to main and on v* tags (the publish path), and
+    # nightly.
+    if: github.event_name != 'pull_request'
     timeout-minutes: 20
     permissions:
       contents: read
