@@ -44,12 +44,22 @@ jobs:
           persist-credentials: false
       - uses: azrtydxb/ant-setup-action@7c6f1b8ca34a0a127b43040f4e16bbafdbd83791 # v1
 
+      # On the ARC runners the image builds on the runner pod's rootless
+      # BuildKit sidecar (native linux/arm64), which pushes with the docker
+      # login below.
+      - name: Set up the BuildKit sidecar builder
+        id: builder
+        if: runner.environment == 'self-hosted'
+        uses: azrtydxb/.github/actions/setup-builder@d021f2ca9fa3d6682085a7d069b7c8b1dc7b9b80 # main
+
       # Only the GitHub-hosted fallback is amd64 and needs arm64 emulation.
       - name: Set up QEMU
-        if: runner.arch != 'ARM64'
+        if: runner.environment != 'self-hosted'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v3.6.0
 
       - name: Set up Docker Buildx
+        id: buildx
+        if: runner.environment != 'self-hosted'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Login to GHCR
@@ -86,6 +96,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          builder: ${{ steps.builder.outputs.name || steps.buildx.outputs.name }}
           platforms: linux/arm64
           push: true
           build-args: |
