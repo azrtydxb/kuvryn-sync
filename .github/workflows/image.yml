@@ -50,7 +50,7 @@ jobs:
       - name: Set up the BuildKit sidecar builder
         id: builder
         if: runner.environment == 'self-hosted'
-        uses: azrtydxb/.github/actions/setup-builder@d021f2ca9fa3d6682085a7d069b7c8b1dc7b9b80 # main
+        uses: azrtydxb/.github/actions/setup-builder@a6fb8e66bd50b411a1f20b826567ef320aec469b # main
 
       # Only the GitHub-hosted fallback is amd64 and needs arm64 emulation.
       - name: Set up QEMU
