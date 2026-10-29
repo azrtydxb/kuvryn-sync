@@ -101,19 +101,21 @@ kubectl api-resources --api-group=sync.kuvryn.io
 
 ### Chart values
 
-| Value                     | Default                               | Meaning                                                                                                                                           |
-| ------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `image.repository`        | `ghcr.io/azrtydxb/kuvryn-sync`        | Manager image.                                                                                                                                    |
-| `image.tag`               | `v<appVersion>`                       | Override only with an image built from the same commit as the chart.                                                                              |
-| `image.pullPolicy`        | `IfNotPresent`                        | Image pull policy.                                                                                                                                |
-| `image.pullSecrets`       | `[]`                                  | Names of `dockerconfigjson` Secrets in the release namespace, used by the manager and console to pull a private image.                            |
-| `replicaCount`            | `2`                                   | Manager replicas; only the leader reconciles.                                                                                                     |
-| `leaderElection`          | `true`                                | Passes `--leader-elect`.                                                                                                                          |
-| `defaultServiceAccount`   | `""`                                  | Service account used by Applications that set none; empty refuses them. See [Security model](security.md#rbac-and-service-account-impersonation). |
-| `driftResyncInterval`     | `5m`                                  | How often Applications with unwatched kinds are re-checked for drift, and unhealthy ones for health; `0` disables the drift re-check.             |
-| `webhookReceiver.enabled` | `false`                               | Serves push webhooks on the Service `<release>-kuvryn-sync-receiver`. See [Push webhooks](operations.md#push-webhooks).                           |
-| `extraEnv`                | `[]`                                  | Extra manager environment variables, such as the `OTEL_*` tracing settings. See [Metrics and tracing](operations.md#metrics-and-tracing).         |
-| `resources`               | 50m/128Mi requests, 500m/512Mi limits | Manager container resources. Add `ephemeral-storage` to account for the source cache; see [Source cache](operations.md#source-cache).             |
+| Value                     | Default                               | Meaning                                                                                                                                                             |
+| ------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`        | `ghcr.io/azrtydxb/kuvryn-sync`        | Manager image.                                                                                                                                                      |
+| `image.tag`               | `v<appVersion>`                       | Override only with an image built from the same commit as the chart.                                                                                                |
+| `image.pullPolicy`        | `IfNotPresent`                        | Image pull policy.                                                                                                                                                  |
+| `image.pullSecrets`       | `[]`                                  | Names of `dockerconfigjson` Secrets in the release namespace, used by the manager and console to pull a private image.                                              |
+| `replicaCount`            | `2`                                   | Manager replicas; only the leader reconciles.                                                                                                                       |
+| `leaderElection`          | `true`                                | Passes `--leader-elect`.                                                                                                                                            |
+| `defaultServiceAccount`   | `""`                                  | Service account used by Applications that set none; empty refuses them. See [Security model](security.md#rbac-and-service-account-impersonation).                   |
+| `driftResyncInterval`     | `5m`                                  | How often Applications with unwatched kinds are re-checked for drift, and unhealthy ones for health; `0` disables the drift re-check.                               |
+| `webhookReceiver.enabled` | `false`                               | Serves push webhooks on the Service `<release>-kuvryn-sync-receiver`. See [Push webhooks](operations.md#push-webhooks).                                             |
+| `metrics.secure`          | `true`                                | Serves metrics over HTTPS with bearer-token authentication (`--metrics-secure`). `false` serves plain HTTP with no authentication; restrict who can reach the port. |
+| `metrics.port`            | `8443`                                | Metrics port (`--metrics-bind-address`), the container port, and the metrics Service port.                                                                          |
+| `extraEnv`                | `[]`                                  | Extra manager environment variables, such as the `OTEL_*` tracing settings. See [Metrics and tracing](operations.md#metrics-and-tracing).                           |
+| `resources`               | 50m/128Mi requests, 500m/512Mi limits | Manager container resources. Add `ephemeral-storage` to account for the source cache; see [Source cache](operations.md#source-cache).                               |
 
 ## Git credentials
 

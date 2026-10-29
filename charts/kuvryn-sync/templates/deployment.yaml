@@ -32,7 +32,8 @@ spec:
           args:
             - --leader-elect={{ .Values.leaderElection }}
             - --health-probe-bind-address=:8081
-            - --metrics-bind-address=:8443
+            - --metrics-secure={{ .Values.metrics.secure }}
+            - --metrics-bind-address=:{{ .Values.metrics.port }}
             - --drift-resync-interval={{ .Values.driftResyncInterval }}
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
             {{- if .Values.webhookReceiver.enabled }}
@@ -43,7 +44,7 @@ spec:
             {{- end }}
           ports:
             - name: metrics
-              containerPort: 8443
+              containerPort: {{ .Values.metrics.port }}
             - name: health
               containerPort: 8081
             - name: webhook-server

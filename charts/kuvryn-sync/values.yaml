@@ -30,6 +30,15 @@ driftResyncInterval: 5m
 webhookReceiver:
   enabled: false
 
+# Metrics endpoint. With secure=true it serves HTTPS and requires a bearer
+# token with the metrics-reader ClusterRole. Set secure=false to serve plain
+# HTTP without authentication, for scrapers that cannot send a token (for
+# example through the Kubernetes API-server proxy, which strips Authorization),
+# and restrict who can reach the port, for example with a NetworkPolicy.
+metrics:
+  secure: true
+  port: 8443
+
 # Extra environment variables for the manager container, for example the
 # OpenTelemetry exporter settings that turn on tracing:
 #   extraEnv:
