@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.4
+
+_Chart only: the metrics endpoint can be served over plain HTTP._
+
+- **Added:** chart values `metrics.secure` (default `true`) and `metrics.port`
+  (default `8443`) set `--metrics-secure` and `--metrics-bind-address`, the
+  container port, and the metrics Service port, so a scraper that cannot send a
+  bearer token can read metrics. Defaults render as before apart from the
+  Service `targetPort`, which now names the `metrics` container port.
+
 ## 0.7.3
 
 _Controller bookkeeping no longer takes over the parent's spec fields, so a
