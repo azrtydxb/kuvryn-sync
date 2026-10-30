@@ -7,7 +7,7 @@ on:
   pull_request:
   # Integration tier: the kind e2e runs nightly / on demand, never on a PR.
   schedule:
-    - cron: "17 2 * * *"
+    - cron: "47 2 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -22,10 +22,35 @@ env:
   IMG: kuvryn-sync:e2e-${{ github.sha }}
 
 jobs:
+  # Nightly only: skip the run when main has not changed since the last
+  # successful run (see .github/scripts/nightly-gate.py). Pushes, tags,
+  # dispatches and pull requests never wait on it.
+  gate:
+    if: github.event_name == 'schedule'
+    runs-on: arc-azrtydxb-amd64
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: test-e2e.yml
+          RUN_EVENT: schedule
+        run: python3 .github/scripts/nightly-gate.py
+
   test-e2e:
     # Kept off the pull request path: kind + a full image build is the
     # integration tier, so it runs on the nightly schedule and on demand.
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     timeout-minutes: 45
     name: Run on Kind
     # Pull requests from forks run untrusted code, so they get GitHub-hosted
@@ -55,11 +80,21 @@ jobs:
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           rm kubectl
 
-      - name: Install the latest version of kind
+      # Pinned (and checksummed) so a kind release cannot change the node image
+      # or behaviour under the nightly.
+      - name: Install kind
         run: |
-          curl -Lo ./kind "https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)"
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          KIND_VERSION=v0.33.0
+          arch="$(go env GOARCH)"
+          case "$arch" in
+            arm64) sum=20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2 ;;
+            amd64) sum=aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d ;;
+            *) echo "unsupported architecture $arch" >&2; exit 1 ;;
+          esac
+          curl -fsSLo ./kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-${arch}"
+          echo "${sum}  kind" | sha256sum -c -
+          sudo install -m 0755 ./kind /usr/local/bin/kind
+          rm ./kind
 
       - name: Verify kind installation
         run: kind version

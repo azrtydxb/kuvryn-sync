@@ -8,7 +8,7 @@ on:
   # Full tier (browser e2e): the Playwright console suite runs nightly / on
   # demand, never on a PR.
   schedule:
-    - cron: "17 2 * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -18,10 +18,35 @@ concurrency:
 permissions: {}
 
 jobs:
+  # Nightly only: skip the run when main has not changed since the last
+  # successful run (see .github/scripts/nightly-gate.py). Pushes, tags,
+  # dispatches and pull requests never wait on it.
+  gate:
+    if: github.event_name == 'schedule'
+    runs-on: arc-azrtydxb-amd64
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: test-ui.yml
+          RUN_EVENT: schedule
+        run: python3 .github/scripts/nightly-gate.py
+
   test-ui:
     # Kept off the pull request path: the Playwright/Chromium run is the full
     # tier, so it runs on the nightly schedule and on demand.
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     timeout-minutes: 30
     permissions:
       contents: read
