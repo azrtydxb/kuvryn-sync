@@ -1,10 +1,14 @@
 name: Tests
 
 # push covers main; pull_request covers every other branch. An unfiltered push trigger ran each PR commit twice (#1).
+# Documentation-only changes skip the suite; lint (make docs-check) still runs
+# and reports the required "Run on Ubuntu" check.
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

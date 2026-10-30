@@ -23,11 +23,36 @@ permissions:
   packages: write
 
 jobs:
+  # Nightly only: skip the run when main has not changed since the last
+  # successful run (see .github/scripts/nightly-gate.py). Pushes, tags,
+  # dispatches and pull requests never wait on it.
+  gate:
+    if: github.event_name == 'schedule'
+    runs-on: arc-azrtydxb-amd64
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: image.yml
+          RUN_EVENT: ""
+        run: python3 .github/scripts/nightly-gate.py
+
   image:
     # Off the PR path: publishing the controller image is integration work.
     # It still runs on push to main and on v* tags (the publish path), and
-    # nightly.
-    if: github.event_name != 'pull_request'
+    # nightly unless main is unchanged (gate).
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run != 'false' && github.event_name != 'pull_request' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -92,6 +117,20 @@ jobs:
             echo "version=sha-${SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
+      # Ant's BuildKit registry cache: the npm and go mod layers survive between
+      # runs (the runner pod's own BuildKit store does not). Also logs in to Ant.
+      - id: ant-cache
+        uses: azrtydxb/ant-setup-action@7c6f1b8ca34a0a127b43040f4e16bbafdbd83791 # v1
+        with:
+          build-cache: "true"
+          cache-name: sync-image
+          arch-suffix: arm64
+          sccache: "false"
+          go: "false"
+          npm: "false"
+          cargo: "false"
+          pip: "false"
+
       - name: Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -99,6 +138,8 @@ jobs:
           builder: ${{ steps.builder.outputs.name || steps.buildx.outputs.name }}
           platforms: linux/arm64
           push: true
+          cache-from: ${{ steps.ant-cache.outputs.cache-from }}
+          cache-to: ${{ steps.ant-cache.outputs.cache-to }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           tags: |
