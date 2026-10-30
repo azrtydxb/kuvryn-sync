@@ -67,7 +67,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: azrtydxb/ant-setup-action@7c6f1b8ca34a0a127b43040f4e16bbafdbd83791 # v1
+      - uses: azrtydxb/ant-setup-action@61489bff507f23c248496a096d97de05e1d6e3fd # v1
 
       # On the ARC runners the image builds on the runner pod's rootless
       # BuildKit sidecar (native linux/arm64), which pushes with the docker
@@ -120,7 +120,7 @@ jobs:
       # Ant's BuildKit registry cache: the npm and go mod layers survive between
       # runs (the runner pod's own BuildKit store does not). Also logs in to Ant.
       - id: ant-cache
-        uses: azrtydxb/ant-setup-action@7c6f1b8ca34a0a127b43040f4e16bbafdbd83791 # v1
+        uses: azrtydxb/ant-setup-action@61489bff507f23c248496a096d97de05e1d6e3fd # v1
         with:
           build-cache: "true"
           cache-name: sync-image
