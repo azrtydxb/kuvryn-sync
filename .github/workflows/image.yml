@@ -28,7 +28,7 @@ jobs:
   # dispatches and pull requests never wait on it.
   gate:
     if: github.event_name == 'schedule'
-    runs-on: arc-azrtydxb-amd64
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
@@ -59,9 +59,9 @@ jobs:
       packages: write
       id-token: write # Kuvryn Ant OIDC (azrtydxb/ant-setup-action)
     name: Build controller image
-    # The kw publish runners are native arm64 and reach the real ghcr.io. Pull
-    # requests from forks run untrusted code, so they get GitHub-hosted runners.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'arc-azrtydxb' || 'ubuntu-latest' }}
+    # GitHub-hosted amd64 runner (public repo). The arm64 image is
+    # cross-compiled by the Dockerfile on the build platform, never emulated.
+    runs-on: ubuntu-latest
     steps:
       - name: Clone the code
         uses: actions/checkout@v7
@@ -69,22 +69,8 @@ jobs:
           persist-credentials: false
       - uses: azrtydxb/ant-setup-action@v1
 
-      # On the ARC runners the image builds on the runner pod's rootless
-      # BuildKit sidecar (native linux/arm64), which pushes with the docker
-      # login below.
-      - name: Set up the BuildKit sidecar builder
-        id: builder
-        if: runner.environment == 'self-hosted'
-        uses: azrtydxb/.github/actions/setup-builder@main
-
-      # Only the GitHub-hosted fallback is amd64 and needs arm64 emulation.
-      - name: Set up QEMU
-        if: runner.environment != 'self-hosted'
-        uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         id: buildx
-        if: runner.environment != 'self-hosted'
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
@@ -135,7 +121,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          builder: ${{ steps.builder.outputs.name || steps.buildx.outputs.name }}
+          builder: ${{ steps.buildx.outputs.name }}
           platforms: linux/arm64
           push: true
           cache-from: ${{ steps.ant-cache.outputs.cache-from }}

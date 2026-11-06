@@ -1,5 +1,1 @@
-# The kw and novanas ARC scale sets (internal-lab AGENTS.md). Each runner carries exactly one label.
-self-hosted-runner:
-  labels:
-    - arc-azrtydxb
-    - arc-azrtydxb-amd64
+# All jobs run on GitHub-hosted runners; no self-hosted labels.
