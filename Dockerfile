@@ -35,14 +35,16 @@ COPY --from=web /src/internal/console/ui/dist internal/console/ui/dist
 # startup log print it. It is declared here so a new version does not
 # invalidate the module download layer.
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a \
     -ldflags "-X github.com/azrtydxb/kuvryn-sync/internal/version.Version=${VERSION}" \
     -o ksync cmd/main.go
 
 # Git, Kustomize, and Helm all run in process, so the runtime needs only CA
-# certificates and a writable /tmp for the source cache.
+# certificates and a writable /tmp for the source cache. The alpine base already
+# ships both (ca-certificates-bundle, /tmp mode 1777), so this stage has no RUN:
+# it only copies, and building it for another architecture never executes
+# target-architecture code (no emulation).
 FROM alpine:3.24
-RUN apk add --no-cache ca-certificates && mkdir -p /tmp && chmod 1777 /tmp
 WORKDIR /
 COPY --from=builder /workspace/ksync .
 USER 65532:65532
