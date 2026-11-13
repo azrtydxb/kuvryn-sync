@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.5
 
 _Prune can be opted in to delete Secrets, and what prune keeps is recorded in
 status._
