@@ -14,6 +14,9 @@ const PruneAnnotationKey = "sync.kuvryn.io/prune"
 type Policy struct {
 	Application   string
 	AllowHighRisk bool
+	// AllowSecrets lets Secrets be pruned like any other kind. Every other
+	// high-risk kind stays protected unless AllowHighRisk is set.
+	AllowSecrets bool
 }
 
 // Plan splits live objects into eligible prune candidates, objects prune
@@ -67,7 +70,7 @@ func skipReason(obj unstructured.Unstructured, policy Policy) string {
 	if obj.GetAnnotations()[PruneAnnotationKey] == "disabled" {
 		return "prune disabled by sync.kuvryn.io/prune annotation"
 	}
-	if highRisk(obj) && !policy.AllowHighRisk {
+	if highRisk(obj) && !policy.AllowHighRisk && !(policy.AllowSecrets && obj.GetKind() == "Secret") {
 		return fmt.Sprintf("high-risk %s is never pruned automatically", obj.GetKind())
 	}
 	return ""

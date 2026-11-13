@@ -355,7 +355,15 @@ func (p Plan) RevisionPlan(limit int) corev1alpha1.RevisionPlan {
 	if limit <= 0 || limit > len(p.Changes) {
 		limit = len(p.Changes)
 	}
-	for _, change := range p.Changes[:limit] {
+	// When the plan is cut, what changes or carries a warning, such as a kept
+	// resource, is listed before plain Unchanged entries.
+	changes := slices.Clone(p.Changes)
+	if limit < len(changes) {
+		slices.SortStableFunc(changes, func(a, b Change) int {
+			return cmp.Compare(boolRank(a.noteworthy()), boolRank(b.noteworthy()))
+		})
+	}
+	for _, change := range changes[:limit] {
 		out.Resources = append(out.Resources, corev1alpha1.PlanResourceChange{
 			Resource: corev1alpha1.ResourceRef{
 				APIVersion: change.ID.APIVersion(),
@@ -372,4 +380,15 @@ func (p Plan) RevisionPlan(limit int) corev1alpha1.RevisionPlan {
 	}
 	out.Summary.Truncated = len(p.Changes) > limit
 	return out
+}
+
+func (c Change) noteworthy() bool {
+	return c.Action != corev1alpha1.PlanActionUnchanged || len(c.Warnings) > 0 || len(c.Conflicts) > 0
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 0
+	}
+	return 1
 }

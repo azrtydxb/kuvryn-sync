@@ -169,14 +169,21 @@ Prune skips, and never deletes, two kinds of managed resources:
 - resources annotated `sync.kuvryn.io/prune: "disabled"`, a per-resource opt-out;
 - high-risk kinds, whose deletion loses data or other workloads' state:
   Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
-  PersistentVolumes and Secrets.
+  PersistentVolumes and Secrets. Setting `spec.sync.pruneSecrets: true` lifts
+  this for Secrets only, so Secrets the Application manages are pruned like any
+  other kind; the other high-risk kinds stay protected.
 
 Skipping is not a failure: the rest of the prune proceeds and the rollout
 completes. The plan lists each skipped resource as `Unchanged` with a warning
 saying why, and a `PruneSkipped` Warning Event names them. Skipped resources
 keep Kuvryn Sync's labels and stay in the inventory, so the plan shows them on
 every Revision without trying to delete them again, and putting one back in
-Git adopts it as before. Delete one by hand once it is no longer needed. With
+Git adopts it as before. The Application lists what prune kept in
+`status.keptResources` (at most 50 entries; `status.keptResourcesOmitted`
+counts the rest) and sets the `PruneKept` condition True while any are kept,
+so leftovers remain visible after the Event expires; both clear once nothing
+is kept. When a plan is cut to its resource limit, kept resources and changes
+are listed before plain `Unchanged` entries. Delete one by hand once it is no longer needed. With
 `deletionPolicy: DeleteManagedResources`, deleting the Application still
 deletes high-risk resources, and still keeps resources that opted out.
 
