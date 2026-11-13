@@ -273,6 +273,16 @@ type SyncPolicy struct {
 	// prune allows deletion of previously managed objects no longer in desired state.
 	// +optional
 	Prune bool `json:"prune,omitempty"`
+	// pruneSecrets lets prune delete Secrets this Application manages when they
+	// leave desired state, like any other kind. It has no effect unless prune is
+	// true. By default Secrets are kept, because deleting one can lose
+	// credentials that cannot be recreated from Git. The other high-risk kinds
+	// (Namespaces, CustomResourceDefinitions, PersistentVolumeClaims,
+	// PersistentVolumes) stay protected, and an object annotated
+	// sync.kuvryn.io/prune: "disabled" is still kept.
+	// +kubebuilder:default:=false
+	// +optional
+	PruneSecrets bool `json:"pruneSecrets,omitempty"`
 	// selfHeal allows Kuvryn Sync to correct managed drift.
 	// +optional
 	SelfHeal bool `json:"selfHeal,omitempty"`
@@ -350,6 +360,18 @@ type ApplicationStatus struct {
 	// +kubebuilder:validation:MaxItems=256
 	// +optional
 	ManagedKinds []ManagedKind `json:"managedKinds,omitempty"`
+	// keptResources lists the managed resources prune kept on the last plan
+	// although desired state no longer declares them: they opted out with
+	// sync.kuvryn.io/prune: "disabled", or are of a protected kind. It holds at
+	// most 50 entries, and is empty when prune kept nothing.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	KeptResources []KeptResource `json:"keptResources,omitempty"`
+	// keptResourcesOmitted counts the kept resources beyond the 50 that
+	// keptResources lists. It is zero when the list is complete.
+	// +optional
+	KeptResourcesOmitted int32 `json:"keptResourcesOmitted,omitempty"`
 	// observedGeneration is the latest metadata.generation processed.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -359,6 +381,26 @@ type ApplicationStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+// KeptResource is a managed resource prune kept although desired state no
+// longer declares it.
+type KeptResource struct {
+	// apiVersion is the resource's API version.
+	APIVersion string `json:"apiVersion"`
+	// kind is the resource's kind.
+	Kind string `json:"kind"`
+	// namespace is empty for cluster-scoped resources.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+	// name is the resource's name.
+	Name string `json:"name"`
+	// reason says why prune kept it.
+	Reason string `json:"reason"`
+}
+
+// PruneKeptCondition is True on an Application while prune keeps managed
+// resources that desired state no longer declares, and absent otherwise.
+const PruneKeptCondition = "PruneKept"
 
 // ApplicationSyncStatus reports desired/live convergence.
 type ApplicationSyncStatus struct {

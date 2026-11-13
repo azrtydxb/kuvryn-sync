@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+_Prune can be opted in to delete Secrets, and what prune keeps is recorded in
+status._
+
+- **Added:** `spec.sync.pruneSecrets` (default `false`). With `prune: true`,
+  Secrets the Application manages are pruned like any other kind when they
+  leave desired state, so SOPS-only `*-secrets` Applications no longer leave
+  removed Secrets behind. Namespaces, CustomResourceDefinitions,
+  PersistentVolumeClaims and PersistentVolumes stay protected, and
+  `sync.kuvryn.io/prune: "disabled"` still opts one object out.
+  ([#74](https://github.com/azrtydxb/kuvryn-sync/issues/74))
+- **Added:** `status.keptResources` lists the managed resources prune kept on
+  the last plan (apiVersion, kind, namespace, name, reason; at most 50, with
+  `status.keptResourcesOmitted` counting the rest), and the `PruneKept`
+  condition is True while any are kept. Both clear when nothing is kept, so
+  leftovers no longer depend on the `PruneSkipped` Event.
+- **Fixed:** when a Revision's plan was cut to its resource limit, kept
+  resources could be dropped from `status.plan`. Changes and entries with
+  warnings are now listed before plain `Unchanged` ones.
+
 ## 0.7.4
 
 _Chart only: the metrics endpoint can be served over plain HTTP._

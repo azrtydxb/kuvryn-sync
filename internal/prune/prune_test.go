@@ -41,6 +41,35 @@ func TestPlanAllowsHighRiskOnlyWhenPolicyAllowsIt(t *testing.T) {
 	}
 }
 
+func TestPlanAllowSecretsPrunesOnlySecrets(t *testing.T) {
+	managed := map[string]string{applier.ApplicationLabelKey: "payments"}
+	secret := obj("v1", "Secret", "payments", "db")
+	secret.SetLabels(managed)
+	pvc := obj("v1", "PersistentVolumeClaim", "payments", "data")
+	pvc.SetLabels(managed)
+	namespace := obj("v1", "Namespace", "", "payments")
+	namespace.SetLabels(managed)
+	optout := obj("v1", "Secret", "payments", "pinned")
+	optout.SetLabels(managed)
+	optout.SetAnnotations(map[string]string{PruneAnnotationKey: "disabled"})
+
+	got := Plan([]unstructured.Unstructured{secret, pvc, namespace, optout}, Policy{Application: "payments", AllowSecrets: true})
+	if len(got.Eligible) != 1 || got.Eligible[0].GetName() != "db" {
+		t.Fatalf("eligible = %#v, want only the Secret db", names(got.Eligible))
+	}
+	if len(got.Skipped) != 3 {
+		t.Fatalf("skipped = %#v, want the PVC, the Namespace and the opted-out Secret", got.Skipped)
+	}
+	for _, kept := range got.Skipped {
+		if kept.Object.GetName() == "db" {
+			t.Fatalf("the allowed Secret was kept: %#v", kept)
+		}
+	}
+	if got := Plan([]unstructured.Unstructured{secret}, Policy{Application: "payments"}); len(got.Eligible) != 0 {
+		t.Fatalf("a Secret must stay protected without AllowSecrets")
+	}
+}
+
 func cm(name string) unstructured.Unstructured {
 	return obj("v1", "ConfigMap", "payments", name)
 }

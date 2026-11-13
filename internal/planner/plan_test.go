@@ -5,6 +5,7 @@ import (
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/prune"
+	"github.com/azrtydxb/kuvryn-sync/internal/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -350,5 +351,19 @@ func TestNullCustomResourceFieldsStillCount(t *testing.T) {
 	}
 	if plan, err = Build([]unstructured.Unstructured{desired}, []unstructured.Unstructured{*live}); err != nil || plan.Summary.Update != 1 {
 		t.Fatalf("gateway.networking.k8s.io: summary = %#v (%v); its nulls are kept", plan.Summary, err)
+	}
+}
+
+// Catches a truncated Revision plan dropping a kept resource, which would
+// leave no trace of it in status.
+func TestRevisionPlanKeepsWarnedEntriesWhenTruncated(t *testing.T) {
+	plan := Plan{Changes: []Change{
+		{ID: resource.ID{Version: "v1", Kind: "ConfigMap", Name: "a"}, Action: corev1alpha1.PlanActionUnchanged},
+		{ID: resource.ID{Version: "v1", Kind: "ConfigMap", Name: "b"}, Action: corev1alpha1.PlanActionUnchanged},
+		{ID: resource.ID{Version: "v1", Kind: "Secret", Name: "z"}, Action: corev1alpha1.PlanActionUnchanged, Warnings: []string{"kept"}},
+	}}
+	got := plan.RevisionPlan(1)
+	if len(got.Resources) != 1 || got.Resources[0].Resource.Name != "z" || !got.Summary.Truncated {
+		t.Fatalf("plan = %#v", got)
 	}
 }

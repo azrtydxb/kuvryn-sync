@@ -423,7 +423,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 		}
 		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
-		pruning = prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name})
+		pruning = prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name, AllowSecrets: application.Spec.Sync.PruneSecrets})
 		liveObjects = append(liveObjects, pruning.Eligible...)
 	}
 
@@ -470,6 +470,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			revision.Status.Approval = approval
 		}
 		application.Status.ManagedKinds = inventoryKinds(rendered, pruning.Skipped)
+		recordKeptResources(application, pruning.Skipped)
 		// A finished rollout's workloads can stop being available while
 		// nothing changes in Git: report their live health rather than the
 		// health they had when the rollout finished.
@@ -1196,6 +1197,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
 	}
 	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruning.Skipped)
+	recordKeptResources(application, progress.pruning.Skipped)
 	apply := applier.Applier{Client: tenant, ApplicationNamespace: application.Namespace}
 	policy := syncpolicy.EffectiveConflictPolicy(application.Spec.Sync)
 	results := []health.Result{}
@@ -1336,6 +1338,43 @@ func (r *ApplicationReconciler) warnPruneSkipped(application *corev1alpha1.Appli
 		message += fmt.Sprintf(", and %d more", more)
 	}
 	r.event(application, corev1.EventTypeWarning, "PruneSkipped", safeMessage(errors.New(message), "Prune kept managed resources"))
+}
+
+// maxKeptResources bounds status.keptResources.
+const maxKeptResources = 50
+
+// recordKeptResources records the managed resources prune kept in
+// status.keptResources and the PruneKept condition, and clears both when prune
+// kept nothing.
+func recordKeptResources(application *corev1alpha1.Application, kept []prune.Rejected) {
+	if len(kept) == 0 {
+		application.Status.KeptResources = nil
+		application.Status.KeptResourcesOmitted = 0
+		apimeta.RemoveStatusCondition(&application.Status.Conditions, corev1alpha1.PruneKeptCondition)
+		return
+	}
+	listed := kept[:min(len(kept), maxKeptResources)]
+	resources := make([]corev1alpha1.KeptResource, 0, len(listed))
+	named := make([]string, 0, maxPruneSkippedNamed)
+	for _, item := range listed {
+		obj := item.Object
+		resources = append(resources, corev1alpha1.KeptResource{
+			APIVersion: obj.GetAPIVersion(), Kind: obj.GetKind(), Namespace: obj.GetNamespace(), Name: obj.GetName(), Reason: item.Reason,
+		})
+		if len(named) < maxPruneSkippedNamed {
+			named = append(named, fmt.Sprintf("%s %s", obj.GetKind(), client.ObjectKeyFromObject(&obj)))
+		}
+	}
+	application.Status.KeptResources = resources
+	application.Status.KeptResourcesOmitted = int32(len(kept) - len(listed))
+	message := fmt.Sprintf("Prune kept %d managed resource(s) no longer in desired state: %s", len(kept), strings.Join(named, ", "))
+	if more := len(kept) - len(named); more > 0 {
+		message += fmt.Sprintf(", and %d more", more)
+	}
+	apimeta.SetStatusCondition(&application.Status.Conditions, metav1.Condition{
+		Type: corev1alpha1.PruneKeptCondition, Status: metav1.ConditionTrue, Reason: "ResourcesKept",
+		Message: message, ObservedGeneration: application.Generation,
+	})
 }
 
 // inventoryKinds are the kinds recorded as managed: those of desired state

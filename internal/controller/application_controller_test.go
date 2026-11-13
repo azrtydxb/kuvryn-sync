@@ -25,6 +25,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -180,6 +181,18 @@ var _ = Describe("Application Controller", func() {
 		Expect(updated.Status.Health.State).To(Equal(corev1alpha1.HealthStateHealthy))
 		Expect(updated.Status.ManagedKinds).To(ContainElement(corev1alpha1.ManagedKind{APIVersion: "v1", Kind: "Secret"}))
 
+		By("recording the kept resources and the PruneKept condition in status")
+		Expect(updated.Status.KeptResources).To(ConsistOf(
+			corev1alpha1.KeptResource{APIVersion: "v1", Kind: "ConfigMap", Namespace: "payments", Name: "kept-config", Reason: "prune disabled by sync.kuvryn.io/prune annotation"},
+			corev1alpha1.KeptResource{APIVersion: "v1", Kind: "Secret", Namespace: "payments", Name: "kept-secret", Reason: "high-risk Secret is never pruned automatically"},
+		))
+		Expect(updated.Status.KeptResourcesOmitted).To(BeZero())
+		kept := apimeta.FindStatusCondition(updated.Status.Conditions, corev1alpha1.PruneKeptCondition)
+		Expect(kept).NotTo(BeNil())
+		Expect(kept.Status).To(Equal(metav1.ConditionTrue))
+		Expect(kept.Message).To(ContainSubstring("kept 2 managed resource(s)"))
+		Expect(kept.Message).To(ContainSubstring("Secret payments/kept-secret"))
+
 		By("naming the skipped objects in one Warning Event")
 		skippedEvents := []string{}
 		for _, event := range drainEvents(recorder) {
@@ -202,6 +215,59 @@ var _ = Describe("Application Controller", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kept-secret", Namespace: "payments"}, &corev1.Secret{})).To(Succeed())
 		Expect(drainEvents(recorder)).NotTo(ContainElement(ContainSubstring("PruneSkipped")))
+	})
+
+	// Catches pruneSecrets not deleting a Secret that left desired state, the
+	// protected kinds being deleted with it, and PruneKept surviving once
+	// nothing is kept.
+	It("prunes a stale Secret only when pruneSecrets is set, and clears keptResources", func() {
+		createRepository(ctx)
+		managed := map[string]string{"sync.kuvryn.io/application": resourceName}
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "stale-secret", Namespace: "payments", Labels: managed},
+			StringData: map[string]string{"password": "super-secret"},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "pinned-config", Namespace: "payments", Labels: managed, Annotations: map[string]string{"sync.kuvryn.io/prune": "disabled"}},
+		})).To(Succeed())
+		DeferCleanup(func() {
+			deleteObject(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "stale-secret", Namespace: "payments"}})
+			deleteObject(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "pinned-config", Namespace: "payments"}})
+		})
+		app := newApplication(resourceName, corev1alpha1.RenderTypeYAML)
+		app.Spec.Sync.Automatic = true
+		app.Spec.Sync.Prune = true
+		Expect(k8sClient.Create(ctx, app)).To(Succeed())
+
+		controllerReconciler := newApplicationReconciler([]unstructured.Unstructured{configMapObject("", "desired")}, nil)
+		controllerReconciler.Recorder = record.NewFakeRecorder(50)
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("keeping the Secret by default and listing it with the opted-out ConfigMap")
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "stale-secret", Namespace: "payments"}, &corev1.Secret{})).To(Succeed())
+		current := &corev1alpha1.Application{}
+		Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+		Expect(current.Status.KeptResources).To(HaveLen(2))
+		Expect(apimeta.IsStatusConditionTrue(current.Status.Conditions, corev1alpha1.PruneKeptCondition)).To(BeTrue())
+
+		By("deleting the Secret once pruneSecrets is set, and still keeping the opted-out ConfigMap")
+		current.Spec.Sync.PruneSecrets = true
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: "stale-secret", Namespace: "payments"}, &corev1.Secret{}))).To(BeTrue())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "pinned-config", Namespace: "payments"}, &corev1.ConfigMap{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+		Expect(current.Status.KeptResources).To(ConsistOf(HaveField("Name", "pinned-config")))
+
+		By("clearing keptResources and the condition once nothing is kept")
+		Expect(k8sClient.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "pinned-config", Namespace: "payments"}})).To(Succeed())
+		_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, typeNamespacedName, current)).To(Succeed())
+		Expect(current.Status.KeptResources).To(BeEmpty())
+		Expect(apimeta.FindStatusCondition(current.Status.Conditions, corev1alpha1.PruneKeptCondition)).To(BeNil())
 	})
 
 	It("applies automatic syncs and records health", func() {
