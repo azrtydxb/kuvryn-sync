@@ -54,6 +54,9 @@ type rolloutProgress struct {
 	// previousHealth is the Application health persisted before this
 	// reconcile.
 	previousHealth corev1alpha1.HealthState
+	// previousState is the Application state persisted before this
+	// reconcile.
+	previousState corev1alpha1.HealthState
 	// pruning is how prune split the stale managed objects.
 	pruning prune.Result
 }

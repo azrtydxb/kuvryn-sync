@@ -214,6 +214,21 @@ ksync suspend payments -n default
 ksync resume payments -n default
 ```
 
+Give an Application's current desired Revision a fresh `maxAttempts` and retry
+it now, for example after an Application became `RetryBlocked` and the cause was
+fixed outside Git:
+
+```sh
+ksync retry payments -n default
+```
+
+The command sets the `sync.kuvryn.io/retry-requested` annotation to the request
+time, which needs the same access as `ksync sync`. Kuvryn Sync honors each new
+value once, resets the Revision's attempts and records a `RetryRequested`
+Event. It does not approve a plan or change what is deployed, and it is refused
+for a suspended Application. Transient API-server and webhook failures are
+retried without it; see [Transient failures](concepts.md#transient-failures).
+
 ## Diagnosis
 
 Explain why an Application is not Healthy. The command prints the `Ready`

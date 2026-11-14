@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed:** transient API-server, admission-webhook and network failures (for
+  example `failed calling webhook ...: EOF` during a cert-manager or CNPG
+  webhook restart) no longer use `failurePolicy.maxAttempts`. They are retried
+  with exponential backoff, capped at five minutes, for as long as they last,
+  and a `TransientFailure` Warning Event is emitted for each. Before, three of
+  them left a Revision `Failed` and the Application `RetryBlocked` until a new
+  commit. Webhook rejections, invalid, forbidden, bad-request and conflict
+  responses still count.
+  ([#77](https://github.com/azrtydxb/kuvryn-sync/issues/77))
+- **Fixed:** a self-heal repair of an already Healthy Revision that hits a
+  transient failure leaves the Revision Healthy and is retried, instead of
+  marking it `Failed`.
+- **Added:** `ksync retry <application>` gives the Application's desired
+  Revision a fresh `maxAttempts` and retries it now, through the
+  `sync.kuvryn.io/retry-requested` annotation and a `RetryRequested` Event.
+- **Added:** Revision `status.transientFailures`,
+  `status.lastTransientFailureAt`, `status.handledRetryRequest` and
+  `status.failure.transient`.
+
 ## 0.7.5
 
 _Prune can be opted in to delete Secrets, and what prune keeps is recorded in

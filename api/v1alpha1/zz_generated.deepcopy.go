@@ -1339,6 +1339,10 @@ func (in *RevisionStatus) DeepCopyInto(out *RevisionStatus) {
 		in, out := &in.CompletedAt, &out.CompletedAt
 		*out = (*in).DeepCopy()
 	}
+	if in.LastTransientFailureAt != nil {
+		in, out := &in.LastTransientFailureAt, &out.LastTransientFailureAt
+		*out = (*in).DeepCopy()
+	}
 	in.Plan.DeepCopyInto(&out.Plan)
 	out.Health = in.Health
 	if in.PreviousRevision != nil {

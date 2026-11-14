@@ -420,3 +420,49 @@ func TestRollbackReportsARequestBoundToAnEarlierSyncPolicy(t *testing.T) {
 		t.Fatalf("a current request:\n%s", stdout.String())
 	}
 }
+
+// Catches a retry that does not leave the request the controller reads, one
+// that repeats a value the controller already honored, and one that drops the
+// other annotations.
+func TestRetryRequestsAFreshMaxAttempts(t *testing.T) {
+	app := rollbackApp("c-sha", "b-sha")
+	app.Annotations = map[string]string{"keep": "me"}
+	c := rollbackClient(t, app)
+	var stdout bytes.Buffer
+	first := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
+	if err := retryApplication(context.Background(), c, "default", "payments", first, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	got := &corev1alpha1.Application{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Annotations[corev1alpha1.RetryRequestedAnnotation] != "2026-11-14T10:00:00Z" || got.Annotations["keep"] != "me" {
+		t.Fatalf("annotations = %v", got.Annotations)
+	}
+	if !strings.Contains(stdout.String(), "c-sha") || !strings.Contains(stdout.String(), "fresh maxAttempts") {
+		t.Fatalf("output = %q", stdout.String())
+	}
+	if err := retryApplication(context.Background(), c, "default", "payments", first.Add(time.Minute), &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "payments"}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Annotations[corev1alpha1.RetryRequestedAnnotation] != "2026-11-14T10:01:00Z" {
+		t.Fatalf("a second retry kept the first request: %v", got.Annotations)
+	}
+}
+
+func TestRetryRefusesASuspendedOrMissingApplication(t *testing.T) {
+	app := rollbackApp("c-sha", "b-sha")
+	app.Spec.Suspend = true
+	c := rollbackClient(t, app)
+	var stdout bytes.Buffer
+	if err := retryApplication(context.Background(), c, "default", "payments", time.Now(), &stdout); err == nil || !strings.Contains(err.Error(), "suspended") {
+		t.Fatalf("retry of a suspended Application: %v", err)
+	}
+	if err := retryApplication(context.Background(), c, "default", "missing", time.Now(), &stdout); err == nil {
+		t.Fatal("retry of a missing Application succeeded")
+	}
+}

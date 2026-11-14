@@ -202,6 +202,32 @@ Applications that manage other kinds are re-checked every
 `--drift-resync-interval` (Helm value `driftResyncInterval`, default 5m). See
 [Operations](operations.md#drift-detection-for-other-kinds) to grant watches.
 
+## Transient failures
+
+An apply, a prune or a read of live state can fail because the API server or an
+admission webhook is briefly unavailable, for example `failed calling webhook
+"webhook.cert-manager.io": ... EOF` while the webhook pod restarts. Kuvryn Sync
+classifies these as transient: `InternalError`, `ServiceUnavailable`,
+`ServerTimeout`, `Timeout` and `TooManyRequests` responses, a webhook call that
+failed with EOF, connection refused or reset, an I/O timeout, a context
+deadline or no endpoints, and plain network errors. A transient failure does
+not use `failurePolicy.maxAttempts`: Kuvryn Sync emits a `TransientFailure`
+Warning Event and retries after an exponential backoff, from one second up to
+five minutes, for as long as it lasts. `status.transientFailures` and
+`status.lastTransientFailureAt` on the Revision show how often.
+
+A self-heal repair of a Revision that already reached Healthy leaves it Healthy
+when it hits a transient failure, and the Application keeps its health and
+reports `Drifted` until the repair succeeds. A rollout that was still running
+ends as `Failed` with `status.failure.transient: true` and is retried the same
+way, without a rollback. A webhook that rejected the object, and invalid,
+forbidden, bad-request and conflict responses, are not transient and count as
+before.
+
+If a Revision is genuinely blocked (`RetryBlocked`) and the cause is fixed
+outside Git, `ksync retry <application>` gives its desired Revision a fresh
+`maxAttempts` and retries it at once, with a `RetryRequested` Event.
+
 ## Rollback
 
 A rollback records its intent on the Application: the source revision to roll
@@ -218,7 +244,7 @@ When there is none, such as on an Application's first rollout, the failure is
 handled as under `pause`: the Revision, the `Ready` condition and the Events
 keep the original failure reason, such as `ValidationFailure`, with "no
 previous healthy Revision to roll back to" added to its message, and the
-Revision is retried within `failurePolicy.maxAttempts`.
+Revision is retried within `failurePolicy.maxAttempts`, except for [transient failures](#transient-failures), which never use it.
 
 On an Application with manual sync (`spec.sync.automatic: false`), a manual
 rollback is its own approval of the Revision you chose: asking to roll back to
