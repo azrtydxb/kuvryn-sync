@@ -20,6 +20,8 @@ Change:
   ksync rollback <application> [--revision <revision>]
                                                  Roll back to a healthy Revision; approves
                                                  and deploys it under manual sync
+  ksync retry <application>                      Give a RetryBlocked or failing Revision a
+                                                 fresh maxAttempts and retry it now
   ksync suspend <application>                    Stop reconciling an Application
   ksync resume <application>                     Resume reconciling an Application
 

@@ -12,6 +12,10 @@ type State struct {
 	DesiredRevision string
 	Attempts        int32
 	LastFailureAt   time.Time
+	// Transient reports that the last failure was transient (see
+	// IsTransient): it never exhausts maxAttempts, only waits out the
+	// backoff.
+	Transient bool
 }
 
 // Decision records whether another attempt may start.
@@ -30,7 +34,7 @@ func Decide(policy corev1alpha1.FailurePolicy, state State, now time.Time, backo
 	if policy.MaxAttempts != nil && *policy.MaxAttempts > 0 {
 		maxAttempts = *policy.MaxAttempts
 	}
-	if state.Attempts >= maxAttempts {
+	if !state.Transient && state.Attempts >= maxAttempts {
 		return Decision{Exhausted: true, Reason: fmt.Sprintf("maxAttempts %d reached for desired revision %s", maxAttempts, state.DesiredRevision)}
 	}
 	if backoff > 0 && !state.LastFailureAt.IsZero() && now.Before(state.LastFailureAt.Add(backoff)) {

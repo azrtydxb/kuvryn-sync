@@ -110,7 +110,10 @@ type ApplicationReconciler struct {
 	// set it today.
 	ChartCAFile string
 
-	watches      *driftWatches
+	watches *driftWatches
+	// wrapTenant lets tests wrap the client the Application's service account
+	// acts through, to inject API-server failures.
+	wrapTenant   func(client.Client) client.Client
 	healthChecks healthCheckCache
 }
 
@@ -304,7 +307,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// previousPhase is the persisted phase, so notifications fire only on
 	// transitions rather than on every reconcile of a steady state.
 	previousPhase := revision.Status.Phase
+	r.honorRetryRequest(application, revision)
 	if blocked, exhausted := retryBlocked(application, revision); blocked != nil {
+		if !exhausted && revision.Status.Failure != nil && revision.Status.Failure.Transient {
+			// A transient failure waits out its backoff and is tried again;
+			// it is not a block, so the Application keeps what it reported.
+			return ctrl.Result{RequeueAfter: retryWait(revision)}, nil
+		}
 		if request.active() {
 			if !exhausted {
 				// The target failed and waits out its backoff; the request
@@ -322,6 +331,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Whether a rollout is finished comes from the Revision, not from its
 	// phase, which planning, approval, dependency waits and failures overwrite.
 	rollout := rolloutOf(revision, previousPhase)
+	earlier := rolloutProgress{previousPhase: previousPhase, state: rollout, previousHealth: previousHealth, previousState: previousState}
 	// A rollout starts over, running its hooks again, unless it is still in
 	// progress or this Revision is the one deployed and it finished.
 	fresh := rollout == rolloutNotStarted || (rollout == rolloutComplete && application.Status.DeployedRevision != resolved.Revision)
@@ -407,8 +417,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	planned := withoutCompletedHooks(rendered, hooks)
 	liveResult, err := (live.Reader{Client: tenant}).Read(ctx, planned)
 	if err != nil {
-		failure := accessFailure(err, "PlanFailure", "Live state could not be read", true)
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+		return r.failAccess(ctx, application, revision, err, "PlanFailure", "Live state could not be read", earlier)
 	}
 	liveObjects := slices.Collect(maps.Values(liveResult.Found))
 	// pruning splits stale managed objects. Skipped ones, which opted out or
@@ -419,8 +428,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if application.Spec.Sync.Prune {
 		managed, skipped, err := applier.ListManaged(ctx, tenant, application, applier.ListOptions{DesiredKinds: objectKinds(rendered)})
 		if err != nil {
-			failure := accessFailure(err, "PlanFailure", "Managed resources could not be inventoried", true)
-			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+			return r.failAccess(ctx, application, revision, err, "PlanFailure", "Managed resources could not be inventoried", earlier)
 		}
 		r.warnSkippedKinds(application, "PruneInventoryIncomplete", skipped)
 		pruning = prune.Plan(staleManagedObjects(rendered, liveObjects, managed), prune.Policy{Application: application.Name, AllowSecrets: application.Spec.Sync.PruneSecrets})
@@ -452,7 +460,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// reconcile, and self-heal keeps the same Revision.
 		r.warnPruneSkipped(application, pruning.Skipped)
 	}
-	progress := rolloutProgress{previousPhase: previousPhase, state: rollout, hooks: hooks, previousHealth: previousHealth, pruning: pruning}
+	progress := earlier
+	progress.hooks, progress.pruning = hooks, pruning
 	if plan.Summary.Create == 0 && plan.Summary.Update == 0 && plan.Summary.Delete == 0 {
 		// A rollout in progress is not done just because nothing is left to
 		// apply: keep waiting until every group is Healthy.
@@ -690,6 +699,9 @@ func (r *ApplicationReconciler) tenantClient(application *corev1alpha1.Applicati
 		return nil, err
 	}
 	application.Status.ServiceAccountName = name
+	if r.wrapTenant != nil {
+		tenant = r.wrapTenant(tenant)
+	}
 	return tenant, nil
 }
 
@@ -769,7 +781,7 @@ func accessFailure(err error, reason, fallback string, retryable bool) corev1alp
 	if apierrors.IsForbidden(err) {
 		return corev1alpha1.RevisionFailure{Reason: "Forbidden", Message: safeMessage(err, "Application service account is not allowed to manage a resource"), Retryable: false}
 	}
-	return corev1alpha1.RevisionFailure{Reason: reason, Message: safeMessage(err, fallback), Retryable: retryable}
+	return corev1alpha1.RevisionFailure{Reason: reason, Message: safeMessage(err, fallback), Retryable: retryable, Transient: retry.IsTransient(err)}
 }
 
 func (r *ApplicationReconciler) resolver() source.Resolver {
@@ -1091,7 +1103,7 @@ func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.
 	if revision.Status.CompletedAt != nil {
 		lastFailure = revision.Status.CompletedAt.Time
 	}
-	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure}, time.Now(), retryBackoff(revision))
+	decision := retry.Decide(application.Spec.Strategy.FailurePolicy, retry.State{DesiredRevision: revision.Spec.Source.Revision, Attempts: revision.Status.Attempts, LastFailureAt: lastFailure, Transient: revision.Status.Failure.Transient}, time.Now(), retryBackoff(revision))
 	if decision.Allowed {
 		return nil, false
 	}
@@ -1099,9 +1111,84 @@ func retryBlocked(application *corev1alpha1.Application, revision *corev1alpha1.
 }
 
 // retryBackoff is how long a failed Revision waits before its next attempt:
-// exponentially from one second, capped at one minute.
+// exponentially from one second, capped at one minute. After a transient
+// failure it follows the count of transient failures instead, capped at five
+// minutes, since waiting longer costs nothing: it never exhausts maxAttempts.
 func retryBackoff(revision *corev1alpha1.Revision) time.Duration {
+	if failure := revision.Status.Failure; failure != nil && failure.Transient {
+		return retry.TransientBackoff(revision.Status.TransientFailures - 1)
+	}
 	return min(time.Second<<min(revision.Status.Attempts, 6), time.Minute)
+}
+
+// retryWait is how much of a failed Revision's backoff is left.
+func retryWait(revision *corev1alpha1.Revision) time.Duration {
+	wait := retryBackoff(revision)
+	if revision.Status.CompletedAt != nil {
+		wait = time.Until(revision.Status.CompletedAt.Add(wait))
+	}
+	return max(wait, time.Second)
+}
+
+// honorRetryRequest gives the Revision a fresh maxAttempts when the
+// Application carries a retry request it has not honored yet. Each request
+// value is honored once, whether or not there was anything to reset, so a
+// request made before a Revision existed cannot reset its first failures.
+func (r *ApplicationReconciler) honorRetryRequest(application *corev1alpha1.Application, revision *corev1alpha1.Revision) {
+	request := application.GetAnnotations()[corev1alpha1.RetryRequestedAnnotation]
+	if request == "" || request == revision.Status.HandledRetryRequest {
+		return
+	}
+	revision.Status.HandledRetryRequest = request
+	failed := revision.Status.Phase == corev1alpha1.RevisionPhaseFailed
+	if !failed && revision.Status.Attempts == 0 && revision.Status.TransientFailures == 0 {
+		return
+	}
+	attempts := revision.Status.Attempts
+	revision.Status.Attempts, revision.Status.TransientFailures = 0, 0
+	if failed {
+		// The retry starts now rather than after the failed attempt's backoff.
+		revision.Status.CompletedAt = nil
+	}
+	r.event(application, corev1.EventTypeNormal, "RetryRequested", fmt.Sprintf("Retry requested: Revision %s has a fresh maxAttempts (was %d attempts used)", revision.Name, attempts))
+}
+
+// failAccess records a failed call to the API server for err: a transient
+// one is retried, anything else fails the Revision.
+func (r *ApplicationReconciler) failAccess(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, err error, reason, fallback string, progress rolloutProgress) (ctrl.Result, error) {
+	return r.failOrRetry(ctx, application, revision, accessFailure(err, reason, fallback, true), progress)
+}
+
+// failOrRetry fails the Revision with failure, unless it is transient: then
+// the attempt is handed back and retried after a backoff, indefinitely.
+func (r *ApplicationReconciler) failOrRetry(ctx context.Context, application *corev1alpha1.Application, revision *corev1alpha1.Revision, failure corev1alpha1.RevisionFailure, progress rolloutProgress) (ctrl.Result, error) {
+	if !failure.Transient {
+		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+	}
+	now := metav1.Now()
+	revision.Status.TransientFailures++
+	revision.Status.LastTransientFailureAt = &now
+	backoff := retry.TransientBackoff(revision.Status.TransientFailures - 1)
+	message := fmt.Sprintf("%s: %s; retrying in %s without using maxAttempts", failure.Reason, failure.Message, backoff)
+	if progress.state == rolloutComplete && progress.previousPhase != corev1alpha1.RevisionPhaseFailed {
+		// A repair of a finished rollout, such as self-heal, that could not
+		// reach the API server leaves the Revision and Application as they
+		// were: the Revision stays Healthy and the repair is tried again.
+		revision.Status.Phase = finishedPhase(progress.previousPhase)
+		setRolloutComplete(revision, true)
+		application.Status.Health.State, application.Status.State = progress.previousHealth, progress.previousState
+		application.Status.Sync.State = corev1alpha1.SyncStateDrifted
+	} else {
+		// The attempt this failure ended does not count towards maxAttempts.
+		revision.Status.Attempts = max(revision.Status.Attempts-1, 0)
+		status.Fail(revision, application, now, failure)
+		setReady(application, metav1.ConditionFalse, failure.Reason, failure.Message)
+	}
+	r.event(application, corev1.EventTypeWarning, "TransientFailure", safeMessage(errors.New(message), "Transient failure, retrying"))
+	if err := r.updateRevisionStatus(ctx, revision); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: backoff}, r.updateApplicationStatus(ctx, application)
 }
 
 // reportRetryBlocked records on the Application that retries stopped, keeping
@@ -1193,8 +1280,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	}
 	evaluator, err := r.healthEvaluator(ctx, application)
 	if err != nil {
-		failure := corev1alpha1.RevisionFailure{Reason: "HealthFailure", Message: safeMessage(err, "HealthChecks could not be read"), Retryable: true}
-		return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+		return r.failAccess(ctx, application, revision, err, "HealthFailure", "HealthChecks could not be read", progress)
 	}
 	application.Status.ManagedKinds = inventoryKinds(desired, progress.pruning.Skipped)
 	recordKeptResources(application, progress.pruning.Skipped)
@@ -1212,7 +1298,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	for _, group := range ordering.Groups(desired) {
 		if group.Stage == ordering.StagePostSync && !pruned {
 			if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
-				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
+				return r.failOrRetry(ctx, application, revision, *failure, progress)
 			}
 			pruned = true
 		}
@@ -1222,8 +1308,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 			pending, watched, done = splitHooks(group.Objects, progress.hooks)
 			replacing, err := replaceStaleHooks(ctx, tenant, pending, revision.Name)
 			if err != nil {
-				failure := accessFailure(err, "HookFailed", "Previous hooks could not be removed", true)
-				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+				return r.failAccess(ctx, application, revision, err, "HookFailed", "Previous hooks could not be removed", progress)
 			}
 			if replacing {
 				return r.observe(ctx, tenant, application, revision, results, observed, progress.previousHealth, 2*time.Second)
@@ -1231,14 +1316,12 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 		}
 		if len(pending) > 0 {
 			if err := apply.Apply(ctx, application.Name, revision.Name, pending, policy); err != nil {
-				failure := accessFailure(err, "ApplyFailure", "Desired state apply failed", true)
-				return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+				return r.failAccess(ctx, application, revision, err, "ApplyFailure", "Desired state apply failed", progress)
 			}
 		}
 		checked, read, err := groupHealth(ctx, tenant, evaluator, append(watched, pending...), hook)
 		if err != nil {
-			failure := accessFailure(err, "HealthFailure", "Applied resources could not be read", true)
-			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, failure)
+			return r.failAccess(ctx, application, revision, err, "HealthFailure", "Applied resources could not be read", progress)
 		}
 		if hook {
 			recordHooks(revision, group.Stage, checked)
@@ -1264,7 +1347,7 @@ func (r *ApplicationReconciler) applyAndObserve(ctx context.Context, tenant clie
 	}
 	if !pruned {
 		if failure := r.pruneStale(ctx, tenant, progress.pruning); failure != nil {
-			return ctrl.Result{}, r.failRevisionAndApplication(ctx, application, revision, *failure)
+			return r.failOrRetry(ctx, application, revision, *failure, progress)
 		}
 	}
 	r.recordHealth(application, revision, results)
@@ -1452,6 +1535,7 @@ func (r *ApplicationReconciler) completeSuccessfulDeployment(ctx context.Context
 		completedAt = *revision.Status.CompletedAt
 	}
 	status.CompleteHealthy(revision, application, completedAt)
+	revision.Status.TransientFailures = 0
 	// Live state now matches this render, so it is what the Revision
 	// deployed; a manual rollback to it approves only this desired state.
 	revision.Status.DeployedDesiredStateHash = revision.Spec.DesiredStateHash
@@ -1577,6 +1661,7 @@ func (r *ApplicationReconciler) failRevisionAndApplication(ctx context.Context, 
 			return fmt.Errorf("find a rollback target: %w", err)
 		}
 	}
+	revision.Status.TransientFailures = 0
 	status.Fail(revision, application, now, failure)
 	setReady(application, metav1.ConditionFalse, failure.Reason, failure.Message)
 	if !healthFailure(failure.Reason) {

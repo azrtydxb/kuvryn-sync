@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	corev1alpha1 "github.com/azrtydxb/kuvryn-sync/api/v1alpha1"
 	"github.com/azrtydxb/kuvryn-sync/internal/applier"
@@ -49,6 +50,8 @@ Change:
   ksync rollback <application> [--revision <revision>]
                                                  Roll back to a healthy Revision; approves
                                                  and deploys it under manual sync
+  ksync retry <application>                      Give a RetryBlocked or failing Revision a
+                                                 fresh maxAttempts and retry it now
   ksync suspend <application>                    Stop reconciling an Application
   ksync resume <application>                     Resume reconciling an Application
 
@@ -90,6 +93,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, in
 		err = runSync(ctx, args[1:], stdout, stderr)
 	case "rollback":
 		err = runRollback(ctx, args[1:], stdout, stderr)
+	case "retry":
+		err = runRetry(ctx, args[1:], stdout, stderr)
 	case "drift":
 		err = runDrift(ctx, args[1:], stdout, stderr)
 	case "diagnose":
@@ -309,6 +314,54 @@ func approve(ctx context.Context, c client.Client, namespace, application, revis
 	}
 	_, _ = fmt.Fprintf(stdout, "approved %s for %s\n", rev.Name, app.Name)
 	return nil
+}
+
+func runRetry(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs, namespace := newFlagSet("ksync retry", stderr)
+	if err := fs.Parse(interspersedFlags(args)); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: ksync retry <application> [-n namespace]")
+	}
+	c, err := clusterClient()
+	if err != nil {
+		return err
+	}
+	return retryApplication(ctx, c, *namespace, fs.Arg(0), time.Now(), stdout)
+}
+
+// retryApplication asks the controller to give the Application's current
+// desired Revision a fresh maxAttempts. The request is an annotation holding
+// the request time: the controller honors each new value once and records an
+// Event, so it needs no more access than ksync sync does.
+func retryApplication(ctx context.Context, c client.Client, namespace, application string, now time.Time, stdout io.Writer) error {
+	app := &corev1alpha1.Application{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: application}, app); err != nil {
+		return err
+	}
+	if app.Spec.Suspend {
+		return fmt.Errorf("application %s is suspended; run ksync resume %s first", app.Name, app.Name)
+	}
+	body, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]string{
+		corev1alpha1.RetryRequestedAnnotation: now.UTC().Format(time.RFC3339Nano),
+	}}})
+	if err != nil {
+		return err
+	}
+	if err := c.Patch(ctx, app, client.RawPatch(types.MergePatchType, body)); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "requested a retry of %s's desired Revision %s; it gets a fresh maxAttempts%s\n", app.Name, app.Status.DesiredRevision, retryState(app))
+	return nil
+}
+
+// retryState says what the Application reported when the retry was asked for.
+func retryState(app *corev1alpha1.Application) string {
+	if ready := apimeta.FindStatusCondition(app.Status.Conditions, "Ready"); ready != nil && ready.Status != metav1.ConditionTrue {
+		return fmt.Sprintf(" (Ready=False: %s)", ready.Reason)
+	}
+	return ""
 }
 
 func runRollback(ctx context.Context, args []string, stdout, stderr io.Writer) error {

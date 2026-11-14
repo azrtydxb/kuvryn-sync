@@ -59,6 +59,22 @@ type RevisionStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	Attempts int32 `json:"attempts,omitempty"`
+	// transientFailures counts consecutive transient API-server, admission
+	// webhook or network failures. They never count towards the Application's
+	// maxAttempts; the count only paces the retry backoff, and it is reset by
+	// a successful deployment or a retry request.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	TransientFailures int32 `json:"transientFailures,omitempty"`
+	// lastTransientFailureAt records when the last transient failure
+	// happened, including one a self-heal of a Healthy Revision survived.
+	// +optional
+	LastTransientFailureAt *metav1.Time `json:"lastTransientFailureAt,omitempty"`
+	// handledRetryRequest is the value of the Application's
+	// sync.kuvryn.io/retry-requested annotation this Revision last honored,
+	// so each request resets the attempts once.
+	// +optional
+	HandledRetryRequest string `json:"handledRetryRequest,omitempty"`
 	// plan stores bounded, redacted deployment plan details.
 	// +optional
 	Plan RevisionPlan `json:"plan,omitempty"`
@@ -140,6 +156,11 @@ type RevisionFailure struct {
 	// retryable indicates whether retrying the same desired revision can help.
 	// +optional
 	Retryable bool `json:"retryable,omitempty"`
+	// transient indicates a transient API-server, admission webhook or
+	// network failure: it is retried with backoff and never counts towards
+	// maxAttempts.
+	// +optional
+	Transient bool `json:"transient,omitempty"`
 }
 
 // +kubebuilder:object:root=true

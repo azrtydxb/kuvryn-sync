@@ -40,6 +40,12 @@ const (
 	ApprovedDigestAnnotation = "sync.kuvryn.io/approved-digest"
 )
 
+// RetryRequestedAnnotation asks Kuvryn Sync to give the Application's current
+// desired Revision a fresh maxAttempts. `ksync retry` sets it to the request
+// time; each new value is honored once, and the controller records the value
+// it honored on the Revision, so the annotation can stay on the Application.
+const RetryRequestedAnnotation = "sync.kuvryn.io/retry-requested"
+
 // Rollback request annotations on an Application. `ksync rollback` and a
 // rollback failure policy set all three; Kuvryn Sync removes them once the
 // rollback completes or is abandoned.
