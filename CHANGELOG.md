@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.6
 
 - **Fixed:** transient API-server, admission-webhook and network failures (for
   example `failed calling webhook ...: EOF` during a cert-manager or CNPG
