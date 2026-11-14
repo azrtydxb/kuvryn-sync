@@ -1859,7 +1859,19 @@ spec:
                         retryable indicates whether retrying the same desired
                         revision can help.
                       type: boolean
+                    transient:
+                      description: |-
+                        transient indicates a transient API-server, admission webhook or
+                        network failure: it is retried with backoff and never counts towards
+                        maxAttempts.
+                      type: boolean
                   type: object
+                handledRetryRequest:
+                  description: |-
+                    handledRetryRequest is the value of the Application's
+                    sync.kuvryn.io/retry-requested annotation this Revision last honored,
+                    so each request resets the attempts once.
+                  type: string
                 health:
                   description: health summarizes health observed for this attempt.
                   properties:
@@ -1935,6 +1947,12 @@ spec:
                   maxItems: 64
                   type: array
                   x-kubernetes-list-type: atomic
+                lastTransientFailureAt:
+                  description: |-
+                    lastTransientFailureAt records when the last transient failure
+                    happened, including one a self-heal of a Healthy Revision survived.
+                  format: date-time
+                  type: string
                 phase:
                   description: phase is the lifecycle state of this deployment attempt.
                   enum:
@@ -2134,6 +2152,15 @@ spec:
                   description: startedAt records when processing began.
                   format: date-time
                   type: string
+                transientFailures:
+                  description: |-
+                    transientFailures counts consecutive transient API-server, admission
+                    webhook or network failures. They never count towards the Application's
+                    maxAttempts; the count only paces the retry backoff, and it is reset by
+                    a successful deployment or a retry request.
+                  format: int32
+                  minimum: 0
+                  type: integer
               type: object
           required:
             - spec
@@ -2812,7 +2839,7 @@ spec:
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
           command:
             - /ksync
-          image: ghcr.io/azrtydxb/kuvryn-sync:v0.7.5
+          image: ghcr.io/azrtydxb/kuvryn-sync:v0.7.6
           livenessProbe:
             httpGet:
               path: /healthz
