@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed:** a Repository was fetched from Git about every three seconds
+  instead of every `pollInterval`. Each fetch wrote `status.lastFetchedAt`,
+  and that status write woke the Repository controller again. Every
+  Application of the Repository was also planned against live state on each
+  of those writes. The Repository controller now ignores its own status
+  writes, Applications wake only when the observed commit or state changes,
+  and a Repository without `pollInterval` is fetched every minute.
+
 ## 0.7.7
 
 - **Changed:** the controller image `ghcr.io/azrtydxb/kuvryn-sync` is now

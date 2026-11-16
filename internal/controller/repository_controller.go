@@ -86,10 +86,7 @@ func (r *RepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	result := ctrl.Result{}
-	if repository.Spec.PollInterval != nil {
-		result.RequeueAfter = repository.Spec.PollInterval.Duration
-	}
+	result := ctrl.Result{RequeueAfter: repositoryPollInterval(repository)}
 
 	if repository.Spec.Type != "" && repository.Spec.Type != corev1alpha1.RepositoryTypeGit {
 		r.markFailed(repository, source.FailureReasonValidationFailure, "Only Git repositories are supported")
@@ -252,11 +249,44 @@ func (r *RepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.Recorder = mgr.GetEventRecorderFor("repository-controller")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1alpha1.Repository{}).
+		For(&corev1alpha1.Repository{}, builder.WithPredicates(repositoryChanges)).
 		Watches(&corev1alpha1.ImagePolicy{}, handler.EnqueueRequestsFromMapFunc(r.repositoriesForImagePolicy), builder.WithPredicates(latestImageChanged)).
 		Named("repository").
 		Complete(r)
 }
+
+// defaultRepositoryPollInterval is how often a Repository without a
+// pollInterval is fetched. Its own status writes no longer wake it, so
+// without a default it would only fetch on spec edits and push webhooks.
+const defaultRepositoryPollInterval = time.Minute
+
+func repositoryPollInterval(repository *corev1alpha1.Repository) time.Duration {
+	if repository.Spec.PollInterval != nil && repository.Spec.PollInterval.Duration > 0 {
+		return repository.Spec.PollInterval.Duration
+	}
+	return defaultRepositoryPollInterval
+}
+
+// repositoryChanges admits spec edits and annotation changes, such as the
+// receiver's fetch request, but not the controller's own status writes: each
+// fetch records lastFetchedAt, which would otherwise wake the Repository again
+// at once, refetching from Git every few seconds and ignoring pollInterval.
+var repositoryChanges = predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{})
+
+// repositorySourceChanged admits the Repository updates an Application acts
+// on: a spec or annotation change, a new observed commit, or a change of
+// state. A fetch that finds nothing new only moves lastFetchedAt, and must not
+// make every Application plan against live state again.
+var repositorySourceChanged = predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+	old, oldOK := e.ObjectOld.(*corev1alpha1.Repository)
+	updated, updatedOK := e.ObjectNew.(*corev1alpha1.Repository)
+	if !oldOK || !updatedOK {
+		return true
+	}
+	return repositoryChanges.Update(e) ||
+		old.Status.ObservedRevision != updated.Status.ObservedRevision ||
+		old.Status.State != updated.Status.State
+}}
 
 // latestImageChanged admits ImagePolicy updates that select another image.
 // Every scan writes the policy's status, and each of those writes would
