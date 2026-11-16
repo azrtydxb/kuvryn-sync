@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -1829,7 +1830,7 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	built, err := ctrl.NewControllerManagedBy(mgr).
 		For(&corev1alpha1.Application{}).
 		Watches(&corev1alpha1.Application{}, handler.EnqueueRequestsFromMapFunc(r.dependentsOf)).
-		Watches(&corev1alpha1.Repository{}, handler.EnqueueRequestsFromMapFunc(r.applicationsForRepository)).
+		Watches(&corev1alpha1.Repository{}, handler.EnqueueRequestsFromMapFunc(r.applicationsForRepository), builder.WithPredicates(repositorySourceChanged)).
 		WatchesMetadata(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		WatchesMetadata(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
 		WatchesMetadata(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(managedObjectToApplication)).
