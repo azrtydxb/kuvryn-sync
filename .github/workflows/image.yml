@@ -59,8 +59,9 @@ jobs:
       packages: write
       id-token: write # Kuvryn Ant OIDC (azrtydxb/ant-setup-action)
     name: Build controller image
-    # GitHub-hosted amd64 runner (public repo). The arm64 image is
-    # cross-compiled by the Dockerfile on the build platform, never emulated.
+    # GitHub-hosted amd64 runner (public repo). Both the amd64 and the arm64
+    # image are cross-compiled by the Dockerfile on the build platform
+    # (GOOS/GOARCH, no RUN in the final stage), never emulated: there is no QEMU.
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -110,7 +111,7 @@ jobs:
         with:
           build-cache: "true"
           cache-name: sync-image
-          arch-suffix: arm64
+          arch-suffix: multi
           sccache: "false"
           go: "false"
           npm: "false"
@@ -122,7 +123,7 @@ jobs:
         with:
           context: .
           builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           cache-from: ${{ steps.ant-cache.outputs.cache-from }}
           cache-to: ${{ steps.ant-cache.outputs.cache-to }}
