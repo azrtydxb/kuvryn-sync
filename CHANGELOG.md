@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.7
+
+- **Changed:** the controller image `ghcr.io/azrtydxb/kuvryn-sync` is now
+  published for `linux/amd64` and `linux/arm64`. Both architectures are
+  cross-compiled by the Dockerfile on the build platform, with no emulation.
+  ([#80](https://github.com/azrtydxb/kuvryn-sync/pull/80))
+
 ## 0.7.6
 
 - **Fixed:** transient API-server, admission-webhook and network failures (for
