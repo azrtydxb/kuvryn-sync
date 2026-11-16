@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.8
 
 - **Fixed:** a Repository was fetched from Git about every three seconds
   instead of every `pollInterval`. Each fetch wrote `status.lastFetchedAt`,
